@@ -1,10 +1,16 @@
 // Tests for the CLI router, stats formatting, and subprocess smoke tests.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// This file spawns real Node subprocesses for CLI smoke-testing.
+// Each call adds ~135 ms; 36 tests in the file easily exceed the 5 s vitest
+// default when the machine is under any load.  Set a generous per-test ceiling
+// so the suite stays deterministic regardless of system pressure.
+vi.setConfig({ testTimeout: 60_000 });
 
 const exec = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
