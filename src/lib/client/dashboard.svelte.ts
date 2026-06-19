@@ -1,32 +1,16 @@
 // Dashboard view-model (Svelte 5 runes). Owns period, model filter, zoom range,
 // and drill selection, and exposes $derived aggregates over the feed snapshot.
 // Persists period + filter to localStorage so reopening the tab lands in place.
+//
+// The derivations themselves are pure functions in `$lib/core/view-model`, shared
+// with the Ink TUI so the two faces can never drift (design D4). This class is a
+// thin Svelte shell that holds reactive state + persistence and delegates the math.
 
 import type { Period, RollupSnapshot, SessionSummary } from '$lib/types';
-import {
-	aggregateByModel,
-	aggregateByProvider,
-	aggregateByPeriod,
-	filterDays,
-	sumGrain,
-	type ModelTotal,
-	type PeriodBucket,
-	type ProviderTotal,
-	type Totals
-} from '$lib/core/aggregate';
+import type { ModelTotal, PeriodBucket, ProviderTotal, Totals } from '$lib/core/aggregate';
+import * as vm from '$lib/core/view-model';
 
 const LS_KEY = 'chaching.ui.v1';
-
-/** Add (or subtract) whole days to a YYYY-MM-DD string, in UTC. */
-function addDaysISO(day: string, delta: number): string {
-	const d = new Date(day + 'T00:00:00Z');
-	d.setUTCDate(d.getUTCDate() + delta);
-	return d.toISOString().slice(0, 10);
-}
-
-function zeroTotals(): Totals {
-	return { tokens: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 }, cost: 0, requests: 0, costUnknownRequests: 0 };
-}
 
 export interface DrillTarget {
 	kind: 'period' | 'session';
@@ -78,6 +62,11 @@ export class Dashboard {
 		} catch {
 			/* ignore */
 		}
+	}
+
+	/** Snapshot the current selection into the shared, framework-free view-state. */
+	private state(): vm.ViewState {
+		return { period: this.period, modelFilter: this.modelFilter, providerFilter: this.providerFilter, zoom: this.zoom };
 	}
 
 	setPeriod(p: Period): void {
@@ -132,76 +121,32 @@ export class Dashboard {
 		this.drill = null;
 	}
 
-	private filterSet(): Set<string> | null {
-		return this.modelFilter.size > 0 ? this.modelFilter : null;
-	}
-
-	private providerSet(): Set<string> | null {
-		return this.providerFilter.size > 0 ? this.providerFilter : null;
-	}
-
 	/** The day-grain currently in scope (zoom window applied). */
 	scopedGrain(snap: RollupSnapshot) {
-		const z = this.zoom;
-		return z ? filterDays(snap.dayModel, z.from, z.to) : snap.dayModel;
+		return vm.scopedGrain(snap, this.state());
 	}
 
 	/** Trend buckets for the chart at the current period + zoom + model filter. */
 	trend(snap: RollupSnapshot): PeriodBucket[] {
-		// when zoomed, drop to a finer grain automatically (month->day, week->day)
-		const effectivePeriod: Period = this.zoom ? (this.period === 'month' ? 'day' : 'day') : this.period;
-		return aggregateByPeriod(this.scopedGrain(snap), effectivePeriod, this.filterSet(), this.providerSet());
+		return vm.trend(snap, this.state());
 	}
 
 	/** Per-model totals in scope (drives donut + legend + filter). */
 	models(snap: RollupSnapshot): ModelTotal[] {
-		const providers = this.providerSet();
-		const grain = providers ? this.scopedGrain(snap).filter((dm) => providers.has(dm.provider)) : this.scopedGrain(snap);
-		return aggregateByModel(grain);
+		return vm.models(snap, this.state());
 	}
 
 	providers(snap: RollupSnapshot): ProviderTotal[] {
-		return aggregateByProvider(this.scopedGrain(snap));
+		return vm.providers(snap, this.state());
 	}
 
-	/**
-	 * Rolling window for the selected period, anchored at the latest day with data.
-	 * day = latest day, week = last 7 days, month = last 30 days. Prior = the
-	 * immediately-preceding equal-length window (for the delta). Rolling windows
-	 * (vs calendar buckets) avoid the "5 days into the month" overlap where the
-	 * latest week and latest month coincide, and always give Day/Week/Month
-	 * distinct, meaningful figures.
-	 */
-	periodWindow(snap: RollupSnapshot): {
-		from: string;
-		to: string;
-		priorFrom: string;
-		priorTo: string;
-		label: string;
-	} {
-		const to = snap.latestDay ?? snap.earliestDay ?? '1970-01-01';
-		const span = this.period === 'day' ? 1 : this.period === 'week' ? 7 : 30;
-		const from = addDaysISO(to, -(span - 1));
-		const priorTo = addDaysISO(from, -1);
-		const priorFrom = addDaysISO(priorTo, -(span - 1));
-		const label = this.period === 'day' ? 'Today' : this.period === 'week' ? 'Last 7 days' : 'Last 30 days';
-		return { from, to, priorFrom, priorTo, label };
+	periodWindow(snap: RollupSnapshot): vm.PeriodWindow {
+		return vm.periodWindow(snap, this.state());
 	}
 
 	/** Current-period and prior-period totals for the hero + delta. */
 	heroTotals(snap: RollupSnapshot): { current: Totals; prior: Totals; label: string } {
-		const models = this.filterSet();
-		// zoom overrides the period window for the headline figures.
-		if (this.zoom) {
-			const cur = sumGrain(snap.dayModel, { from: this.zoom.from, to: this.zoom.to, models, providers: this.providerSet() });
-			return { current: cur, prior: zeroTotals(), label: 'Zoom range' };
-		}
-		const w = this.periodWindow(snap);
-		return {
-			current: sumGrain(snap.dayModel, { from: w.from, to: w.to, models, providers: this.providerSet() }),
-			prior: sumGrain(snap.dayModel, { from: w.priorFrom, to: w.priorTo, models, providers: this.providerSet() }),
-			label: w.label
-		};
+		return vm.heroTotals(snap, this.state());
 	}
 
 	/**
@@ -210,21 +155,11 @@ export class Dashboard {
 	 * applied. A zoom selection overrides the period window.
 	 */
 	scopedTotals(snap: RollupSnapshot): Totals {
-		const models = this.filterSet();
-		if (this.zoom) {
-			return sumGrain(snap.dayModel, { from: this.zoom.from, to: this.zoom.to, models, providers: this.providerSet() });
-		}
-		const w = this.periodWindow(snap);
-		return sumGrain(snap.dayModel, { from: w.from, to: w.to, models, providers: this.providerSet() });
+		return vm.scopedTotals(snap, this.state());
 	}
 
 	/** Sessions in scope (model filter applied via model mix, zoom via lastTs). */
 	scopedSessions(snap: RollupSnapshot): SessionSummary[] {
-		const filter = this.filterSet();
-		let sessions = snap.sessions;
-		if (filter) sessions = sessions.filter((s) => s.models.some((m) => filter.has(m)));
-		const providerFilter = this.providerSet();
-		if (providerFilter) sessions = sessions.filter((s) => providerFilter.has(s.provider));
-		return sessions;
+		return vm.scopedSessions(snap, this.state());
 	}
 }
