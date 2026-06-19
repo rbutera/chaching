@@ -1,213 +1,176 @@
 <script lang="ts">
-	// Dense, always-on stacked-by-model spend trend on a uPlot CANVAS.
-	// - one uPlot instance, never recreated on data change (setData only)
-	// - ResizeObserver -> setSize (debounced)
-	// - drag-select to zoom (re-aggregates via a callback), reset affordance
-	// - visually-hidden data-table alternative for screen readers (canvas has no DOM)
-	import { onMount, untrack } from 'svelte';
-	import uPlot from 'uplot';
-	import 'uplot/dist/uPlot.min.css';
-	import { modelHex, modelLabel, money, fmtPeriodKey } from '$lib/format';
+	// Hand-rolled SVG stacked bar chart: one vertical bar per day in the period
+	// window, each bar stacked + color-coded by model (segment height = that
+	// model's cost in the day, full bar = the day's total). Matches the pure-SVG
+	// d3-scale/d3-shape style of Donut/Sparkline (zero rAF, no canvas).
+	//
+	// Each bar is a real <button> (keyboard-operable) that drills into the day.
+	// Hover/focus surfaces a per-model tooltip for that bar.
+	import { scaleLinear } from 'd3-scale';
+	import { modelColor, modelLabel, money, fmtDay } from '$lib/format';
 	import type { PeriodBucket } from '$lib/core/aggregate';
 
 	let {
 		buckets,
 		models,
-		onZoom,
-		onPick,
-		zoomed = false,
-		onReset
+		onPick
 	}: {
 		buckets: PeriodBucket[];
 		models: string[]; // stacking order (cost desc); first = bottom
-		onZoom: (fromDay: string, toDay: string) => void;
 		onPick: (bucket: PeriodBucket) => void;
-		zoomed?: boolean;
-		onReset: () => void;
 	} = $props();
 
-	let el: HTMLDivElement;
-	let chart: uPlot | null = null;
-	let ro: ResizeObserver | null = null;
-	let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+	const W = 640;
+	const H = 280;
+	const PAD = { top: 12, right: 8, bottom: 28, left: 44 };
 
-	const css = (v: string) => v; // colors already resolved via modelHex
+	let plotW = $derived(W - PAD.left - PAD.right);
+	let plotH = $derived(H - PAD.top - PAD.bottom);
 
-	function buildData(): uPlot.AlignedData {
-		const xs = buckets.map((b) => bucketTs(b));
-		// stacked: each model series is cumulative sum for a filled-area stack
-		const series: number[][] = [];
-		let running = new Array(buckets.length).fill(0);
-		for (const m of models) {
-			const next = buckets.map((b, i) => running[i] + (b.byModel.get(m)?.cost ?? 0));
-			series.push(next);
-			running = next;
-		}
-		return [xs, ...series] as unknown as uPlot.AlignedData;
-	}
+	let maxCost = $derived(Math.max(1, ...buckets.map((b) => b.cost)));
 
-	function bucketTs(b: PeriodBucket): number {
-		const [y, mo, d] = b.startDay.split('-').map(Number);
-		return Date.UTC(y, mo - 1, d) / 1000; // uPlot wants seconds
-	}
+	let y = $derived(scaleLinear().domain([0, maxCost]).range([plotH, 0]).nice());
 
-	function makeOpts(width: number, height: number): uPlot.Options {
-		const seriesOpts: uPlot.Series[] = [
-			{ label: 'date' },
-			...models.map((m, i) => ({
-				label: modelLabel(m),
-				stroke: modelHex(m),
-				width: 1,
-				// stacked bands: fill between this series and the one below it
-				fill: hexA(modelHex(m), 0.55),
-				points: { show: false },
-				// draw as area to the previous stacked series
-				band: i > 0
-			}))
-		];
+	// y-axis ticks (4 gridlines)
+	let yTicks = $derived(y.ticks(4));
 
-		return {
-			width,
-			height,
-			pxAlign: false,
-			cursor: {
-				drag: { x: true, y: false, setScale: false },
-				points: { show: false }
-			},
-			scales: { x: { time: true }, y: { range: (_u, _min, max) => [0, max * 1.05] } },
-			axes: [
-				{
-					stroke: css('var(--fg-dim)'),
-					grid: { stroke: 'rgba(255,255,255,0.04)', width: 1 },
-					ticks: { stroke: 'rgba(255,255,255,0.08)' }
-				},
-				{
-					stroke: css('var(--fg-dim)'),
-					grid: { stroke: 'rgba(255,255,255,0.04)', width: 1 },
-					ticks: { stroke: 'rgba(255,255,255,0.08)' },
-					values: (_u, vals) => vals.map((v) => (v >= 1 ? `$${Math.round(v)}` : `$${v.toFixed(1)}`)),
-					size: 52
-				}
-			],
-			series: seriesOpts,
-			bands: models.map((_m, i) => ({ series: [i + 1, i] as [number, number] })).slice(1),
-			legend: { show: false },
-			hooks: {
-				setSelect: [
-					(u) => {
-						const { left, width: w } = u.select;
-						if (w <= 4) return; // ignore taps
-						const minX = u.posToVal(left, 'x');
-						const maxX = u.posToVal(left + w, 'x');
-						u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
-						const from = dayFromTs(minX * 1000);
-						const to = dayFromTs(maxX * 1000);
-						onZoom(from, to);
-					}
-				],
-				ready: [
-					(u) => {
-						// click a point/region -> pick the nearest bucket for drill-down
-						u.over.addEventListener('click', () => {
-							const idx = u.cursor.idx;
-							if (idx != null && buckets[idx]) onPick(buckets[idx]);
-						});
-					}
-				]
-			}
-		};
-	}
-
-	function dayFromTs(ms: number): string {
-		const d = new Date(ms);
-		return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-	}
-
-	function hexA(hex: string, a: number): string {
-		const h = hex.replace('#', '');
-		const r = parseInt(h.slice(0, 2), 16);
-		const g = parseInt(h.slice(2, 4), 16);
-		const b = parseInt(h.slice(4, 6), 16);
-		return `rgba(${r},${g},${b},${a})`;
-	}
-
-	onMount(() => {
-		const width = el.clientWidth || 600;
-		const height = el.clientHeight || 280;
-		chart = new uPlot(makeOpts(width, height), buildData(), el);
-
-		ro = new ResizeObserver(() => {
-			if (resizeTimer) clearTimeout(resizeTimer);
-			resizeTimer = setTimeout(() => {
-				if (chart && el.clientWidth > 0) {
-					chart.setSize({ width: el.clientWidth, height: el.clientHeight || 280 });
-				}
-			}, 120);
-		});
-		ro.observe(el);
-
-		return () => {
-			ro?.disconnect();
-			if (resizeTimer) clearTimeout(resizeTimer);
-			chart?.destroy();
-			chart = null;
-		};
-	});
-
-	// rebuild when the model set (series identity) changes; otherwise setData only.
-	let modelSig = $derived(models.join('|'));
-	let lastSig = '';
-
-	$effect(() => {
-		// track buckets + modelSig
-		void buckets;
-		void modelSig;
-		untrack(() => {
-			if (!chart) return;
-			if (modelSig !== lastSig) {
-				lastSig = modelSig;
-				const width = el.clientWidth || 600;
-				const height = el.clientHeight || 280;
-				chart.destroy();
-				chart = new uPlot(makeOpts(width, height), buildData(), el);
-			} else {
-				chart.setData(buildData());
-			}
+	// per-bar geometry: band width, gap, stacked segments per model.
+	let bars = $derived.by(() => {
+		const n = buckets.length;
+		if (n === 0) return [];
+		const band = plotW / n;
+		const gap = Math.min(band * 0.22, 8);
+		const barW = Math.max(1, band - gap);
+		return buckets.map((b, i) => {
+			const x = PAD.left + i * band + gap / 2;
+			// stack segments bottom-up in the given model order
+			let acc = 0;
+			const segs = models
+				.map((m) => {
+					const cost = b.byModel.get(m)?.cost ?? 0;
+					return { model: m, cost };
+				})
+				.filter((s) => s.cost > 0)
+				.map((s) => {
+					const y1 = PAD.top + y(acc);
+					acc += s.cost;
+					const y0 = PAD.top + y(acc);
+					return { model: s.model, cost: s.cost, y: y0, h: Math.max(0, y1 - y0), color: modelColor(s.model) };
+				});
+			return { bucket: b, x, w: barW, segs, total: b.cost };
 		});
 	});
 
-	// accessible data-table rows (top model per bucket + total)
-	let tableRows = $derived(
-		buckets.map((b) => ({
-			key: b.key,
-			label: fmtPeriodKey(b.key),
-			cost: b.cost,
-			top: [...b.byModel.entries()].sort((a, c) => c[1].cost - a[1].cost)[0]
-		}))
+	// x labels: thin out so they don't collide (target ~8 labels max).
+	let labelEvery = $derived(Math.max(1, Math.ceil(buckets.length / 8)));
+
+	let hovered = $state<number | null>(null);
+	let tip = $derived(hovered != null ? bars[hovered] : null);
+	// tooltip per-model rows (desc by cost)
+	let tipRows = $derived(
+		tip ? [...tip.segs].sort((a, b) => b.cost - a.cost) : []
 	);
+
+	function pick(b: PeriodBucket) {
+		onPick(b);
+	}
 </script>
 
 <div class="trend">
 	<div class="trend-head">
-		<span class="trend-title">Spend over time, stacked by model</span>
-		{#if zoomed}
-			<button class="reset" onclick={onReset}>← Reset zoom</button>
+		<span class="trend-title">Spend by day, stacked by model</span>
+	</div>
+
+	<div class="chart-wrap">
+		<svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" class="chart" role="presentation">
+			<!-- y gridlines + labels -->
+			{#each yTicks as t (t)}
+				<line
+					x1={PAD.left}
+					x2={W - PAD.right}
+					y1={PAD.top + y(t)}
+					y2={PAD.top + y(t)}
+					stroke="rgba(255,255,255,0.05)"
+					stroke-width="1"
+				/>
+				<text x={PAD.left - 6} y={PAD.top + y(t) + 3} text-anchor="end" class="axis-lbl">
+					{t >= 1 ? `$${Math.round(t)}` : `$${t.toFixed(1)}`}
+				</text>
+			{/each}
+
+			<!-- bars: each a focusable button via foreignObject overlay below; the
+			     SVG draws the visible segments. -->
+			{#each bars as bar, i (bar.bucket.key)}
+				<g
+					role="button"
+					tabindex="0"
+					aria-label={`${fmtDay(bar.bucket.startDay)}: ${money(bar.total)} across ${bar.segs.length} model${bar.segs.length === 1 ? '' : 's'}. Activate to open the day's detail.`}
+					class="bar"
+					class:dim={hovered != null && hovered !== i}
+					onclick={() => pick(bar.bucket)}
+					onkeydown={(e) => {
+						if (e.key === 'Enter' || e.key === ' ') {
+							e.preventDefault();
+							pick(bar.bucket);
+						}
+					}}
+					onmouseenter={() => (hovered = i)}
+					onmouseleave={() => (hovered = null)}
+					onfocus={() => (hovered = i)}
+					onblur={() => (hovered = null)}
+				>
+					<!-- hit area spanning the full plot height for easy hover/click -->
+					<rect x={bar.x} y={PAD.top} width={bar.w} height={plotH} fill="transparent" />
+					{#each bar.segs as s (s.model)}
+						<rect x={bar.x} y={s.y} width={bar.w} height={s.h} fill={s.color} rx="1" />
+					{/each}
+				</g>
+			{/each}
+
+			<!-- x labels -->
+			{#each bars as bar, i (bar.bucket.key)}
+				{#if i % labelEvery === 0}
+					<text x={bar.x + bar.w / 2} y={H - 10} text-anchor="middle" class="axis-lbl">
+						{fmtDay(bar.bucket.startDay)}
+					</text>
+				{/if}
+			{/each}
+		</svg>
+
+		{#if tip}
+			<div
+				class="tooltip"
+				style={`left:${(tip.x + tip.w / 2) / W * 100}%`}
+				class:flip={tip.x + tip.w / 2 > W * 0.62}
+			>
+				<p class="tip-head">{fmtDay(tip.bucket.startDay)} · <span class="num">{money(tip.total)}</span></p>
+				<ul>
+					{#each tipRows as r (r.model)}
+						<li>
+							<span class="tip-sw" style={`background:${modelColor(r.model)}`}></span>
+							<span class="tip-lbl">{modelLabel(r.model)}</span>
+							<span class="tip-val num">{money(r.cost)}</span>
+						</li>
+					{/each}
+				</ul>
+			</div>
 		{/if}
 	</div>
-	<div class="chart" bind:this={el}></div>
-	<p class="hint">Drag to zoom · click a bar to drill in</p>
+
+	<p class="hint">Click a bar to open that day's detail</p>
 
 	<table class="visually-hidden">
-		<caption>Spend by period, stacked by model</caption>
+		<caption>Spend by day, stacked by model</caption>
 		<thead>
-			<tr><th>Period</th><th>Spend (USD)</th><th>Top model</th></tr>
+			<tr><th>Day</th><th>Spend (USD)</th><th>Top model</th></tr>
 		</thead>
 		<tbody>
-			{#each tableRows as r (r.key)}
+			{#each buckets as b (b.key)}
+				{@const top = [...b.byModel.entries()].sort((a, c) => c[1].cost - a[1].cost)[0]}
 				<tr>
-					<td>{r.label}</td>
-					<td>{money(r.cost)}</td>
-					<td>{r.top ? `${modelLabel(r.top[0])} ${money(r.top[1].cost)}` : '—'}</td>
+					<td>{fmtDay(b.startDay)}</td>
+					<td>{money(b.cost)}</td>
+					<td>{top ? `${modelLabel(top[0])} ${money(top[1].cost)}` : '—'}</td>
 				</tr>
 			{/each}
 		</tbody>
@@ -229,22 +192,84 @@
 		font-size: 0.8rem;
 		color: var(--fg-muted);
 	}
-	.reset {
-		background: var(--surface-2);
-		border: 1px solid var(--border);
-		border-radius: 999px;
-		padding: 0.25rem 0.7rem;
-		font-size: 0.78rem;
-		color: var(--fg-muted);
-	}
-	.reset:hover {
-		color: var(--fg);
-		border-color: var(--border-strong);
+	.chart-wrap {
+		position: relative;
+		width: 100%;
 	}
 	.chart {
 		width: 100%;
 		height: 280px;
 		min-height: 280px;
+		display: block;
+		overflow: visible;
+	}
+	.axis-lbl {
+		fill: var(--fg-dim);
+		font-size: 10px;
+		font-family: var(--font-num);
+	}
+	.bar {
+		cursor: pointer;
+		transition: opacity 0.12s;
+	}
+	.bar.dim {
+		opacity: 0.5;
+	}
+	.bar:focus-visible {
+		outline: none;
+	}
+	.bar:focus-visible rect:first-child {
+		stroke: var(--accent);
+		stroke-width: 2;
+	}
+	.tooltip {
+		position: absolute;
+		top: 4px;
+		transform: translateX(-50%);
+		background: var(--surface-3);
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-sm);
+		padding: 0.5rem 0.6rem;
+		box-shadow: var(--shadow);
+		pointer-events: none;
+		min-width: 150px;
+		max-width: 220px;
+		z-index: 5;
+	}
+	.tooltip.flip {
+		transform: translateX(-90%);
+	}
+	.tip-head {
+		margin: 0 0 0.35rem;
+		font-size: 0.78rem;
+		color: var(--fg);
+		font-weight: 600;
+	}
+	.tooltip ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+	}
+	.tooltip li {
+		display: grid;
+		grid-template-columns: 10px 1fr auto;
+		gap: 0.4rem;
+		align-items: center;
+		font-size: 0.74rem;
+	}
+	.tip-sw {
+		width: 9px;
+		height: 9px;
+		border-radius: 2px;
+	}
+	.tip-lbl {
+		color: var(--fg-muted);
+	}
+	.tip-val {
+		color: var(--fg);
 	}
 	.hint {
 		margin: 0;

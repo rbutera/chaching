@@ -7,27 +7,46 @@ export function modelFamily(model: string): 'opus' | 'sonnet' | 'haiku' | 'other
 	return 'other';
 }
 
-const FAMILY_COLOR: Record<string, string> = {
-	opus: 'var(--m-opus)',
-	sonnet: 'var(--m-sonnet)',
-	haiku: 'var(--m-haiku)',
-	other: 'var(--m-other)'
+// Family hue anchors (degrees on the HSL wheel). A model's color is its family
+// hue shifted by a stable per-model offset, so every distinct model id gets a
+// distinct-but-related color: opus stays purple-ish, sonnet blue-ish, etc.
+const FAMILY_HUE: Record<string, number> = {
+	opus: 280, // purple
+	sonnet: 200, // cyan/blue
+	haiku: 48, // amber
+	other: 215 // slate-blue
 };
 
-// Resolved hex values (for canvas where CSS vars aren't readable directly).
-const FAMILY_HEX: Record<string, string> = {
-	opus: '#c084fc',
-	sonnet: '#38bdf8',
-	haiku: '#facc15',
-	other: '#94a3b8'
-};
-
-export function modelColor(model: string): string {
-	return FAMILY_COLOR[modelFamily(model)];
+/** Deterministic 32-bit-ish hash of a string (FNV-1a), for stable color offsets. */
+function hashString(s: string): number {
+	let h = 0x811c9dc5;
+	for (let i = 0; i < s.length; i++) {
+		h ^= s.charCodeAt(i);
+		h = Math.imul(h, 0x01000193);
+	}
+	return h >>> 0;
 }
 
+/**
+ * Stable, visually-distinct color for a model id. Same model id always maps to
+ * the same color, consistent across the chart, legend, donut, and detail sheet.
+ * The hue is anchored to the model family then nudged per-id so two opus variants
+ * read as related-but-distinct rather than identical.
+ */
+export function modelColor(model: string): string {
+	const fam = modelFamily(model);
+	const base = FAMILY_HUE[fam];
+	const h = hashString(model);
+	// spread within ±28° of the family hue; vary saturation/lightness a touch too.
+	const hue = (base + ((h % 57) - 28) + 360) % 360;
+	const sat = 70 + (h >> 8) % 18; // 70–87%
+	const light = 62 + (h >> 16) % 12; // 62–73% (bright on near-black)
+	return `hsl(${hue}deg ${sat}% ${light}%)`;
+}
+
+/** Same as modelColor but as a concrete value usable anywhere CSS vars aren't. */
 export function modelHex(model: string): string {
-	return FAMILY_HEX[modelFamily(model)];
+	return modelColor(model);
 }
 
 const PROVIDER_COLOR: Record<string, string> = {
@@ -111,8 +130,20 @@ export function int(v: number): string {
 	return intFmt.format(Math.round(v));
 }
 
-/** Signed percentage delta with sign, e.g. "+18%" / "-4%" / "—". */
-export function pctDelta(curr: number, prev: number): { text: string; dir: 'up' | 'down' | 'flat' } {
+/**
+ * Signed percentage delta with sign, e.g. "+18%" / "-4%" / "—".
+ *
+ * `hasBaseline` distinguishes a real $0 prior period (we have data, it was zero)
+ * from no prior data at all (the prior window predates our earliest record). When
+ * there is genuinely no baseline, return null so the caller can suppress the
+ * delta entirely rather than show a misleading "new" / percentage.
+ */
+export function pctDelta(
+	curr: number,
+	prev: number,
+	hasBaseline = true
+): { text: string; dir: 'up' | 'down' | 'flat' } | null {
+	if (!hasBaseline) return null;
 	if (prev === 0) {
 		if (curr === 0) return { text: '—', dir: 'flat' };
 		return { text: 'new', dir: 'up' };

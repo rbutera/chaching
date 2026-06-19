@@ -1,5 +1,5 @@
-// Dashboard view-model (Svelte 5 runes). Owns period, model filter, zoom range,
-// and drill selection, and exposes $derived aggregates over the feed snapshot.
+// Dashboard view-model (Svelte 5 runes). Owns period, model filter, provider
+// filter, and drill selection, and exposes $derived aggregates over the feed snapshot.
 // Persists period + filter to localStorage so reopening the tab lands in place.
 //
 // The derivations themselves are pure functions in `$lib/core/view-model`, shared
@@ -15,7 +15,7 @@ const LS_KEY = 'chaching.ui.v1';
 export interface DrillTarget {
 	kind: 'period' | 'session';
 	label: string;
-	// period drill
+	// period / day drill
 	from?: string;
 	to?: string;
 	periodKey?: string;
@@ -34,8 +34,6 @@ export class Dashboard {
 	/** empty = all models; otherwise scope the whole dashboard to these models */
 	modelFilter = $state<Set<string>>(new Set());
 	providerFilter = $state<Set<string>>(new Set());
-	/** active zoom window over the trend (inclusive day range), null = full range */
-	zoom = $state<{ from: string; to: string } | null>(null);
 	drill = $state<DrillTarget | null>(null);
 
 	constructor() {
@@ -66,12 +64,11 @@ export class Dashboard {
 
 	/** Snapshot the current selection into the shared, framework-free view-state. */
 	private state(): vm.ViewState {
-		return { period: this.period, modelFilter: this.modelFilter, providerFilter: this.providerFilter, zoom: this.zoom };
+		return { period: this.period, modelFilter: this.modelFilter, providerFilter: this.providerFilter };
 	}
 
 	setPeriod(p: Period): void {
 		this.period = p;
-		this.zoom = null;
 		this.persist();
 	}
 
@@ -101,14 +98,6 @@ export class Dashboard {
 		this.persist();
 	}
 
-	setZoom(from: string, to: string): void {
-		this.zoom = { from, to };
-	}
-
-	resetZoom(): void {
-		this.zoom = null;
-	}
-
 	openPeriodDrill(t: { from: string; to: string; periodKey: string; label: string }): void {
 		this.drill = { kind: 'period', ...t };
 	}
@@ -121,12 +110,12 @@ export class Dashboard {
 		this.drill = null;
 	}
 
-	/** The day-grain currently in scope (zoom window applied). */
+	/** The full day-grain in scope. */
 	scopedGrain(snap: RollupSnapshot) {
 		return vm.scopedGrain(snap, this.state());
 	}
 
-	/** Trend buckets for the chart at the current period + zoom + model filter. */
+	/** Trend buckets (one per day in the period window) for the stacked bar chart. */
 	trend(snap: RollupSnapshot): PeriodBucket[] {
 		return vm.trend(snap, this.state());
 	}
@@ -145,20 +134,19 @@ export class Dashboard {
 	}
 
 	/** Current-period and prior-period totals for the hero + delta. */
-	heroTotals(snap: RollupSnapshot): { current: Totals; prior: Totals; label: string } {
+	heroTotals(snap: RollupSnapshot): { current: Totals; prior: Totals; label: string; priorHasBaseline: boolean } {
 		return vm.heroTotals(snap, this.state());
 	}
 
 	/**
 	 * Grand totals in scope for the summary cards. Scoped to the selected period
-	 * window (so the cards move with Day/Week/Month), with the model filter
-	 * applied. A zoom selection overrides the period window.
+	 * window (so the cards move with Day/Week/Month), with the model filter applied.
 	 */
 	scopedTotals(snap: RollupSnapshot): Totals {
 		return vm.scopedTotals(snap, this.state());
 	}
 
-	/** Sessions in scope (model filter applied via model mix, zoom via lastTs). */
+	/** Sessions in scope (model filter applied via model mix, provider filter applied). */
 	scopedSessions(snap: RollupSnapshot): SessionSummary[] {
 		return vm.scopedSessions(snap, this.state());
 	}

@@ -2,7 +2,7 @@
 // (`src/lib/client/dashboard.svelte.ts`) and the Ink TUI (`src/cli/tui/`).
 //
 // These are pure functions over a `RollupSnapshot` + a small `ViewState`
-// (period + model filter + provider filter + optional zoom). Extracting them
+// (period + model filter + provider filter). Extracting them
 // here is design D4: "the derivations port directly" — one source of truth so
 // the web and TUI can never drift. The Svelte class and the React root are both
 // thin shells that hold state and call into here.
@@ -43,12 +43,10 @@ export interface ViewState {
 	modelFilter: Set<string>;
 	/** empty = all providers */
 	providerFilter: Set<string>;
-	/** active zoom window over the trend (inclusive day range), null = full range */
-	zoom: { from: string; to: string } | null;
 }
 
 export function defaultViewState(period: Period = 'week'): ViewState {
-	return { period, modelFilter: new Set(), providerFilter: new Set(), zoom: null };
+	return { period, modelFilter: new Set(), providerFilter: new Set() };
 }
 
 /** A filter set, normalized to null when empty (the aggregate helpers treat null = all). */
@@ -56,22 +54,22 @@ function asFilter(set: Set<string>): Set<string> | null {
 	return set.size > 0 ? set : null;
 }
 
-/** The day-grain currently in scope (zoom window applied). */
-export function scopedGrain(snap: RollupSnapshot, state: ViewState) {
-	const z = state.zoom;
-	return z ? filterDays(snap.dayModel, z.from, z.to) : snap.dayModel;
+/** The full day-grain in scope (no windowing here; trend/hero apply windows). */
+export function scopedGrain(snap: RollupSnapshot, _state: ViewState) {
+	return snap.dayModel;
 }
 
-/** Trend buckets for the chart at the current period + zoom + model/provider filter. */
+/**
+ * Trend buckets for the chart: one DAY bucket per day in the current period
+ * window, with the model/provider filter applied. Always day-grain so the
+ * stacked bar chart renders one bar per day. The bars carry a per-model
+ * breakdown (`byModel`) used for stacking, the hover tooltip, and the
+ * click-to-drill day target.
+ */
 export function trend(snap: RollupSnapshot, state: ViewState): PeriodBucket[] {
-	// when zoomed, drop to a finer grain automatically (month/week -> day).
-	const effectivePeriod: Period = state.zoom ? 'day' : state.period;
-	return aggregateByPeriod(
-		scopedGrain(snap, state),
-		effectivePeriod,
-		asFilter(state.modelFilter),
-		asFilter(state.providerFilter)
-	);
+	const w = periodWindow(snap, state);
+	const windowed = filterDays(snap.dayModel, w.from, w.to);
+	return aggregateByPeriod(windowed, 'day', asFilter(state.modelFilter), asFilter(state.providerFilter));
 }
 
 /** Per-model totals in scope (drives donut + legend + filter). Provider filter applied. */
@@ -114,24 +112,26 @@ export function periodWindow(snap: RollupSnapshot, state: ViewState): PeriodWind
 	return { from, to, priorFrom, priorTo, label };
 }
 
-/** Current-period and prior-period totals for the hero + delta. */
+/**
+ * Current-period and prior-period totals for the hero + delta.
+ *
+ * `priorHasBaseline` is false when the prior window predates our earliest data,
+ * i.e. there is genuinely nothing to compare against (as opposed to a real $0
+ * prior). The hero uses this to SUPPRESS the period-over-period % rather than
+ * show a misleading "new"/percentage when no baseline exists.
+ */
 export function heroTotals(
 	snap: RollupSnapshot,
 	state: ViewState
-): { current: Totals; prior: Totals; label: string } {
+): { current: Totals; prior: Totals; label: string; priorHasBaseline: boolean } {
 	const modelFilter = asFilter(state.modelFilter);
 	const providerFilter = asFilter(state.providerFilter);
-	// zoom overrides the period window for the headline figures.
-	if (state.zoom) {
-		const cur = sumGrain(snap.dayModel, {
-			from: state.zoom.from,
-			to: state.zoom.to,
-			models: modelFilter,
-			providers: providerFilter
-		});
-		return { current: cur, prior: zeroTotals(), label: 'Zoom range' };
-	}
 	const w = periodWindow(snap, state);
+	// No baseline when the entire prior window falls before the earliest day we
+	// have data for (priorTo < earliestDay). A prior window that overlaps our
+	// data but happens to sum to $0 is a real baseline and keeps the delta.
+	const earliest = snap.earliestDay;
+	const priorHasBaseline = earliest != null && w.priorTo >= earliest;
 	return {
 		current: sumGrain(snap.dayModel, { from: w.from, to: w.to, models: modelFilter, providers: providerFilter }),
 		prior: sumGrain(snap.dayModel, {
@@ -140,26 +140,19 @@ export function heroTotals(
 			models: modelFilter,
 			providers: providerFilter
 		}),
-		label: w.label
+		label: w.label,
+		priorHasBaseline
 	};
 }
 
 /**
  * Grand totals in scope for the summary cards. Scoped to the selected period
  * window (so the cards move with Day/Week/Month), with the model + provider
- * filters applied. A zoom selection overrides the period window.
+ * filters applied.
  */
 export function scopedTotals(snap: RollupSnapshot, state: ViewState): Totals {
 	const modelFilter = asFilter(state.modelFilter);
 	const providerFilter = asFilter(state.providerFilter);
-	if (state.zoom) {
-		return sumGrain(snap.dayModel, {
-			from: state.zoom.from,
-			to: state.zoom.to,
-			models: modelFilter,
-			providers: providerFilter
-		});
-	}
 	const w = periodWindow(snap, state);
 	return sumGrain(snap.dayModel, { from: w.from, to: w.to, models: modelFilter, providers: providerFilter });
 }

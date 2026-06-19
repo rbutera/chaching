@@ -121,22 +121,31 @@ describe('shared view-model — period derivations', () => {
 		expect(week).toBeLessThan(month);
 	});
 
-	it('trend bucket count differs across periods', () => {
+	it('trend is one day-bucket per day in the period window', () => {
+		// the trend is always day-grain, scoped to the period window: day=1 bar,
+		// week=7 bars, month=30 bars (one per day with data in the window).
 		const dayBuckets = trend(snap, defaultViewState('day')).length;
 		const weekBuckets = trend(snap, defaultViewState('week')).length;
 		const monthBuckets = trend(snap, defaultViewState('month')).length;
-		// day grain has one bucket per day (40); week/month coarsen into fewer.
-		expect(dayBuckets).toBe(40);
-		expect(weekBuckets).toBeLessThan(dayBuckets);
-		expect(monthBuckets).toBeLessThan(weekBuckets);
+		expect(dayBuckets).toBe(1);
+		expect(weekBuckets).toBe(7);
+		expect(monthBuckets).toBe(30);
+		// every bucket key is a YYYY-MM-DD day (never a week/month key)
+		for (const b of trend(snap, defaultViewState('month'))) {
+			expect(b.key).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+		}
 	});
 
-	it('sum across trend buckets is period-invariant for the full window', () => {
-		const sum = (s: ViewState) => trend(snap, s).reduce((a, b) => a + b.cost, 0);
-		const total = grain.reduce((a, g) => a + g.cost, 0);
-		expect(sum(defaultViewState('day'))).toBeCloseTo(total, 10);
-		expect(sum(defaultViewState('week'))).toBeCloseTo(total, 10);
-		expect(sum(defaultViewState('month'))).toBeCloseTo(total, 10);
+	it('sum across trend buckets equals the scoped period total', () => {
+		// the bar chart covers exactly the period window, so its bars sum to the
+		// summary-card total for that same window.
+		const check = (s: ViewState) => {
+			const barSum = trend(snap, s).reduce((a, b) => a + b.cost, 0);
+			expect(barSum).toBeCloseTo(scopedTotals(snap, s).cost, 10);
+		};
+		check(defaultViewState('day'));
+		check(defaultViewState('week'));
+		check(defaultViewState('month'));
 	});
 
 	it('periodWindow boundaries differ across periods', () => {
@@ -147,6 +156,80 @@ describe('shared view-model — period derivations', () => {
 		expect(d.from).toBe('2026-06-19');
 		expect(w.from).toBe('2026-06-13');
 		expect(m.from).toBe('2026-05-21');
+	});
+});
+
+describe('shared view-model — no-baseline period delta', () => {
+	it('flags priorHasBaseline=false when the prior window predates the earliest data', () => {
+		// Only the single latest day has data; a Week view looks back 7 days, so
+		// the prior 7-day window (days -13..-7) is entirely before earliestDay.
+		const snap = snapFrom([dm('2026-06-19', 'codex', 'claude-opus-4-8', 10)]);
+		const hero = heroTotals(snap, defaultViewState('week'));
+		expect(hero.priorHasBaseline).toBe(false);
+		expect(hero.prior.cost).toBe(0); // and there genuinely is no prior data
+	});
+
+	it('flags priorHasBaseline=true when the prior window overlaps real data, even if $0', () => {
+		// data on the latest day AND on a day that falls inside the prior window:
+		// the prior window has a real (here $0-for-that-model) baseline.
+		// week ending 06-19: window 06-13..06-19, prior window 06-06..06-12.
+		const snap = snapFrom([
+			dm('2026-06-19', 'codex', 'claude-opus-4-8', 10), // current week
+			dm('2026-06-10', 'codex', 'claude-opus-4-8', 4) // inside the prior week window
+		]);
+		const hero = heroTotals(snap, defaultViewState('week'));
+		expect(hero.priorHasBaseline).toBe(true);
+		expect(hero.prior.cost).toBe(4);
+	});
+
+	it('priorHasBaseline=true for a real $0 prior that still overlaps the data span', () => {
+		// earliest day sits exactly on priorTo: there IS a baseline (it summed to
+		// $0 on the model in scope), distinct from "no data at all".
+		const w = periodWindow(snapFrom([dm('2026-06-19', 'codex', 'claude-opus-4-8', 1)]), defaultViewState('week'));
+		const snap = snapFrom([
+			dm('2026-06-19', 'codex', 'claude-opus-4-8', 10),
+			dm(w.priorTo, 'codex', 'claude-opus-4-8', 0) // a real record on priorTo, $0
+		]);
+		const hero = heroTotals(snap, defaultViewState('week'));
+		expect(hero.priorHasBaseline).toBe(true);
+	});
+});
+
+describe('shared view-model — per-model bucket stacking', () => {
+	it('Σ per-model segments == the bucket total for every bar', () => {
+		const grain = [
+			dm('2026-06-19', 'codex', 'claude-opus-4-8', 7),
+			dm('2026-06-19', 'opencode', 'claude-sonnet-4-5', 3),
+			dm('2026-06-19', 'codex', 'claude-haiku-4-5', 1.5),
+			dm('2026-06-18', 'codex', 'claude-opus-4-8', 4),
+			dm('2026-06-18', 'opencode', 'claude-sonnet-4-5', 2)
+		];
+		const snap = snapFrom(grain);
+		const buckets = trend(snap, defaultViewState('week'));
+		// every bar exists with a per-model breakdown that sums to its total
+		const withData = buckets.filter((b) => b.cost > 0);
+		expect(withData.length).toBe(2);
+		for (const b of buckets) {
+			const segSum = [...b.byModel.values()].reduce((a, m) => a + m.cost, 0);
+			expect(segSum).toBeCloseTo(b.cost, 10);
+		}
+		// the 3-model day stacks all three models
+		const day19 = buckets.find((b) => b.key === '2026-06-19')!;
+		expect(day19.byModel.size).toBe(3);
+		expect(day19.cost).toBeCloseTo(11.5, 10);
+	});
+
+	it('respects the model filter in the per-bar breakdown', () => {
+		const grain = [
+			dm('2026-06-19', 'codex', 'claude-opus-4-8', 7),
+			dm('2026-06-19', 'opencode', 'claude-sonnet-4-5', 3)
+		];
+		const snap = snapFrom(grain);
+		const filtered: ViewState = { ...defaultViewState('week'), modelFilter: new Set(['claude-opus-4-8']) };
+		const day19 = trend(snap, filtered).find((b) => b.key === '2026-06-19')!;
+		expect(day19.byModel.size).toBe(1);
+		expect(day19.byModel.has('claude-opus-4-8')).toBe(true);
+		expect(day19.cost).toBe(7);
 	});
 });
 

@@ -114,15 +114,3 @@ button {
 		scroll-behavior: auto !important;
 	}
 }
-
-/* uPlot dark tweaks */
-.uplot {
-	font-family: var(--font-sans);
-}
-.uplot .u-legend {
-	display: none; /* we render our own accessible legend */
-}
-.u-axis text,
-.u-cursor-pt {
-	fill: var(--fg-muted);
-}

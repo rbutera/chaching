@@ -35,7 +35,11 @@
 
 	// hero
 	let hero = $derived(snap ? dash.heroTotals(snap) : null);
-	let heroDelta = $derived(hero ? pctDelta(hero.current.cost, hero.prior.cost) : null);
+	// suppress the period delta when there's no prior baseline (prior window
+	// predates our earliest data) vs a real $0 prior.
+	let heroDelta = $derived(
+		hero ? pctDelta(hero.current.cost, hero.prior.cost, hero.priorHasBaseline) : null
+	);
 
 	// trend buckets
 	let trend = $derived<PeriodBucket[]>(snap ? dash.trend(snap) : []);
@@ -74,11 +78,8 @@
 	// 5h cap-proximity active block
 	let activeBlock = $derived(snap?.blocks.find((b) => b.isActive) ?? null);
 
-	function onTrendZoom(from: string, to: string) {
-		dash.setZoom(from, to);
-	}
 	function onTrendPick(b: PeriodBucket) {
-		dash.openPeriodDrill({ from: b.startDay, to: b.startDay, periodKey: b.key, label: b.key });
+		dash.openPeriodDrill({ from: b.startDay, to: b.startDay, periodKey: b.startDay, label: b.startDay });
 	}
 
 	let unknownNote = $derived(snap && snap.unknownPriceModels.length > 0 ? snap.unknownPriceModels.join(', ') : null);
@@ -175,9 +176,6 @@
 				{#if dash.modelFilter.size > 0}
 					<button class="clear-filter" onclick={() => dash.clearModelFilter()}>Clear model filter ✕</button>
 				{/if}
-				{#if dash.zoom}
-					<button class="clear-filter" onclick={() => dash.resetZoom()}>Reset zoom ✕</button>
-				{/if}
 			</div>
 
 			<!-- SUMMARY CARDS -->
@@ -212,14 +210,7 @@
 			<section class="grid">
 				<div class="panel trend-panel">
 					{#if trend.length > 0}
-						<TrendChart
-							buckets={trend}
-							models={stackModels}
-							onZoom={onTrendZoom}
-							onPick={onTrendPick}
-							zoomed={!!dash.zoom}
-							onReset={() => dash.resetZoom()}
-						/>
+						<TrendChart buckets={trend} models={stackModels} onPick={onTrendPick} />
 					{:else}
 						<p class="empty">No data in this scope.</p>
 					{/if}

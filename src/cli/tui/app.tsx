@@ -116,11 +116,11 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 			exit();
 			return;
 		}
-		if (input === 'd') setView((v) => ({ ...v, period: 'day', zoom: null }));
-		else if (input === 'w') setView((v) => ({ ...v, period: 'week', zoom: null }));
-		else if (input === 'm') setView((v) => ({ ...v, period: 'month', zoom: null }));
-		else if (key.rightArrow) setView((v) => ({ ...v, period: nextPeriod(v.period, 1), zoom: null }));
-		else if (key.leftArrow) setView((v) => ({ ...v, period: nextPeriod(v.period, -1), zoom: null }));
+		if (input === 'd') setView((v) => ({ ...v, period: 'day' }));
+		else if (input === 'w') setView((v) => ({ ...v, period: 'week' }));
+		else if (input === 'm') setView((v) => ({ ...v, period: 'month' }));
+		else if (key.rightArrow) setView((v) => ({ ...v, period: nextPeriod(v.period, 1) }));
+		else if (key.leftArrow) setView((v) => ({ ...v, period: nextPeriod(v.period, -1) }));
 		else if (input === '0') setView((v) => ({ ...v, providerFilter: new Set() }));
 		else if (/^[1-9]$/.test(input)) {
 			const idx = Number(input) - 1;
