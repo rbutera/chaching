@@ -1,7 +1,27 @@
 // `chaching stats` — one-shot summary via runOnce().
 
 import { runOnce } from '../../lib/core/engine.js';
+import { writeSync } from 'node:fs';
 import { loadConfig } from '../../lib/core/config.js';
+import { getPricingMeta } from '../../lib/core/pricing/cost.js';
+
+// Synchronous stdout write. The launcher force-exits one-shot commands, and a
+// large async `process.stdout.write` to a pipe is still draining when exit hits,
+// truncating the output (e.g. `chaching stats --json | jq`). Writing synchronously
+// guarantees the whole payload lands before exit. Handles partial writes + EAGAIN
+// (stdout can be a non-blocking pipe).
+function writeStdoutSync(text: string): void {
+	const buf = Buffer.from(text, 'utf8');
+	let offset = 0;
+	while (offset < buf.length) {
+		try {
+			offset += writeSync(1, buf, offset, buf.length - offset);
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code === 'EAGAIN') continue;
+			throw err;
+		}
+	}
+}
 import {
 	aggregateByModel,
 	aggregateByProvider,
@@ -37,6 +57,9 @@ export async function runStats(flags: StatsFlags): Promise<void> {
 	// --json: emit only the raw snapshot. ZERO art/decoration regardless of flags.
 	// A script that passes --period week --provider codex --json gets scoped data only.
 	if (flags.json) {
+		// _pricing exposes which price snapshot resolved (and confirms it loaded at
+		// all) — useful for scripts and a guard against the cwd/layout resolution bug.
+		const pricing = getPricingMeta();
 		if (flags.period || flags.providers) {
 			const providerFilter = flags.providers && flags.providers.length > 0
 				? new Set(flags.providers)
@@ -50,9 +73,9 @@ export async function runStats(flags: StatsFlags): Promise<void> {
 				...snapshot,
 				dayModel: grain
 			};
-			process.stdout.write(JSON.stringify(scoped) + '\n');
+			writeStdoutSync(JSON.stringify({ ...scoped, _pricing: pricing }) + '\n');
 		} else {
-			process.stdout.write(JSON.stringify(snapshot) + '\n');
+			writeStdoutSync(JSON.stringify({ ...snapshot, _pricing: pricing }) + '\n');
 		}
 		return;
 	}

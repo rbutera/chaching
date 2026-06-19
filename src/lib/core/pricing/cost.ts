@@ -7,7 +7,7 @@
 //   3. a normalised LiteLLM key (try anthropic-prefixed / regional variants)
 //   4. unknown -> cost is null (NOT zero) so the UI can flag it honestly.
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { TokenCounts } from '../../types';
@@ -21,28 +21,46 @@ interface Snapshot {
 let snapshot: Snapshot | null = null;
 let snapshotMeta: Snapshot['_meta'] = {};
 
+// The snapshot ships in the package at <root>/static/pricing/ and is also copied
+// to <root>/build/client/pricing/ by the adapter-node build. This module is
+// imported from several layouts (src tree under vitest, the bundled dist/cli CLI,
+// the SvelteKit server build), and the CLI runs from ANY cwd — so resolve by
+// walking up from this module's own location, never relying on process.cwd().
+const SNAPSHOT_RELS = [
+	'static/pricing/litellm-prices.json',
+	'build/client/pricing/litellm-prices.json'
+];
+
+function findSnapshotPath(): string | null {
+	let dir = dirname(fileURLToPath(import.meta.url));
+	for (let i = 0; i < 10; i++) {
+		for (const rel of SNAPSHOT_RELS) {
+			const candidate = join(dir, rel);
+			if (existsSync(candidate)) return candidate;
+		}
+		const parent = dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
+	}
+	// last resort: cwd-relative (covers running straight from the package root)
+	for (const rel of SNAPSHOT_RELS) {
+		const candidate = join(process.cwd(), rel);
+		if (existsSync(candidate)) return candidate;
+	}
+	return null;
+}
+
 function loadSnapshot(): Snapshot {
 	if (snapshot) return snapshot;
-	// static/ is sibling to src/; resolve relative to this module at build/runtime.
-	const here = dirname(fileURLToPath(import.meta.url));
-	const candidates = [
-		// dev (src tree) — static/ is the project root
-		join(here, '../../../../static/pricing/litellm-prices.json'),
-		join(process.cwd(), 'static/pricing/litellm-prices.json'),
-		// adapter-node build — static assets land in build/client/
-		join(process.cwd(), 'build/client/pricing/litellm-prices.json'),
-		join(here, '../../client/pricing/litellm-prices.json'),
-		join(here, '../client/pricing/litellm-prices.json')
-	];
-	for (const path of candidates) {
+	const path = findSnapshotPath();
+	if (path) {
 		try {
-			const raw = readFileSync(path, 'utf8');
-			const parsed = JSON.parse(raw) as Snapshot;
+			const parsed = JSON.parse(readFileSync(path, 'utf8')) as Snapshot;
 			snapshot = parsed;
 			snapshotMeta = parsed._meta ?? {};
 			return snapshot;
 		} catch {
-			// try next candidate
+			// fall through to graceful degrade
 		}
 	}
 	// degrade gracefully: overrides still apply
