@@ -4,7 +4,7 @@
 
 import { runStats, type StatsFlags } from './commands/stats.js';
 import { runServe } from './commands/serve.js';
-import { runWizard } from './commands/init.js';
+import { runInit } from './commands/init.js';
 import { runProvider } from './commands/provider.js';
 import { printUsage, printVersion } from './help.js';
 import { configFilePath } from '../lib/core/config.js';
@@ -40,7 +40,7 @@ export async function run(argv: string[]): Promise<void> {
 			return;
 
 		case 'init':
-			await runWizard();
+			await runInit();
 			return;
 
 		case 'provider':
@@ -61,7 +61,7 @@ async function runDefault(_rest: string[]): Promise<void> {
 
 	if (!hasConfig) {
 		// D5: first-run → wizard, then dashboard
-		await runWizard();
+		await runInit();
 	}
 
 	// TODO(wave-4): runDashboard() — launch Ink TUI here.
