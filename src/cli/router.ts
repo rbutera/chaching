@@ -54,8 +54,8 @@ export async function run(argv: string[]): Promise<void> {
 	}
 }
 
-/** Bare `chaching` — first-run check then dashboard (wave 4). */
-async function runDefault(_rest: string[]): Promise<void> {
+/** Bare `chaching` — first-run check then the live Ink TUI dashboard (wave 4). */
+async function runDefault(rest: string[]): Promise<void> {
 	const cfgPath = configFilePath();
 	const hasConfig = existsSync(cfgPath);
 
@@ -64,9 +64,8 @@ async function runDefault(_rest: string[]): Promise<void> {
 		await runInit();
 	}
 
-	// TODO(wave-4): runDashboard() — launch Ink TUI here.
-	// For now fall through to stats so bare `chaching` is useful.
-	await runStats({});
+	const { runDashboard } = await import('./tui/index.js');
+	await runDashboard({ argv: rest });
 }
 
 function parseStatsFlags(argv: string[]): StatsFlags {

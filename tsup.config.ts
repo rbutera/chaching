@@ -11,6 +11,11 @@ export default defineConfig({
 	clean: true,
 	platform: 'node',
 	external: [/^node:/],
+	// Ink TUI uses .tsx; compile JSX with the automatic runtime (no `import React`).
+	esbuildOptions(options) {
+		options.jsx = 'automatic';
+		options.jsxImportSource = 'react';
+	},
 	// Post-build: esbuild strips node: from node:sqlite; restore it.
 	async onSuccess() {
 		const out = 'dist/cli/index.js';

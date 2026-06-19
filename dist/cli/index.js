@@ -1,46 +1,54 @@
-// src/lib/core/engine.ts
-import { watch } from "fs";
-import { sep as sep4 } from "path";
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+
+// src/lib/core/pricing/overrides.ts
+var OPUS, SONNET, HAIKU, PRICE_OVERRIDES;
+var init_overrides = __esm({
+  "src/lib/core/pricing/overrides.ts"() {
+    "use strict";
+    OPUS = {
+      input_cost_per_token: 5e-6,
+      output_cost_per_token: 25e-6,
+      cache_creation_input_token_cost: 625e-8,
+      cache_creation_input_token_cost_above_1hr: 1e-5,
+      cache_read_input_token_cost: 5e-7
+    };
+    SONNET = {
+      input_cost_per_token: 3e-6,
+      output_cost_per_token: 15e-6,
+      cache_creation_input_token_cost: 375e-8,
+      cache_creation_input_token_cost_above_1hr: 6e-6,
+      cache_read_input_token_cost: 3e-7
+    };
+    HAIKU = {
+      input_cost_per_token: 1e-6,
+      output_cost_per_token: 5e-6,
+      cache_creation_input_token_cost: 125e-8,
+      cache_creation_input_token_cost_above_1hr: 2e-6,
+      cache_read_input_token_cost: 1e-7
+    };
+    PRICE_OVERRIDES = {
+      "claude-opus-4-6": OPUS,
+      "claude-opus-4-7": OPUS,
+      "claude-opus-4-8": OPUS,
+      "claude-sonnet-4-6": SONNET,
+      "claude-haiku-4-5-20251001": HAIKU,
+      "claude-haiku-4-5": HAIKU
+    };
+  }
+});
 
 // src/lib/core/pricing/cost.ts
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-
-// src/lib/core/pricing/overrides.ts
-var OPUS = {
-  input_cost_per_token: 5e-6,
-  output_cost_per_token: 25e-6,
-  cache_creation_input_token_cost: 625e-8,
-  cache_creation_input_token_cost_above_1hr: 1e-5,
-  cache_read_input_token_cost: 5e-7
-};
-var SONNET = {
-  input_cost_per_token: 3e-6,
-  output_cost_per_token: 15e-6,
-  cache_creation_input_token_cost: 375e-8,
-  cache_creation_input_token_cost_above_1hr: 6e-6,
-  cache_read_input_token_cost: 3e-7
-};
-var HAIKU = {
-  input_cost_per_token: 1e-6,
-  output_cost_per_token: 5e-6,
-  cache_creation_input_token_cost: 125e-8,
-  cache_creation_input_token_cost_above_1hr: 2e-6,
-  cache_read_input_token_cost: 1e-7
-};
-var PRICE_OVERRIDES = {
-  "claude-opus-4-6": OPUS,
-  "claude-opus-4-7": OPUS,
-  "claude-opus-4-8": OPUS,
-  "claude-sonnet-4-6": SONNET,
-  "claude-haiku-4-5-20251001": HAIKU,
-  "claude-haiku-4-5": HAIKU
-};
-
-// src/lib/core/pricing/cost.ts
-var snapshot = null;
-var snapshotMeta = {};
 function loadSnapshot() {
   if (snapshot) return snapshot;
   const here = dirname(fileURLToPath(import.meta.url));
@@ -73,7 +81,6 @@ function getPricingMeta() {
     source: snapshotMeta?.source ?? null
   };
 }
-var priceCache = /* @__PURE__ */ new Map();
 function resolvePrice(model) {
   if (priceCache.has(model)) return priceCache.get(model) ?? null;
   const resolved = resolveUncached(model);
@@ -139,9 +146,18 @@ function computeCost(model, tokens, cacheCreation1h = 0, cacheCreation5m = 0) {
 function hasPrice(model) {
   return resolvePrice(model) !== null;
 }
+var snapshot, snapshotMeta, priceCache;
+var init_cost = __esm({
+  "src/lib/core/pricing/cost.ts"() {
+    "use strict";
+    init_overrides();
+    snapshot = null;
+    snapshotMeta = {};
+    priceCache = /* @__PURE__ */ new Map();
+  }
+});
 
 // src/lib/core/rollup/blocks.ts
-var FIVE_HOURS_MS = 5 * 60 * 60 * 1e3;
 function zeroTokens() {
   return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 };
 }
@@ -151,33 +167,39 @@ function addTokens(into, from) {
   into.cacheCreation += from.cacheCreation;
   into.cacheRead += from.cacheRead;
 }
-var BlockAccumulator = class {
-  blocks = /* @__PURE__ */ new Map();
-  add(rec) {
-    const start = Math.floor(rec.timestamp / FIVE_HOURS_MS) * FIVE_HOURS_MS;
-    let b = this.blocks.get(start);
-    if (!b) {
-      b = {
-        startTs: start,
-        endTs: start + FIVE_HOURS_MS,
-        tokens: zeroTokens(),
-        requests: 0,
-        cost: 0,
-        isActive: false
-      };
-      this.blocks.set(start, b);
-    }
-    addTokens(b.tokens, rec.tokens);
-    b.requests++;
-    b.cost += rec.cost ?? 0;
+var FIVE_HOURS_MS, BlockAccumulator;
+var init_blocks = __esm({
+  "src/lib/core/rollup/blocks.ts"() {
+    "use strict";
+    FIVE_HOURS_MS = 5 * 60 * 60 * 1e3;
+    BlockAccumulator = class {
+      blocks = /* @__PURE__ */ new Map();
+      add(rec) {
+        const start = Math.floor(rec.timestamp / FIVE_HOURS_MS) * FIVE_HOURS_MS;
+        let b = this.blocks.get(start);
+        if (!b) {
+          b = {
+            startTs: start,
+            endTs: start + FIVE_HOURS_MS,
+            tokens: zeroTokens(),
+            requests: 0,
+            cost: 0,
+            isActive: false
+          };
+          this.blocks.set(start, b);
+        }
+        addTokens(b.tokens, rec.tokens);
+        b.requests++;
+        b.cost += rec.cost ?? 0;
+      }
+      snapshot(now) {
+        return [...this.blocks.values()].map((b) => ({ ...b, tokens: { ...b.tokens }, isActive: now < b.endTs })).sort((a, b) => b.startTs - a.startTs);
+      }
+    };
   }
-  snapshot(now) {
-    return [...this.blocks.values()].map((b) => ({ ...b, tokens: { ...b.tokens }, isActive: now < b.endTs })).sort((a, b) => b.startTs - a.startTs);
-  }
-};
+});
 
 // src/lib/core/rollup/rollup.ts
-var KEY_SEP = "";
 function zeroTokens2() {
   return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 };
 }
@@ -187,209 +209,217 @@ function addTokens2(into, from) {
   into.cacheCreation += from.cacheCreation;
   into.cacheRead += from.cacheRead;
 }
-var Rollup = class {
-  /** key: `${day}\u001f${provider}\u001f${model}` */
-  dayModel = /* @__PURE__ */ new Map();
-  sessions = /* @__PURE__ */ new Map();
-  modelCost = /* @__PURE__ */ new Map();
-  providerCost = /* @__PURE__ */ new Map();
-  unknownPriceModels = /* @__PURE__ */ new Set();
-  totalTokens = zeroTokens2();
-  totalRequests = 0;
-  totalCost = 0;
-  totalCostUnknown = 0;
-  earliestDay = null;
-  latestDay = null;
-  filesScanned = 0;
-  linesSkipped = 0;
-  duplicatesSkipped = 0;
-  recordsCounted = 0;
-  cutoverTs = null;
-  dirtyDayModel = /* @__PURE__ */ new Set();
-  dirtySessions = /* @__PURE__ */ new Set();
-  dirtyAny = false;
-  setCutover(ts) {
-    this.cutoverTs = ts;
-  }
-  markFileScanned() {
-    this.filesScanned++;
-  }
-  addSkipped(n = 1) {
-    this.linesSkipped += n;
-  }
-  addDuplicate(n = 1) {
-    this.duplicatesSkipped += n;
-  }
-  /** Add a single already-deduped usage record to the rollup. */
-  add(rec) {
-    this.recordsCounted++;
-    this.dirtyAny = true;
-    const cost = rec.cost ?? 0;
-    const unknown = rec.cost == null ? 1 : 0;
-    if (rec.cost == null && !hasPrice(rec.model)) {
-      this.unknownPriceModels.add(rec.model);
-    }
-    const dmKey = recordKey(rec.day, rec.provider, rec.model);
-    let dm = this.dayModel.get(dmKey);
-    if (!dm) {
-      dm = {
-        day: rec.day,
-        provider: rec.provider,
-        model: rec.model,
-        tokens: zeroTokens2(),
-        requests: 0,
-        cost: 0,
-        costUnknownRequests: 0
-      };
-      this.dayModel.set(dmKey, dm);
-    }
-    addTokens2(dm.tokens, rec.tokens);
-    dm.requests++;
-    dm.cost += cost;
-    dm.costUnknownRequests += unknown;
-    this.dirtyDayModel.add(dmKey);
-    const recSessionKey = sessionKey(rec.provider, rec.sessionId);
-    let s = this.sessions.get(recSessionKey);
-    if (!s) {
-      s = {
-        sessionId: rec.sessionId,
-        provider: rec.provider,
-        project: rec.project,
-        firstTs: rec.timestamp,
-        lastTs: rec.timestamp,
-        tokens: zeroTokens2(),
-        requests: 0,
-        cost: 0,
-        costUnknownRequests: 0,
-        modelCounts: /* @__PURE__ */ new Map()
-      };
-      this.sessions.set(recSessionKey, s);
-    }
-    addTokens2(s.tokens, rec.tokens);
-    s.requests++;
-    s.cost += cost;
-    s.costUnknownRequests += unknown;
-    s.firstTs = Math.min(s.firstTs, rec.timestamp);
-    s.lastTs = Math.max(s.lastTs, rec.timestamp);
-    s.modelCounts.set(rec.model, (s.modelCounts.get(rec.model) ?? 0) + 1);
-    this.dirtySessions.add(recSessionKey);
-    addTokens2(this.totalTokens, rec.tokens);
-    this.totalRequests++;
-    this.totalCost += cost;
-    this.totalCostUnknown += unknown;
-    this.modelCost.set(rec.model, (this.modelCost.get(rec.model) ?? 0) + cost);
-    this.providerCost.set(rec.provider, (this.providerCost.get(rec.provider) ?? 0) + cost);
-    this.blockAccumulator.add(rec);
-    if (this.earliestDay == null || rec.day < this.earliestDay) this.earliestDay = rec.day;
-    if (this.latestDay == null || rec.day > this.latestDay) this.latestDay = rec.day;
-  }
-  modelsByCost() {
-    return [...this.modelCost.entries()].sort((a, b) => b[1] - a[1]).map(([m]) => m);
-  }
-  providersByCost() {
-    return [...this.providerCost.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
-  }
-  sessionSummary(s) {
-    const models = [...s.modelCounts.entries()].sort((a, b) => b[1] - a[1]).map(([m]) => m);
-    return {
-      sessionId: s.sessionId,
-      provider: s.provider,
-      project: s.project,
-      firstTs: s.firstTs,
-      lastTs: s.lastTs,
-      tokens: { ...s.tokens },
-      requests: s.requests,
-      cost: s.cost,
-      costUnknownRequests: s.costUnknownRequests,
-      models
-    };
-  }
-  blockAccumulator = new BlockAccumulator();
-  /** Rolling 5-hour blocks (ccusage window model), newest first. */
-  computeBlocks(now = Date.now()) {
-    return this.blockAccumulator.snapshot(now);
-  }
-  snapshot(now = Date.now()) {
-    const meta = getPricingMeta();
-    void meta;
-    return {
-      generatedAt: now,
-      earliestDay: this.earliestDay,
-      latestDay: this.latestDay,
-      totals: {
-        tokens: { ...this.totalTokens },
-        requests: this.totalRequests,
-        cost: this.totalCost,
-        costUnknownRequests: this.totalCostUnknown
-      },
-      dayModel: [...this.dayModel.values()].map((d) => ({ ...d, tokens: { ...d.tokens } })),
-      sessions: [...this.sessions.values()].map((s) => this.sessionSummary(s)).sort((a, b) => b.lastTs - a.lastTs),
-      blocks: this.blockAccumulator.snapshot(now),
-      models: this.modelsByCost(),
-      providers: this.providersByCost(),
-      unknownPriceModels: [...this.unknownPriceModels],
-      stats: {
-        filesScanned: this.filesScanned,
-        recordsCounted: this.recordsCounted,
-        linesSkipped: this.linesSkipped,
-        duplicatesSkipped: this.duplicatesSkipped
-      },
-      cutoverTs: this.cutoverTs
-    };
-  }
-  hasDirty() {
-    return this.dirtyAny;
-  }
-  /** Drain accumulated changes into a delta and reset the dirty sets. */
-  drainDelta(now = Date.now()) {
-    if (!this.dirtyAny) return null;
-    const dayModel = [];
-    for (const k of this.dirtyDayModel) {
-      const dm = this.dayModel.get(k);
-      if (dm) dayModel.push({ ...dm, tokens: { ...dm.tokens } });
-    }
-    const sessions = [];
-    for (const id of this.dirtySessions) {
-      const s = this.sessions.get(id);
-      if (s) sessions.push(this.sessionSummary(s));
-    }
-    this.dirtyDayModel.clear();
-    this.dirtySessions.clear();
-    this.dirtyAny = false;
-    return {
-      generatedAt: now,
-      dayModel,
-      sessions,
-      blocks: this.blockAccumulator.snapshot(now),
-      totals: {
-        tokens: { ...this.totalTokens },
-        requests: this.totalRequests,
-        cost: this.totalCost,
-        costUnknownRequests: this.totalCostUnknown
-      },
-      earliestDay: this.earliestDay,
-      latestDay: this.latestDay,
-      models: this.modelsByCost(),
-      providers: this.providersByCost(),
-      unknownPriceModels: [...this.unknownPriceModels],
-      stats: {
-        filesScanned: this.filesScanned,
-        recordsCounted: this.recordsCounted,
-        linesSkipped: this.linesSkipped,
-        duplicatesSkipped: this.duplicatesSkipped
-      }
-    };
-  }
-};
 function recordKey(day, provider, model) {
   return `${day}${KEY_SEP}${provider}${KEY_SEP}${model}`;
 }
 function sessionKey(provider, sessionId) {
   return `${provider}${KEY_SEP}${sessionId}`;
 }
+var KEY_SEP, Rollup;
+var init_rollup = __esm({
+  "src/lib/core/rollup/rollup.ts"() {
+    "use strict";
+    init_cost();
+    init_blocks();
+    KEY_SEP = "";
+    Rollup = class {
+      /** key: `${day}\u001f${provider}\u001f${model}` */
+      dayModel = /* @__PURE__ */ new Map();
+      sessions = /* @__PURE__ */ new Map();
+      modelCost = /* @__PURE__ */ new Map();
+      providerCost = /* @__PURE__ */ new Map();
+      unknownPriceModels = /* @__PURE__ */ new Set();
+      totalTokens = zeroTokens2();
+      totalRequests = 0;
+      totalCost = 0;
+      totalCostUnknown = 0;
+      earliestDay = null;
+      latestDay = null;
+      filesScanned = 0;
+      linesSkipped = 0;
+      duplicatesSkipped = 0;
+      recordsCounted = 0;
+      cutoverTs = null;
+      dirtyDayModel = /* @__PURE__ */ new Set();
+      dirtySessions = /* @__PURE__ */ new Set();
+      dirtyAny = false;
+      setCutover(ts) {
+        this.cutoverTs = ts;
+      }
+      markFileScanned() {
+        this.filesScanned++;
+      }
+      addSkipped(n = 1) {
+        this.linesSkipped += n;
+      }
+      addDuplicate(n = 1) {
+        this.duplicatesSkipped += n;
+      }
+      /** Add a single already-deduped usage record to the rollup. */
+      add(rec) {
+        this.recordsCounted++;
+        this.dirtyAny = true;
+        const cost = rec.cost ?? 0;
+        const unknown = rec.cost == null ? 1 : 0;
+        if (rec.cost == null && !hasPrice(rec.model)) {
+          this.unknownPriceModels.add(rec.model);
+        }
+        const dmKey = recordKey(rec.day, rec.provider, rec.model);
+        let dm = this.dayModel.get(dmKey);
+        if (!dm) {
+          dm = {
+            day: rec.day,
+            provider: rec.provider,
+            model: rec.model,
+            tokens: zeroTokens2(),
+            requests: 0,
+            cost: 0,
+            costUnknownRequests: 0
+          };
+          this.dayModel.set(dmKey, dm);
+        }
+        addTokens2(dm.tokens, rec.tokens);
+        dm.requests++;
+        dm.cost += cost;
+        dm.costUnknownRequests += unknown;
+        this.dirtyDayModel.add(dmKey);
+        const recSessionKey = sessionKey(rec.provider, rec.sessionId);
+        let s = this.sessions.get(recSessionKey);
+        if (!s) {
+          s = {
+            sessionId: rec.sessionId,
+            provider: rec.provider,
+            project: rec.project,
+            firstTs: rec.timestamp,
+            lastTs: rec.timestamp,
+            tokens: zeroTokens2(),
+            requests: 0,
+            cost: 0,
+            costUnknownRequests: 0,
+            modelCounts: /* @__PURE__ */ new Map()
+          };
+          this.sessions.set(recSessionKey, s);
+        }
+        addTokens2(s.tokens, rec.tokens);
+        s.requests++;
+        s.cost += cost;
+        s.costUnknownRequests += unknown;
+        s.firstTs = Math.min(s.firstTs, rec.timestamp);
+        s.lastTs = Math.max(s.lastTs, rec.timestamp);
+        s.modelCounts.set(rec.model, (s.modelCounts.get(rec.model) ?? 0) + 1);
+        this.dirtySessions.add(recSessionKey);
+        addTokens2(this.totalTokens, rec.tokens);
+        this.totalRequests++;
+        this.totalCost += cost;
+        this.totalCostUnknown += unknown;
+        this.modelCost.set(rec.model, (this.modelCost.get(rec.model) ?? 0) + cost);
+        this.providerCost.set(rec.provider, (this.providerCost.get(rec.provider) ?? 0) + cost);
+        this.blockAccumulator.add(rec);
+        if (this.earliestDay == null || rec.day < this.earliestDay) this.earliestDay = rec.day;
+        if (this.latestDay == null || rec.day > this.latestDay) this.latestDay = rec.day;
+      }
+      modelsByCost() {
+        return [...this.modelCost.entries()].sort((a, b) => b[1] - a[1]).map(([m]) => m);
+      }
+      providersByCost() {
+        return [...this.providerCost.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
+      }
+      sessionSummary(s) {
+        const models2 = [...s.modelCounts.entries()].sort((a, b) => b[1] - a[1]).map(([m]) => m);
+        return {
+          sessionId: s.sessionId,
+          provider: s.provider,
+          project: s.project,
+          firstTs: s.firstTs,
+          lastTs: s.lastTs,
+          tokens: { ...s.tokens },
+          requests: s.requests,
+          cost: s.cost,
+          costUnknownRequests: s.costUnknownRequests,
+          models: models2
+        };
+      }
+      blockAccumulator = new BlockAccumulator();
+      /** Rolling 5-hour blocks (ccusage window model), newest first. */
+      computeBlocks(now = Date.now()) {
+        return this.blockAccumulator.snapshot(now);
+      }
+      snapshot(now = Date.now()) {
+        const meta = getPricingMeta();
+        void meta;
+        return {
+          generatedAt: now,
+          earliestDay: this.earliestDay,
+          latestDay: this.latestDay,
+          totals: {
+            tokens: { ...this.totalTokens },
+            requests: this.totalRequests,
+            cost: this.totalCost,
+            costUnknownRequests: this.totalCostUnknown
+          },
+          dayModel: [...this.dayModel.values()].map((d) => ({ ...d, tokens: { ...d.tokens } })),
+          sessions: [...this.sessions.values()].map((s) => this.sessionSummary(s)).sort((a, b) => b.lastTs - a.lastTs),
+          blocks: this.blockAccumulator.snapshot(now),
+          models: this.modelsByCost(),
+          providers: this.providersByCost(),
+          unknownPriceModels: [...this.unknownPriceModels],
+          stats: {
+            filesScanned: this.filesScanned,
+            recordsCounted: this.recordsCounted,
+            linesSkipped: this.linesSkipped,
+            duplicatesSkipped: this.duplicatesSkipped
+          },
+          cutoverTs: this.cutoverTs
+        };
+      }
+      hasDirty() {
+        return this.dirtyAny;
+      }
+      /** Drain accumulated changes into a delta and reset the dirty sets. */
+      drainDelta(now = Date.now()) {
+        if (!this.dirtyAny) return null;
+        const dayModel = [];
+        for (const k of this.dirtyDayModel) {
+          const dm = this.dayModel.get(k);
+          if (dm) dayModel.push({ ...dm, tokens: { ...dm.tokens } });
+        }
+        const sessions = [];
+        for (const id of this.dirtySessions) {
+          const s = this.sessions.get(id);
+          if (s) sessions.push(this.sessionSummary(s));
+        }
+        this.dirtyDayModel.clear();
+        this.dirtySessions.clear();
+        this.dirtyAny = false;
+        return {
+          generatedAt: now,
+          dayModel,
+          sessions,
+          blocks: this.blockAccumulator.snapshot(now),
+          totals: {
+            tokens: { ...this.totalTokens },
+            requests: this.totalRequests,
+            cost: this.totalCost,
+            costUnknownRequests: this.totalCostUnknown
+          },
+          earliestDay: this.earliestDay,
+          latestDay: this.latestDay,
+          models: this.modelsByCost(),
+          providers: this.providersByCost(),
+          unknownPriceModels: [...this.unknownPriceModels],
+          stats: {
+            filesScanned: this.filesScanned,
+            recordsCounted: this.recordsCounted,
+            linesSkipped: this.linesSkipped,
+            duplicatesSkipped: this.duplicatesSkipped
+          }
+        };
+      }
+    };
+  }
+});
 
 // src/lib/core/ingest/dedup.ts
-var nullCounter = 0;
 function makeKey(messageId, requestId) {
   if (messageId == null || requestId == null) {
     return `__nokey__:${nullCounter++}`;
@@ -399,22 +429,29 @@ function makeKey(messageId, requestId) {
 function isNoKey(key) {
   return key.startsWith("__nokey__:");
 }
-var DedupSet = class {
-  seen = /* @__PURE__ */ new Set();
-  /** Returns true if this is the FIRST time we've seen the key (i.e. count it). */
-  add(key) {
-    if (isNoKey(key)) return true;
-    if (this.seen.has(key)) return false;
-    this.seen.add(key);
-    return true;
+var nullCounter, DedupSet;
+var init_dedup = __esm({
+  "src/lib/core/ingest/dedup.ts"() {
+    "use strict";
+    nullCounter = 0;
+    DedupSet = class {
+      seen = /* @__PURE__ */ new Set();
+      /** Returns true if this is the FIRST time we've seen the key (i.e. count it). */
+      add(key) {
+        if (isNoKey(key)) return true;
+        if (this.seen.has(key)) return false;
+        this.seen.add(key);
+        return true;
+      }
+      has(key) {
+        return !isNoKey(key) && this.seen.has(key);
+      }
+      get size() {
+        return this.seen.size;
+      }
+    };
   }
-  has(key) {
-    return !isNoKey(key) && this.seen.has(key);
-  }
-  get size() {
-    return this.seen.size;
-  }
-};
+});
 
 // src/lib/core/ingest/discover.ts
 import { homedir } from "os";
@@ -490,12 +527,11 @@ function projectForFile(projectsDir, filePath) {
   const encoded = rel.split(sep)[0] ?? "";
   return decodeProject(encoded);
 }
-
-// src/lib/core/watch/tail.ts
-import { createReadStream } from "fs";
-import { stat as stat2 } from "fs/promises";
-import { createInterface } from "readline";
-import { basename as basename2, sep as sep2 } from "path";
+var init_discover = __esm({
+  "src/lib/core/ingest/discover.ts"() {
+    "use strict";
+  }
+});
 
 // src/lib/core/ingest/parse.ts
 function num(v) {
@@ -555,8 +591,19 @@ function isoDayUTC(epochMs) {
   const day = String(d.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
+var init_parse = __esm({
+  "src/lib/core/ingest/parse.ts"() {
+    "use strict";
+    init_cost();
+    init_dedup();
+  }
+});
 
 // src/lib/core/watch/tail.ts
+import { createReadStream } from "fs";
+import { stat as stat2 } from "fs/promises";
+import { createInterface } from "readline";
+import { basename as basename2, sep as sep2 } from "path";
 function projectFor(projectsDir, filePath) {
   if (!filePath.startsWith(projectsDir)) return "unknown";
   const rel = filePath.slice(projectsDir.length + 1);
@@ -603,16 +650,19 @@ async function ingestRange(filePath, startOffset, projectsDir, rollup, dedup) {
   }
   return size;
 }
+var init_tail = __esm({
+  "src/lib/core/watch/tail.ts"() {
+    "use strict";
+    init_parse();
+    init_discover();
+  }
+});
 
 // src/lib/core/config.ts
 import { homedir as homedir2 } from "os";
 import { join as join3 } from "path";
 import { chmod, mkdir, readFile, rename, stat as stat3, unlink, writeFile } from "fs/promises";
 import { randomBytes } from "crypto";
-var DEFAULT_HOST = "0.0.0.0";
-var DEFAULT_PORT = 5178;
-var DEFAULT_CURSOR_POLL_SECONDS = 3600;
-var cache = null;
 function configFilePath(input = {}) {
   const home = input.homeDir ?? homedir2();
   const env = input.env ?? process.env;
@@ -634,12 +684,12 @@ function defaultConfig() {
 function normalizeConfig(raw) {
   const defaults = defaultConfig();
   const root = objectRecord(raw);
-  const providers = objectRecord(root.providers);
+  const providers2 = objectRecord(root.providers);
   const server = objectRecord(root.server);
-  const claude = objectRecord(providers.claude);
-  const codex = objectRecord(providers.codex);
-  const cursor = objectRecord(providers.cursor);
-  const opencode = objectRecord(providers.opencode);
+  const claude = objectRecord(providers2.claude);
+  const codex = objectRecord(providers2.codex);
+  const cursor = objectRecord(providers2.cursor);
+  const opencode = objectRecord(providers2.opencode);
   return {
     cutoverTs: numberOrNull(root.cutoverTs),
     server: {
@@ -725,6 +775,16 @@ function stringArrayOr(value, fallback) {
   const strings = value.filter((item) => typeof item === "string" && item.length > 0);
   return strings.length > 0 ? strings : fallback;
 }
+var DEFAULT_HOST, DEFAULT_PORT, DEFAULT_CURSOR_POLL_SECONDS, cache;
+var init_config = __esm({
+  "src/lib/core/config.ts"() {
+    "use strict";
+    DEFAULT_HOST = "0.0.0.0";
+    DEFAULT_PORT = 5178;
+    DEFAULT_CURSOR_POLL_SECONDS = 3600;
+    cache = null;
+  }
+});
 
 // src/lib/core/fs-utils.ts
 import { stat as stat4 } from "fs/promises";
@@ -742,32 +802,37 @@ function expandPath(path) {
   if (path.startsWith(`~${sep3}`)) return join4(homedir3(), path.slice(2));
   return path;
 }
+var init_fs_utils = __esm({
+  "src/lib/core/fs-utils.ts"() {
+    "use strict";
+  }
+});
 
 // src/lib/core/provider-status.ts
-var ProviderStatus = class {
-  errors = /* @__PURE__ */ new Map();
-  clear(provider) {
-    this.errors.delete(provider);
-  }
-  recordError(provider, error) {
-    this.errors.set(provider, errorMessage(error));
-  }
-  recordMessage(provider, message) {
-    this.errors.set(provider, message);
-  }
-  snapshot() {
-    return Object.fromEntries(this.errors);
-  }
-};
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
-
-// src/lib/core/providers/codex/local.ts
-import { createReadStream as createReadStream2 } from "fs";
-import { readdir as readdir2 } from "fs/promises";
-import { basename as basename3, join as join5 } from "path";
-import { createInterface as createInterface2 } from "readline";
+var ProviderStatus;
+var init_provider_status = __esm({
+  "src/lib/core/provider-status.ts"() {
+    "use strict";
+    ProviderStatus = class {
+      errors = /* @__PURE__ */ new Map();
+      clear(provider) {
+        this.errors.delete(provider);
+      }
+      recordError(provider, error) {
+        this.errors.set(provider, errorMessage(error));
+      }
+      recordMessage(provider, message) {
+        this.errors.set(provider, message);
+      }
+      snapshot() {
+        return Object.fromEntries(this.errors);
+      }
+    };
+  }
+});
 
 // src/lib/core/providers/codex/parse.ts
 function createCodexLineParser(ctx) {
@@ -843,8 +908,19 @@ function tokenUsage(value) {
 function numberValue(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
+var init_parse2 = __esm({
+  "src/lib/core/providers/codex/parse.ts"() {
+    "use strict";
+    init_cost();
+    init_parse();
+  }
+});
 
 // src/lib/core/providers/codex/local.ts
+import { createReadStream as createReadStream2 } from "fs";
+import { readdir as readdir2 } from "fs/promises";
+import { basename as basename3, join as join5 } from "path";
+import { createInterface as createInterface2 } from "readline";
 async function readCodexRecords(root) {
   const files = await walkJsonl2(root);
   const records = [];
@@ -883,6 +959,12 @@ async function walkJsonlInto(dir, out) {
     }
   }
 }
+var init_local = __esm({
+  "src/lib/core/providers/codex/local.ts"() {
+    "use strict";
+    init_parse2();
+  }
+});
 
 // src/lib/core/providers/opencode/sqlite.ts
 import { DatabaseSync } from "node:sqlite";
@@ -965,6 +1047,12 @@ function nullableString(value) {
 function numberValue2(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
+var init_sqlite = __esm({
+  "src/lib/core/providers/opencode/sqlite.ts"() {
+    "use strict";
+    init_parse();
+  }
+});
 
 // src/lib/core/providers/cursor/api.ts
 function cursorEventToRecord(event) {
@@ -1020,13 +1108,6 @@ async function fetchCursorUsageRecords(opts) {
   }
   return records;
 }
-var CursorApiError = class extends Error {
-  constructor(status) {
-    super(`Cursor Admin API returned HTTP ${status}`);
-    this.status = status;
-  }
-  status;
-};
 function parseUsageResponse(payload) {
   const root = objectValue2(payload);
   const pagination = objectValue2(root.pagination);
@@ -1090,275 +1171,27 @@ function optionalNumber(value) {
 function optionalBoolean(value) {
   return typeof value === "boolean" ? value : void 0;
 }
+var CursorApiError;
+var init_api = __esm({
+  "src/lib/core/providers/cursor/api.ts"() {
+    "use strict";
+    init_parse();
+    CursorApiError = class extends Error {
+      constructor(status) {
+        super(`Cursor Admin API returned HTTP ${status}`);
+        this.status = status;
+      }
+      status;
+    };
+  }
+});
 
 // src/lib/core/engine.ts
-var MTIME_POLL_MS = 4e3;
-var DELTA_DEBOUNCE_MS = 400;
-var Ingestion = class {
-  constructor(config, watchEnabled) {
-    this.config = config;
-    this.watchEnabled = watchEnabled;
-  }
-  config;
-  watchEnabled;
-  rollup = new Rollup();
-  dedup = new DedupSet();
-  fileStates = /* @__PURE__ */ new Map();
-  // path -> {offset,...}
-  fileToProjectsDir = /* @__PURE__ */ new Map();
-  // path -> owning projects dir
-  projectsDirs = [];
-  watchers = [];
-  mtimes = /* @__PURE__ */ new Map();
-  pollTimer = null;
-  cursorTimer = null;
-  deltaTimer = null;
-  listeners = /* @__PURE__ */ new Set();
-  ready = null;
-  coldScanMs = 0;
-  pendingChanges = /* @__PURE__ */ new Set();
-  claudeEnv = null;
-  providerStatus = new ProviderStatus();
-  disposed = false;
-  /** Idempotent: kicks off the cold scan + watchers once. */
-  ensureStarted() {
-    if (!this.ready) this.ready = this.start();
-    return this.ready;
-  }
-  async start() {
-    const t0 = Date.now();
-    const cfg = this.config ?? await loadConfig();
-    this.rollup.setCutover(cfg.cutoverTs);
-    const claudeEnv = {
-      ...process.env,
-      CLAUDE_CONFIG_DIR: cfg.providers.claude.roots.map(expandPath).join(",")
-    };
-    this.claudeEnv = cfg.providers.claude.enabled ? claudeEnv : null;
-    this.projectsDirs = cfg.providers.claude.enabled ? await resolveProjectsDirs(claudeEnv) : [];
-    const files = cfg.providers.claude.enabled ? await discoverFiles(claudeEnv) : [];
-    for (const f of files) {
-      const projectsDir = this.owningProjectsDir(f.path);
-      this.fileToProjectsDir.set(f.path, projectsDir);
-      this.rollup.markFileScanned();
-      try {
-        const newOffset = await ingestRange(f.path, 0, projectsDir, this.rollup, this.dedup);
-        this.fileStates.set(f.path, {
-          offset: newOffset,
-          project: f.project,
-          isSidechain: f.isSidechain
-        });
-        const m = await safeMtime(f.path);
-        if (m != null) this.mtimes.set(f.path, m);
-      } catch {
-      }
-    }
-    if (cfg.providers.codex.enabled) {
-      await this.ingestCodex(expandPath(cfg.providers.codex.root));
-    }
-    if (cfg.providers.opencode.enabled) {
-      await this.ingestOpenCode(expandPath(cfg.providers.opencode.dbPath));
-    }
-    const cursorToken = cfg.providers.cursor.adminApiToken || process.env.CURSOR_ADMIN_API_TOKEN || "";
-    if (cfg.providers.cursor.enabled && cursorToken) {
-      const cursorCfgWithToken = { ...cfg.providers.cursor, adminApiToken: cursorToken };
-      await this.ingestCursor(cursorToken, cfg.providers.cursor.email);
-      if (this.watchEnabled && !this.disposed) this.startCursorPolling(cursorCfgWithToken);
-    }
-    this.coldScanMs = Date.now() - t0;
-    if (this.watchEnabled && !this.disposed) this.startWatching();
-  }
-  async ingestCodex(root) {
-    try {
-      const result = await readCodexRecords(root);
-      for (let i = 0; i < result.filesScanned; i++) this.rollup.markFileScanned();
-      this.addProviderRecords(result.records);
-      const [firstError] = result.errors;
-      if (firstError) this.providerStatus.recordMessage("codex", firstError);
-      else this.providerStatus.clear("codex");
-    } catch (error) {
-      this.providerStatus.recordError("codex", error);
-      return;
-    }
-  }
-  async ingestOpenCode(dbPath) {
-    try {
-      this.rollup.markFileScanned();
-      const records = await readOpenCodeSessions(dbPath);
-      this.addProviderRecords(records);
-      this.providerStatus.clear("opencode");
-    } catch (error) {
-      this.providerStatus.recordError("opencode", error);
-      return;
-    }
-  }
-  async ingestCursor(adminApiToken, email) {
-    try {
-      const endDate = Date.now();
-      const startDate = endDate - 30 * 24 * 60 * 60 * 1e3;
-      const records = await fetchCursorUsageRecords({
-        adminApiToken,
-        startDate,
-        endDate,
-        email: email ?? void 0,
-        pageSize: 100
-      });
-      this.addProviderRecords(records);
-      this.providerStatus.clear("cursor");
-    } catch (error) {
-      this.providerStatus.recordError("cursor", error);
-      return;
-    }
-  }
-  addProviderRecords(records) {
-    for (const rec of records) {
-      if (!this.dedup.add(rec.key)) {
-        this.rollup.addDuplicate();
-        continue;
-      }
-      this.rollup.add(rec);
-    }
-  }
-  startCursorPolling(cfg) {
-    if (this.cursorTimer || !cfg.adminApiToken) return;
-    this.cursorTimer = setInterval(() => void this.pollCursor(cfg), cfg.pollSeconds * 1e3);
-    if (this.cursorTimer.unref) this.cursorTimer.unref();
-  }
-  async pollCursor(cfg) {
-    if (this.disposed) return;
-    await this.ingestCursor(cfg.adminApiToken, cfg.email);
-    if (this.disposed) return;
-    if (this.rollup.hasDirty()) {
-      const delta = this.rollup.drainDelta();
-      if (delta) for (const fn of this.listeners) fn(delta);
-    }
-  }
-  owningProjectsDir(filePath) {
-    for (const dir of this.projectsDirs) {
-      if (filePath.startsWith(dir + sep4)) return dir;
-    }
-    return this.projectsDirs[0] ?? "";
-  }
-  startWatching() {
-    for (const dir of this.projectsDirs) {
-      try {
-        const w = watch(dir, { recursive: true }, (_event, filename) => {
-          if (!filename) return;
-          const name = filename.toString();
-          if (!name.endsWith(".jsonl")) return;
-          const full = name.startsWith(dir) ? name : `${dir}${sep4}${name}`;
-          this.fileToProjectsDir.set(full, dir);
-          this.queueChange(full);
-        });
-        this.watchers.push(w);
-      } catch {
-      }
-    }
-    this.pollTimer = setInterval(() => void this.pollMtimes(), MTIME_POLL_MS);
-    if (this.pollTimer.unref) this.pollTimer.unref();
-  }
-  queueChange(full) {
-    if (this.disposed) return;
-    this.pendingChanges.add(full);
-    if (this.deltaTimer) return;
-    this.deltaTimer = setTimeout(() => void this.flushChanges(), DELTA_DEBOUNCE_MS);
-    if (this.deltaTimer.unref) this.deltaTimer.unref();
-  }
-  async flushChanges() {
-    this.deltaTimer = null;
-    if (this.disposed) return;
-    const paths = [...this.pendingChanges];
-    this.pendingChanges.clear();
-    for (const full of paths) {
-      await this.tailFile(full);
-    }
-    if (this.disposed) return;
-    if (this.rollup.hasDirty()) {
-      const delta = this.rollup.drainDelta();
-      if (delta) for (const fn of this.listeners) fn(delta);
-    }
-  }
-  async tailFile(full) {
-    const projectsDir = this.fileToProjectsDir.get(full) ?? this.owningProjectsDir(full);
-    const state = this.fileStates.get(full);
-    const startOffset = state?.offset ?? 0;
-    if (!state) this.rollup.markFileScanned();
-    try {
-      const newOffset = await ingestRange(full, startOffset, projectsDir, this.rollup, this.dedup);
-      const existing = this.fileStates.get(full);
-      this.fileStates.set(full, {
-        offset: newOffset,
-        project: existing?.project ?? "unknown",
-        isSidechain: existing?.isSidechain ?? full.includes(`${sep4}subagents${sep4}`)
-      });
-      const m = await safeMtime(full);
-      if (m != null) this.mtimes.set(full, m);
-    } catch {
-    }
-  }
-  async pollMtimes() {
-    let changed = false;
-    try {
-      if (this.disposed || !this.claudeEnv) return;
-      const files = await discoverFiles(this.claudeEnv);
-      for (const f of files) {
-        const m = await safeMtime(f.path);
-        if (m == null) continue;
-        const prev = this.mtimes.get(f.path);
-        if (prev === void 0 || m > prev) {
-          this.fileToProjectsDir.set(f.path, this.owningProjectsDir(f.path));
-          this.pendingChanges.add(f.path);
-          changed = true;
-        }
-      }
-    } catch {
-    }
-    if (changed && !this.deltaTimer) {
-      this.deltaTimer = setTimeout(() => void this.flushChanges(), DELTA_DEBOUNCE_MS);
-      if (this.deltaTimer.unref) this.deltaTimer.unref();
-    }
-  }
-  subscribe(fn) {
-    this.listeners.add(fn);
-    return () => this.listeners.delete(fn);
-  }
-  snapshot() {
-    return this.rollup.snapshot();
-  }
-  setCutover(ts) {
-    this.rollup.setCutover(ts);
-  }
-  dispose() {
-    if (this.disposed) return;
-    this.disposed = true;
-    for (const w of this.watchers) {
-      try {
-        w.close();
-      } catch {
-      }
-    }
-    this.watchers = [];
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = null;
-    }
-    if (this.cursorTimer) {
-      clearInterval(this.cursorTimer);
-      this.cursorTimer = null;
-    }
-    if (this.deltaTimer) {
-      clearTimeout(this.deltaTimer);
-      this.deltaTimer = null;
-    }
-    this.listeners.clear();
-  }
-  get stats() {
-    return {
-      coldScanMs: this.coldScanMs,
-      files: this.fileStates.size,
-      providerErrors: this.providerStatus.snapshot()
-    };
-  }
-};
+import { watch } from "fs";
+import { sep as sep4 } from "path";
+function createEngine(config) {
+  return new Ingestion(config ?? null, true);
+}
 async function runOnce(config) {
   const engine = new Ingestion(config ?? null, false);
   try {
@@ -1368,16 +1201,360 @@ async function runOnce(config) {
     engine.dispose();
   }
 }
+var MTIME_POLL_MS, DELTA_DEBOUNCE_MS, Ingestion;
+var init_engine = __esm({
+  "src/lib/core/engine.ts"() {
+    "use strict";
+    init_rollup();
+    init_dedup();
+    init_discover();
+    init_tail();
+    init_config();
+    init_fs_utils();
+    init_provider_status();
+    init_local();
+    init_sqlite();
+    init_api();
+    MTIME_POLL_MS = 4e3;
+    DELTA_DEBOUNCE_MS = 400;
+    Ingestion = class {
+      constructor(config, watchEnabled) {
+        this.config = config;
+        this.watchEnabled = watchEnabled;
+      }
+      config;
+      watchEnabled;
+      rollup = new Rollup();
+      dedup = new DedupSet();
+      fileStates = /* @__PURE__ */ new Map();
+      // path -> {offset,...}
+      fileToProjectsDir = /* @__PURE__ */ new Map();
+      // path -> owning projects dir
+      projectsDirs = [];
+      watchers = [];
+      mtimes = /* @__PURE__ */ new Map();
+      pollTimer = null;
+      cursorTimer = null;
+      deltaTimer = null;
+      listeners = /* @__PURE__ */ new Set();
+      ready = null;
+      coldScanMs = 0;
+      pendingChanges = /* @__PURE__ */ new Set();
+      claudeEnv = null;
+      providerStatus = new ProviderStatus();
+      disposed = false;
+      /** Idempotent: kicks off the cold scan + watchers once. */
+      ensureStarted() {
+        if (!this.ready) this.ready = this.start();
+        return this.ready;
+      }
+      async start() {
+        const t0 = Date.now();
+        const cfg = this.config ?? await loadConfig();
+        this.rollup.setCutover(cfg.cutoverTs);
+        const claudeEnv = {
+          ...process.env,
+          CLAUDE_CONFIG_DIR: cfg.providers.claude.roots.map(expandPath).join(",")
+        };
+        this.claudeEnv = cfg.providers.claude.enabled ? claudeEnv : null;
+        this.projectsDirs = cfg.providers.claude.enabled ? await resolveProjectsDirs(claudeEnv) : [];
+        const files = cfg.providers.claude.enabled ? await discoverFiles(claudeEnv) : [];
+        for (const f of files) {
+          const projectsDir = this.owningProjectsDir(f.path);
+          this.fileToProjectsDir.set(f.path, projectsDir);
+          this.rollup.markFileScanned();
+          try {
+            const newOffset = await ingestRange(f.path, 0, projectsDir, this.rollup, this.dedup);
+            this.fileStates.set(f.path, {
+              offset: newOffset,
+              project: f.project,
+              isSidechain: f.isSidechain
+            });
+            const m = await safeMtime(f.path);
+            if (m != null) this.mtimes.set(f.path, m);
+          } catch {
+          }
+        }
+        if (cfg.providers.codex.enabled) {
+          await this.ingestCodex(expandPath(cfg.providers.codex.root));
+        }
+        if (cfg.providers.opencode.enabled) {
+          await this.ingestOpenCode(expandPath(cfg.providers.opencode.dbPath));
+        }
+        const cursorToken = cfg.providers.cursor.adminApiToken || process.env.CURSOR_ADMIN_API_TOKEN || "";
+        if (cfg.providers.cursor.enabled && cursorToken) {
+          const cursorCfgWithToken = { ...cfg.providers.cursor, adminApiToken: cursorToken };
+          await this.ingestCursor(cursorToken, cfg.providers.cursor.email);
+          if (this.watchEnabled && !this.disposed) this.startCursorPolling(cursorCfgWithToken);
+        }
+        this.coldScanMs = Date.now() - t0;
+        if (this.watchEnabled && !this.disposed) this.startWatching();
+      }
+      async ingestCodex(root) {
+        try {
+          const result = await readCodexRecords(root);
+          for (let i = 0; i < result.filesScanned; i++) this.rollup.markFileScanned();
+          this.addProviderRecords(result.records);
+          const [firstError] = result.errors;
+          if (firstError) this.providerStatus.recordMessage("codex", firstError);
+          else this.providerStatus.clear("codex");
+        } catch (error) {
+          this.providerStatus.recordError("codex", error);
+          return;
+        }
+      }
+      async ingestOpenCode(dbPath) {
+        try {
+          this.rollup.markFileScanned();
+          const records = await readOpenCodeSessions(dbPath);
+          this.addProviderRecords(records);
+          this.providerStatus.clear("opencode");
+        } catch (error) {
+          this.providerStatus.recordError("opencode", error);
+          return;
+        }
+      }
+      async ingestCursor(adminApiToken, email) {
+        try {
+          const endDate = Date.now();
+          const startDate = endDate - 30 * 24 * 60 * 60 * 1e3;
+          const records = await fetchCursorUsageRecords({
+            adminApiToken,
+            startDate,
+            endDate,
+            email: email ?? void 0,
+            pageSize: 100
+          });
+          this.addProviderRecords(records);
+          this.providerStatus.clear("cursor");
+        } catch (error) {
+          this.providerStatus.recordError("cursor", error);
+          return;
+        }
+      }
+      addProviderRecords(records) {
+        for (const rec of records) {
+          if (!this.dedup.add(rec.key)) {
+            this.rollup.addDuplicate();
+            continue;
+          }
+          this.rollup.add(rec);
+        }
+      }
+      startCursorPolling(cfg) {
+        if (this.cursorTimer || !cfg.adminApiToken) return;
+        this.cursorTimer = setInterval(() => void this.pollCursor(cfg), cfg.pollSeconds * 1e3);
+        if (this.cursorTimer.unref) this.cursorTimer.unref();
+      }
+      async pollCursor(cfg) {
+        if (this.disposed) return;
+        await this.ingestCursor(cfg.adminApiToken, cfg.email);
+        if (this.disposed) return;
+        if (this.rollup.hasDirty()) {
+          const delta = this.rollup.drainDelta();
+          if (delta) for (const fn of this.listeners) fn(delta);
+        }
+      }
+      owningProjectsDir(filePath) {
+        for (const dir of this.projectsDirs) {
+          if (filePath.startsWith(dir + sep4)) return dir;
+        }
+        return this.projectsDirs[0] ?? "";
+      }
+      startWatching() {
+        for (const dir of this.projectsDirs) {
+          try {
+            const w = watch(dir, { recursive: true }, (_event, filename) => {
+              if (!filename) return;
+              const name = filename.toString();
+              if (!name.endsWith(".jsonl")) return;
+              const full = name.startsWith(dir) ? name : `${dir}${sep4}${name}`;
+              this.fileToProjectsDir.set(full, dir);
+              this.queueChange(full);
+            });
+            this.watchers.push(w);
+          } catch {
+          }
+        }
+        this.pollTimer = setInterval(() => void this.pollMtimes(), MTIME_POLL_MS);
+        if (this.pollTimer.unref) this.pollTimer.unref();
+      }
+      queueChange(full) {
+        if (this.disposed) return;
+        this.pendingChanges.add(full);
+        if (this.deltaTimer) return;
+        this.deltaTimer = setTimeout(() => void this.flushChanges(), DELTA_DEBOUNCE_MS);
+        if (this.deltaTimer.unref) this.deltaTimer.unref();
+      }
+      async flushChanges() {
+        this.deltaTimer = null;
+        if (this.disposed) return;
+        const paths = [...this.pendingChanges];
+        this.pendingChanges.clear();
+        for (const full of paths) {
+          await this.tailFile(full);
+        }
+        if (this.disposed) return;
+        if (this.rollup.hasDirty()) {
+          const delta = this.rollup.drainDelta();
+          if (delta) for (const fn of this.listeners) fn(delta);
+        }
+      }
+      async tailFile(full) {
+        const projectsDir = this.fileToProjectsDir.get(full) ?? this.owningProjectsDir(full);
+        const state = this.fileStates.get(full);
+        const startOffset = state?.offset ?? 0;
+        if (!state) this.rollup.markFileScanned();
+        try {
+          const newOffset = await ingestRange(full, startOffset, projectsDir, this.rollup, this.dedup);
+          const existing = this.fileStates.get(full);
+          this.fileStates.set(full, {
+            offset: newOffset,
+            project: existing?.project ?? "unknown",
+            isSidechain: existing?.isSidechain ?? full.includes(`${sep4}subagents${sep4}`)
+          });
+          const m = await safeMtime(full);
+          if (m != null) this.mtimes.set(full, m);
+        } catch {
+        }
+      }
+      async pollMtimes() {
+        let changed = false;
+        try {
+          if (this.disposed || !this.claudeEnv) return;
+          const files = await discoverFiles(this.claudeEnv);
+          for (const f of files) {
+            const m = await safeMtime(f.path);
+            if (m == null) continue;
+            const prev = this.mtimes.get(f.path);
+            if (prev === void 0 || m > prev) {
+              this.fileToProjectsDir.set(f.path, this.owningProjectsDir(f.path));
+              this.pendingChanges.add(f.path);
+              changed = true;
+            }
+          }
+        } catch {
+        }
+        if (changed && !this.deltaTimer) {
+          this.deltaTimer = setTimeout(() => void this.flushChanges(), DELTA_DEBOUNCE_MS);
+          if (this.deltaTimer.unref) this.deltaTimer.unref();
+        }
+      }
+      subscribe(fn) {
+        this.listeners.add(fn);
+        return () => this.listeners.delete(fn);
+      }
+      snapshot() {
+        return this.rollup.snapshot();
+      }
+      setCutover(ts) {
+        this.rollup.setCutover(ts);
+      }
+      dispose() {
+        if (this.disposed) return;
+        this.disposed = true;
+        for (const w of this.watchers) {
+          try {
+            w.close();
+          } catch {
+          }
+        }
+        this.watchers = [];
+        if (this.pollTimer) {
+          clearInterval(this.pollTimer);
+          this.pollTimer = null;
+        }
+        if (this.cursorTimer) {
+          clearInterval(this.cursorTimer);
+          this.cursorTimer = null;
+        }
+        if (this.deltaTimer) {
+          clearTimeout(this.deltaTimer);
+          this.deltaTimer = null;
+        }
+        this.listeners.clear();
+      }
+      get stats() {
+        return {
+          coldScanMs: this.coldScanMs,
+          files: this.fileStates.size,
+          providerErrors: this.providerStatus.snapshot()
+        };
+      }
+    };
+  }
+});
 
 // src/lib/core/aggregate.ts
 function zeroTokens3() {
   return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 };
+}
+function totalTokens(t) {
+  return t.input + t.output + t.cacheCreation + t.cacheRead;
 }
 function addInto(into, from) {
   into.input += from.input;
   into.output += from.output;
   into.cacheCreation += from.cacheCreation;
   into.cacheRead += from.cacheRead;
+}
+function dayToUTC(day) {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+function isoWeekKey(day) {
+  const date = dayToUTC(day);
+  const dayNum = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - dayNum + 3);
+  const isoYear = date.getUTCFullYear();
+  const jan1 = new Date(Date.UTC(isoYear, 0, 1));
+  const week = Math.floor((date.getTime() - jan1.getTime()) / (7 * 864e5)) + 1;
+  return `${isoYear}-W${String(week).padStart(2, "0")}`;
+}
+function periodKey(day, period) {
+  switch (period) {
+    case "day":
+      return day;
+    case "week":
+      return isoWeekKey(day);
+    case "month":
+      return day.slice(0, 7);
+  }
+}
+function aggregateByPeriod(dayModel, period, modelFilter, providerFilter) {
+  const buckets = /* @__PURE__ */ new Map();
+  for (const dm of dayModel) {
+    if (modelFilter && modelFilter.size > 0 && !modelFilter.has(dm.model)) continue;
+    if (providerFilter && providerFilter.size > 0 && !providerFilter.has(dm.provider)) continue;
+    const key = periodKey(dm.day, period);
+    let b = buckets.get(key);
+    if (!b) {
+      b = {
+        key,
+        startDay: dm.day,
+        tokens: zeroTokens3(),
+        requests: 0,
+        cost: 0,
+        costUnknownRequests: 0,
+        byModel: /* @__PURE__ */ new Map()
+      };
+      buckets.set(key, b);
+    }
+    if (dm.day < b.startDay) b.startDay = dm.day;
+    addInto(b.tokens, dm.tokens);
+    b.requests += dm.requests;
+    b.cost += dm.cost;
+    b.costUnknownRequests += dm.costUnknownRequests;
+    let m = b.byModel.get(dm.model);
+    if (!m) {
+      m = { tokens: zeroTokens3(), cost: 0, requests: 0 };
+      b.byModel.set(dm.model, m);
+    }
+    addInto(m.tokens, dm.tokens);
+    m.cost += dm.cost;
+    m.requests += dm.requests;
+  }
+  return [...buckets.values()].sort((a, b) => a.startDay < b.startDay ? -1 : a.startDay > b.startDay ? 1 : 0);
 }
 function aggregateByModel(dayModel) {
   const m = /* @__PURE__ */ new Map();
@@ -1394,18 +1571,18 @@ function aggregateByModel(dayModel) {
   return [...m.values()].sort((a, b) => b.cost - a.cost);
 }
 function aggregateByProvider(dayModel) {
-  const providers = /* @__PURE__ */ new Map();
+  const providers2 = /* @__PURE__ */ new Map();
   for (const dm of dayModel) {
-    let t = providers.get(dm.provider);
+    let t = providers2.get(dm.provider);
     if (!t) {
       t = { provider: dm.provider, tokens: zeroTokens3(), cost: 0, requests: 0 };
-      providers.set(dm.provider, t);
+      providers2.set(dm.provider, t);
     }
     addInto(t.tokens, dm.tokens);
     t.cost += dm.cost;
     t.requests += dm.requests;
   }
-  return [...providers.values()].sort((a, b) => b.cost - a.cost);
+  return [...providers2.values()].sort((a, b) => b.cost - a.cost);
 }
 function sumGrain(dayModel, opts = {}) {
   const t = { tokens: zeroTokens3(), cost: 0, requests: 0, costUnknownRequests: 0 };
@@ -1425,6 +1602,11 @@ function filterDays(dayModel, from, to) {
   if (!from && !to) return dayModel;
   return dayModel.filter((dm) => (!from || dm.day >= from) && (!to || dm.day <= to));
 }
+var init_aggregate = __esm({
+  "src/lib/core/aggregate.ts"() {
+    "use strict";
+  }
+});
 
 // src/lib/format.ts
 function providerLabel(provider) {
@@ -1449,24 +1631,6 @@ function modelLabel2(model) {
   }
   return model;
 }
-var usd0 = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 0
-});
-var usd2 = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2
-});
-var usd4 = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 4,
-  maximumFractionDigits: 4
-});
 function money(v) {
   if (v >= 1e3) return usd0.format(v);
   if (v >= 0.01) return usd2.format(v);
@@ -1479,13 +1643,40 @@ function compactTokens(v) {
   if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
   return String(Math.round(v));
 }
-var intFmt = new Intl.NumberFormat("en-US");
 function int(v) {
   return intFmt.format(Math.round(v));
 }
+var usd0, usd2, usd4, intFmt;
+var init_format = __esm({
+  "src/lib/format.ts"() {
+    "use strict";
+    usd0 = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    });
+    usd2 = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+    usd4 = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 4,
+      maximumFractionDigits: 4
+    });
+    intFmt = new Intl.NumberFormat("en-US");
+  }
+});
 
 // src/cli/commands/stats.ts
-var TOP_MODELS = 8;
+var stats_exports = {};
+__export(stats_exports, {
+  runStats: () => runStats
+});
 async function runStats(flags) {
   const cfg = await loadConfig();
   const snapshot2 = await runOnce(cfg);
@@ -1590,6 +1781,501 @@ function printHuman(snapshot2, flags) {
   }
   console.log("");
 }
+var TOP_MODELS;
+var init_stats = __esm({
+  "src/cli/commands/stats.ts"() {
+    "use strict";
+    init_engine();
+    init_config();
+    init_aggregate();
+    init_format();
+    TOP_MODELS = 8;
+  }
+});
+
+// src/cli/tui/theme.ts
+function noColor() {
+  return process.env.NO_COLOR !== void 0 && process.env.NO_COLOR !== "";
+}
+function color(name) {
+  return noColor() ? void 0 : name;
+}
+function providerColorName(provider) {
+  switch (provider) {
+    case "claude":
+      return "magenta";
+    case "codex":
+      return "cyan";
+    case "opencode":
+      return "green";
+    case "cursor":
+      return "yellow";
+    default:
+      return "gray";
+  }
+}
+function modelColorName(model) {
+  if (/opus/i.test(model)) return "magenta";
+  if (/sonnet/i.test(model)) return "cyan";
+  if (/haiku/i.test(model)) return "yellow";
+  return "gray";
+}
+function sparkline(values) {
+  if (values.length === 0) return "";
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+  const range = max - min;
+  return values.map((v) => {
+    if (range === 0) return max > 0 ? SPARK_CHARS[4] : SPARK_CHARS[0];
+    const idx = Math.round((v - min) / range * (SPARK_CHARS.length - 1));
+    return SPARK_CHARS[Math.max(0, Math.min(SPARK_CHARS.length - 1, idx))];
+  }).join("");
+}
+function gaugeBar(fraction, width) {
+  const f = Math.max(0, Math.min(1, fraction));
+  const filled = Math.round(f * width);
+  return "\u2588".repeat(filled) + "\u2591".repeat(Math.max(0, width - filled));
+}
+function bannerLine(noArt2) {
+  if (noArt2) return null;
+  return "\u25C8 chaching";
+}
+function noArt(argv = []) {
+  if (process.env.CHACHING_NO_ART !== void 0 && process.env.CHACHING_NO_ART !== "") return true;
+  return argv.includes("--no-art");
+}
+var ACCENT, DIM, SPARK_CHARS, PERIOD_LABEL;
+var init_theme = __esm({
+  "src/cli/tui/theme.ts"() {
+    "use strict";
+    ACCENT = "green";
+    DIM = "gray";
+    SPARK_CHARS = ["\u2581", "\u2582", "\u2583", "\u2584", "\u2585", "\u2586", "\u2587", "\u2588"];
+    PERIOD_LABEL = {
+      day: "Day",
+      week: "Week",
+      month: "Month"
+    };
+  }
+});
+
+// src/lib/core/view-model.ts
+function addDaysISO(day, delta) {
+  const d = /* @__PURE__ */ new Date(day + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+function zeroTotals() {
+  return {
+    tokens: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 },
+    cost: 0,
+    requests: 0,
+    costUnknownRequests: 0
+  };
+}
+function defaultViewState(period = "week") {
+  return { period, modelFilter: /* @__PURE__ */ new Set(), providerFilter: /* @__PURE__ */ new Set(), zoom: null };
+}
+function asFilter(set) {
+  return set.size > 0 ? set : null;
+}
+function scopedGrain(snap, state) {
+  const z = state.zoom;
+  return z ? filterDays(snap.dayModel, z.from, z.to) : snap.dayModel;
+}
+function trend(snap, state) {
+  const effectivePeriod = state.zoom ? "day" : state.period;
+  return aggregateByPeriod(
+    scopedGrain(snap, state),
+    effectivePeriod,
+    asFilter(state.modelFilter),
+    asFilter(state.providerFilter)
+  );
+}
+function models(snap, state) {
+  const providers2 = asFilter(state.providerFilter);
+  const grain = providers2 ? scopedGrain(snap, state).filter((dm) => providers2.has(dm.provider)) : scopedGrain(snap, state);
+  return aggregateByModel(grain);
+}
+function providers(snap, state) {
+  return aggregateByProvider(scopedGrain(snap, state));
+}
+function periodWindow(snap, state) {
+  const to = snap.latestDay ?? snap.earliestDay ?? "1970-01-01";
+  const span = state.period === "day" ? 1 : state.period === "week" ? 7 : 30;
+  const from = addDaysISO(to, -(span - 1));
+  const priorTo = addDaysISO(from, -1);
+  const priorFrom = addDaysISO(priorTo, -(span - 1));
+  const label = state.period === "day" ? "Today" : state.period === "week" ? "Last 7 days" : "Last 30 days";
+  return { from, to, priorFrom, priorTo, label };
+}
+function heroTotals(snap, state) {
+  const modelFilter = asFilter(state.modelFilter);
+  const providerFilter = asFilter(state.providerFilter);
+  if (state.zoom) {
+    const cur = sumGrain(snap.dayModel, {
+      from: state.zoom.from,
+      to: state.zoom.to,
+      models: modelFilter,
+      providers: providerFilter
+    });
+    return { current: cur, prior: zeroTotals(), label: "Zoom range" };
+  }
+  const w = periodWindow(snap, state);
+  return {
+    current: sumGrain(snap.dayModel, { from: w.from, to: w.to, models: modelFilter, providers: providerFilter }),
+    prior: sumGrain(snap.dayModel, {
+      from: w.priorFrom,
+      to: w.priorTo,
+      models: modelFilter,
+      providers: providerFilter
+    }),
+    label: w.label
+  };
+}
+function scopedTotals(snap, state) {
+  const modelFilter = asFilter(state.modelFilter);
+  const providerFilter = asFilter(state.providerFilter);
+  if (state.zoom) {
+    return sumGrain(snap.dayModel, {
+      from: state.zoom.from,
+      to: state.zoom.to,
+      models: modelFilter,
+      providers: providerFilter
+    });
+  }
+  const w = periodWindow(snap, state);
+  return sumGrain(snap.dayModel, { from: w.from, to: w.to, models: modelFilter, providers: providerFilter });
+}
+var init_view_model = __esm({
+  "src/lib/core/view-model.ts"() {
+    "use strict";
+    init_aggregate();
+  }
+});
+
+// src/lib/core/merge.ts
+function dayModelKey(dm) {
+  return `${dm.day}${KEY_SEP2}${dm.provider}${KEY_SEP2}${dm.model}`;
+}
+function sessionKey2(s) {
+  return `${s.provider}${KEY_SEP2}${s.sessionId}`;
+}
+function applyDelta(prev, delta) {
+  const dayModel = /* @__PURE__ */ new Map();
+  for (const dm of prev.dayModel) dayModel.set(dayModelKey(dm), dm);
+  for (const dm of delta.dayModel) dayModel.set(dayModelKey(dm), dm);
+  const sessions = /* @__PURE__ */ new Map();
+  for (const s of prev.sessions) sessions.set(sessionKey2(s), s);
+  for (const s of delta.sessions) sessions.set(sessionKey2(s), s);
+  return {
+    ...prev,
+    generatedAt: delta.generatedAt,
+    totals: delta.totals,
+    earliestDay: delta.earliestDay,
+    latestDay: delta.latestDay,
+    models: delta.models,
+    providers: delta.providers,
+    unknownPriceModels: delta.unknownPriceModels,
+    stats: delta.stats,
+    dayModel: [...dayModel.values()],
+    sessions: [...sessions.values()].sort((a, b) => b.lastTs - a.lastTs),
+    blocks: delta.blocks
+  };
+}
+var KEY_SEP2;
+var init_merge = __esm({
+  "src/lib/core/merge.ts"() {
+    "use strict";
+    KEY_SEP2 = "";
+  }
+});
+
+// src/cli/tui/components.tsx
+import { Box, Text } from "ink";
+import { jsx, jsxs } from "react/jsx-runtime";
+function Card({ label, value, sub, accent }) {
+  return /* @__PURE__ */ jsxs(Box, { flexDirection: "column", borderStyle: "round", borderColor: color(DIM), paddingX: 1, minWidth: 18, children: [
+    /* @__PURE__ */ jsx(Text, { color: color(DIM), children: label }),
+    /* @__PURE__ */ jsx(Text, { color: color(accent), bold: true, children: value }),
+    sub ? /* @__PURE__ */ jsx(Text, { color: color(DIM), children: sub }) : null
+  ] });
+}
+function SummaryCards({ totals, topModel }) {
+  const toks = totalTokens(totals.tokens);
+  return /* @__PURE__ */ jsxs(Box, { gap: 1, flexWrap: "wrap", children: [
+    /* @__PURE__ */ jsx(Card, { label: "Total spend", value: money(totals.cost), sub: `${int(totals.requests)} requests`, accent: ACCENT }),
+    /* @__PURE__ */ jsx(Card, { label: "Total tokens", value: compactTokens(toks), sub: `${compactTokens(totals.tokens.output)} output`, accent: "cyan" }),
+    /* @__PURE__ */ jsx(
+      Card,
+      {
+        label: "Top model",
+        value: topModel ? modelLabel2(topModel.model) : "\u2014",
+        sub: topModel ? `${money(topModel.cost)} \xB7 ${compactTokens(totalTokens(topModel.tokens))}` : "",
+        accent: topModel ? modelColorName(topModel.model) : DIM
+      }
+    )
+  ] });
+}
+function ProviderBreakdown({ providers: providers2 }) {
+  if (providers2.length === 0) return null;
+  return /* @__PURE__ */ jsxs(Box, { flexDirection: "column", children: [
+    /* @__PURE__ */ jsx(Text, { color: color(DIM), children: "By provider" }),
+    providers2.map((p) => {
+      const toks = totalTokens(p.tokens);
+      return /* @__PURE__ */ jsxs(Text, { children: [
+        /* @__PURE__ */ jsx(Text, { color: color(providerColorName(p.provider)), children: providerLabel(p.provider).padEnd(14) }),
+        /* @__PURE__ */ jsx(Text, { bold: true, children: money(p.cost).padStart(10) }),
+        /* @__PURE__ */ jsx(Text, { color: color(DIM), children: `  ${compactTokens(toks).padStart(7)} tok  ${int(p.requests).padStart(6)} req` })
+      ] }, p.provider);
+    })
+  ] });
+}
+function ModelBreakdown({ models: models2, topN }) {
+  const top = models2.slice(0, topN);
+  if (top.length === 0) return null;
+  return /* @__PURE__ */ jsxs(Box, { flexDirection: "column", children: [
+    /* @__PURE__ */ jsx(Text, { color: color(DIM), children: `By model (top ${top.length})` }),
+    top.map((m) => {
+      const toks = totalTokens(m.tokens);
+      return /* @__PURE__ */ jsxs(Text, { children: [
+        /* @__PURE__ */ jsx(Text, { color: color(modelColorName(m.model)), children: modelLabel2(m.model).padEnd(16) }),
+        /* @__PURE__ */ jsx(Text, { bold: true, children: money(m.cost).padStart(10) }),
+        /* @__PURE__ */ jsx(Text, { color: color(DIM), children: `  ${compactTokens(toks).padStart(7)} tok  ${int(m.requests).padStart(6)} req` })
+      ] }, m.model);
+    })
+  ] });
+}
+function TrendSparkline({ buckets, periodLabel }) {
+  const costs = buckets.map((b) => b.cost);
+  const spark = sparkline(costs);
+  const peak = costs.length > 0 ? Math.max(...costs) : 0;
+  return /* @__PURE__ */ jsxs(Box, { flexDirection: "column", children: [
+    /* @__PURE__ */ jsx(Text, { color: color(DIM), children: `Trend \xB7 ${periodLabel} (${buckets.length} buckets)` }),
+    spark ? /* @__PURE__ */ jsx(Text, { color: color(ACCENT), children: spark }) : /* @__PURE__ */ jsx(Text, { color: color(DIM), children: "no data in scope" }),
+    peak > 0 ? /* @__PURE__ */ jsx(Text, { color: color(DIM), children: `peak ${money(peak)}` }) : null
+  ] });
+}
+function CapBlock({ block, now }) {
+  if (!block) {
+    return /* @__PURE__ */ jsxs(Box, { flexDirection: "column", children: [
+      /* @__PURE__ */ jsx(Text, { color: color(DIM), children: "5h window" }),
+      /* @__PURE__ */ jsx(Text, { color: color(DIM), children: "no active window" })
+    ] });
+  }
+  const span = block.endTs - block.startTs;
+  const elapsed = Math.max(0, Math.min(span, now - block.startTs));
+  const remaining = Math.max(0, block.endTs - now);
+  const mins = (ms) => Math.round(ms / 6e4);
+  const fmtDur = (ms) => {
+    const m = mins(ms);
+    return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}m`;
+  };
+  return /* @__PURE__ */ jsxs(Box, { flexDirection: "column", children: [
+    /* @__PURE__ */ jsx(Text, { color: color(DIM), children: "5h window (cap proximity)" }),
+    /* @__PURE__ */ jsx(Text, { color: color(ACCENT), bold: true, children: money(block.cost) }),
+    /* @__PURE__ */ jsx(Text, { color: color(DIM), children: `${compactTokens(totalTokens(block.tokens))} tok \xB7 ${int(block.requests)} req` }),
+    /* @__PURE__ */ jsxs(Text, { children: [
+      /* @__PURE__ */ jsx(Text, { color: color(ACCENT), children: gaugeBar(span > 0 ? elapsed / span : 0, 20) }),
+      /* @__PURE__ */ jsx(Text, { color: color(DIM), children: `  ${fmtDur(elapsed)} in \xB7 ${fmtDur(remaining)} left` })
+    ] })
+  ] });
+}
+function ProviderFilterRow({
+  providers: providers2,
+  active
+}) {
+  if (providers2.length <= 1) return null;
+  const allActive = active.size === 0;
+  return /* @__PURE__ */ jsxs(Box, { flexWrap: "wrap", gap: 1, children: [
+    /* @__PURE__ */ jsx(Text, { color: color(DIM), children: "Filter:" }),
+    providers2.map((p, i) => {
+      const on = allActive || active.has(p.provider);
+      return /* @__PURE__ */ jsxs(Text, { children: [
+        /* @__PURE__ */ jsx(Text, { color: color(DIM), children: `[${i + 1}]` }),
+        /* @__PURE__ */ jsx(Text, { color: on ? color(providerColorName(p.provider)) : color(DIM), dimColor: !on, bold: on, children: ` ${providerLabel(p.provider)}` }),
+        /* @__PURE__ */ jsx(Text, { color: color(on ? providerColorName(p.provider) : DIM), children: on ? " \u25CF" : " \u25CB" })
+      ] }, p.provider);
+    }),
+    !allActive ? /* @__PURE__ */ jsx(Text, { color: color(DIM), children: "(0 = clear)" }) : null
+  ] });
+}
+function HelpFooter() {
+  return /* @__PURE__ */ jsx(Text, { color: color(DIM), children: "d/w/m or \u2190/\u2192 period \xB7 1-9 toggle provider \xB7 0 clear \xB7 q quit" });
+}
+function TooSmall({ columns, rows }) {
+  return /* @__PURE__ */ jsxs(Box, { flexDirection: "column", children: [
+    /* @__PURE__ */ jsx(Text, { color: color("yellow"), children: "Terminal too small" }),
+    /* @__PURE__ */ jsx(Text, { color: color(DIM), children: `${columns}\xD7${rows} \u2014 need at least 40\xD712. Resize or run \`chaching stats\`.` })
+  ] });
+}
+var init_components = __esm({
+  "src/cli/tui/components.tsx"() {
+    "use strict";
+    init_aggregate();
+    init_format();
+    init_theme();
+  }
+});
+
+// src/cli/tui/app.tsx
+import { useEffect, useMemo, useReducer, useState } from "react";
+import { Box as Box2, Text as Text2, useApp, useInput, useWindowSize } from "ink";
+import { Fragment, jsx as jsx2, jsxs as jsxs2 } from "react/jsx-runtime";
+function DashboardApp({ source, period = "week", noArt: noArt2 = false, now, dimensions }) {
+  const { exit } = useApp();
+  const [snapshot2, dispatch] = useReducer(
+    (prev, delta) => applyDelta(prev, delta),
+    void 0,
+    () => source.snapshot()
+  );
+  const [view, setView] = useState(() => ({ ...defaultViewState(period) }));
+  useEffect(() => {
+    const unsub = source.subscribe((delta) => dispatch(delta));
+    return () => {
+      unsub();
+      source.dispose?.();
+    };
+  }, [source]);
+  const providerList = useMemo(() => providers(snapshot2, view), [snapshot2, view]);
+  useInput((input, key) => {
+    if (input === "q" || key.ctrl && input === "c") {
+      exit();
+      return;
+    }
+    if (input === "d") setView((v) => ({ ...v, period: "day", zoom: null }));
+    else if (input === "w") setView((v) => ({ ...v, period: "week", zoom: null }));
+    else if (input === "m") setView((v) => ({ ...v, period: "month", zoom: null }));
+    else if (key.rightArrow) setView((v) => ({ ...v, period: nextPeriod(v.period, 1), zoom: null }));
+    else if (key.leftArrow) setView((v) => ({ ...v, period: nextPeriod(v.period, -1), zoom: null }));
+    else if (input === "0") setView((v) => ({ ...v, providerFilter: /* @__PURE__ */ new Set() }));
+    else if (/^[1-9]$/.test(input)) {
+      const idx = Number(input) - 1;
+      const provider = providerList[idx]?.provider;
+      if (provider) {
+        setView((v) => {
+          const next = new Set(v.providerFilter);
+          if (next.has(provider)) next.delete(provider);
+          else next.add(provider);
+          return { ...v, providerFilter: next };
+        });
+      }
+    }
+  });
+  const totals = useMemo(() => scopedTotals(snapshot2, view), [snapshot2, view]);
+  const hero = useMemo(() => heroTotals(snapshot2, view), [snapshot2, view]);
+  const modelTotals = useMemo(() => models(snapshot2, view), [snapshot2, view]);
+  const buckets = useMemo(() => trend(snapshot2, view), [snapshot2, view]);
+  const activeBlock = useMemo(() => snapshot2.blocks.find((b) => b.isActive) ?? null, [snapshot2]);
+  const banner = bannerLine(noArt2);
+  const measured = useWindowSize();
+  const cols = dimensions?.columns ?? (measured.columns || 80);
+  const rows = dimensions?.rows ?? (measured.rows || 24);
+  const clock = now ?? (() => Date.now());
+  if (cols < MIN_COLUMNS || rows < MIN_ROWS) {
+    return /* @__PURE__ */ jsx2(TooSmall, { columns: cols, rows });
+  }
+  const empty = snapshot2.dayModel.length === 0;
+  const scopeLabel = view.providerFilter.size > 0 ? ` \xB7 ${[...view.providerFilter].join(", ")}` : "";
+  return /* @__PURE__ */ jsxs2(Box2, { flexDirection: "column", paddingX: 1, children: [
+    banner ? /* @__PURE__ */ jsx2(Text2, { color: color(ACCENT), bold: true, children: banner }) : null,
+    /* @__PURE__ */ jsxs2(Box2, { marginTop: banner ? 0 : 0, children: [
+      /* @__PURE__ */ jsx2(Text2, { color: color(DIM), children: `Spend \xB7 ${hero.label}${scopeLabel}  ` }),
+      /* @__PURE__ */ jsx2(Text2, { color: color(ACCENT), bold: true, children: money(hero.current.cost) })
+    ] }),
+    empty ? /* @__PURE__ */ jsxs2(Box2, { flexDirection: "column", marginTop: 1, children: [
+      /* @__PURE__ */ jsx2(Text2, { color: color("yellow"), children: "No data found." }),
+      /* @__PURE__ */ jsx2(Text2, { color: color(DIM), children: "Run `chaching init` to configure providers and start tracking spend." })
+    ] }) : /* @__PURE__ */ jsxs2(Fragment, { children: [
+      /* @__PURE__ */ jsx2(Box2, { marginTop: 1, children: /* @__PURE__ */ jsx2(SummaryCards, { totals, topModel: modelTotals[0] ?? null }) }),
+      /* @__PURE__ */ jsx2(Box2, { marginTop: 1, children: /* @__PURE__ */ jsx2(TrendSparkline, { buckets, periodLabel: PERIOD_LABEL[view.period] }) }),
+      /* @__PURE__ */ jsxs2(Box2, { marginTop: 1, gap: 3, flexWrap: "wrap", children: [
+        /* @__PURE__ */ jsx2(ProviderBreakdown, { providers: providerList }),
+        /* @__PURE__ */ jsx2(ModelBreakdown, { models: modelTotals, topN: TOP_MODELS2 })
+      ] }),
+      /* @__PURE__ */ jsx2(Box2, { marginTop: 1, children: /* @__PURE__ */ jsx2(CapBlock, { block: activeBlock, now: clock() }) }),
+      /* @__PURE__ */ jsx2(Box2, { marginTop: 1, children: /* @__PURE__ */ jsx2(ProviderFilterRow, { providers: providerList, active: view.providerFilter }) })
+    ] }),
+    /* @__PURE__ */ jsx2(Box2, { marginTop: 1, children: /* @__PURE__ */ jsx2(HelpFooter, {}) })
+  ] });
+}
+function nextPeriod(p, dir) {
+  const order = ["day", "week", "month"];
+  const i = order.indexOf(p);
+  const next = (i + dir + order.length) % order.length;
+  return order[next];
+}
+var MIN_COLUMNS, MIN_ROWS, TOP_MODELS2;
+var init_app = __esm({
+  "src/cli/tui/app.tsx"() {
+    "use strict";
+    init_view_model();
+    init_merge();
+    init_format();
+    init_theme();
+    init_components();
+    MIN_COLUMNS = 40;
+    MIN_ROWS = 12;
+    TOP_MODELS2 = 6;
+  }
+});
+
+// src/cli/tui/index.tsx
+var tui_exports = {};
+__export(tui_exports, {
+  runDashboard: () => runDashboard
+});
+import { render, Box as Box3, Text as Text3 } from "ink";
+import { jsx as jsx3, jsxs as jsxs3 } from "react/jsx-runtime";
+async function runDashboard(opts = {}) {
+  if (!process.stdout.isTTY) {
+    const { runStats: runStats2 } = await Promise.resolve().then(() => (init_stats(), stats_exports));
+    await runStats2({});
+    return;
+  }
+  const cfg = await loadConfig();
+  const engine = createEngine(cfg);
+  const loading = render(
+    /* @__PURE__ */ jsxs3(Box3, { paddingX: 1, children: [
+      /* @__PURE__ */ jsx3(Text3, { color: color(ACCENT), children: "\u25C8 chaching" }),
+      /* @__PURE__ */ jsx3(Text3, { color: color("gray"), children: " \xB7 cold-scanning transcripts\u2026" })
+    ] })
+  );
+  try {
+    await engine.ensureStarted();
+  } catch (err) {
+    loading.unmount();
+    engine.dispose();
+    console.error("chaching: failed to start engine:", err instanceof Error ? err.message : err);
+    process.exitCode = 1;
+    return;
+  }
+  loading.unmount();
+  const source = {
+    snapshot: () => engine.snapshot(),
+    subscribe: (fn) => engine.subscribe(fn),
+    dispose: () => engine.dispose()
+  };
+  const { waitUntilExit } = render(/* @__PURE__ */ jsx3(DashboardApp, { source, noArt: noArt(opts.argv) }), {
+    // We restore the terminal + dispose the engine in the app's unmount effect;
+    // let Ink handle Ctrl-C → exit (default true) so raw mode is restored cleanly.
+    exitOnCtrlC: true
+  });
+  await waitUntilExit();
+  engine.dispose();
+}
+var init_tui = __esm({
+  "src/cli/tui/index.tsx"() {
+    "use strict";
+    init_engine();
+    init_config();
+    init_theme();
+    init_app();
+  }
+});
+
+// src/cli/router.ts
+init_stats();
 
 // src/cli/commands/serve.ts
 import { existsSync } from "fs";
@@ -1630,6 +2316,7 @@ async function runServe() {
 }
 
 // src/cli/wizard.ts
+init_config();
 import { intro, multiselect, password, outro, isCancel, cancel, log } from "@clack/prompts";
 var KNOWN_PROVIDERS = ["claude", "codex", "opencode", "cursor"];
 var PROVIDER_META = {
@@ -1774,6 +2461,7 @@ async function runInit() {
 }
 
 // src/cli/commands/provider.ts
+init_config();
 var VALID_ACTIONS = ["add", "enable", "disable"];
 async function runProvider(args) {
   const [action, name] = args;
@@ -1907,6 +2595,7 @@ Examples:
 }
 
 // src/cli/router.ts
+init_config();
 import { existsSync as existsSync2 } from "fs";
 async function run(argv) {
   if (argv.includes("--version") || argv.includes("-v")) {
@@ -1942,17 +2631,18 @@ async function run(argv) {
       process.exit(1);
   }
 }
-async function runDefault(_rest) {
+async function runDefault(rest) {
   const cfgPath = configFilePath();
   const hasConfig = existsSync2(cfgPath);
   if (!hasConfig) {
     await runInit();
   }
-  await runStats({});
+  const { runDashboard: runDashboard2 } = await Promise.resolve().then(() => (init_tui(), tui_exports));
+  await runDashboard2({ argv: rest });
 }
 function parseStatsFlags(argv) {
   const flags = {};
-  const providers = [];
+  const providers2 = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--json") {
@@ -1989,21 +2679,21 @@ function parseStatsFlags(argv) {
         process.exit(1);
       }
       i++;
-      providers.push(...raw.split(",").map((s) => s.trim()).filter(Boolean));
+      providers2.push(...raw.split(",").map((s) => s.trim()).filter(Boolean));
     } else if (arg.startsWith("--provider=")) {
       const raw = arg.slice("--provider=".length);
       if (!raw) {
         console.error(`chaching stats: --provider requires a value`);
         process.exit(1);
       }
-      providers.push(...raw.split(",").map((s) => s.trim()).filter(Boolean));
+      providers2.push(...raw.split(",").map((s) => s.trim()).filter(Boolean));
     } else if (arg.startsWith("-")) {
       console.error(`chaching stats: unknown flag '${arg}'`);
       console.error(`Run \`chaching --help\` for usage.`);
       process.exit(1);
     }
   }
-  if (providers.length > 0) flags.providers = providers;
+  if (providers2.length > 0) flags.providers = providers2;
   return flags;
 }
 

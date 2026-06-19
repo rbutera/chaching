@@ -1,0 +1,191 @@
+// Ink root component for the live dashboard. Holds UI state (period + provider
+// filter), subscribes to a data source for deltas, and derives every view via the
+// shared view-model (so it can never drift from the web app).
+//
+// The root takes an injected `DashboardSource` (snapshot + subscribe + dispose)
+// rather than reaching for the real engine directly — that makes it testable with
+// a fake source under ink-testing-library, and keeps the React tree free of disk IO.
+
+import { useEffect, useMemo, useReducer, useState } from 'react';
+import { Box, Text, useApp, useInput, useWindowSize } from 'ink';
+import type { Period, RollupDelta, RollupSnapshot } from '../../lib/types.js';
+import {
+	defaultViewState,
+	heroTotals,
+	models,
+	providers,
+	scopedTotals,
+	trend,
+	type ViewState
+} from '../../lib/core/view-model.js';
+import { applyDelta } from '../../lib/core/merge.js';
+import { money } from '../../lib/format.js';
+import { ACCENT, DIM, PERIOD_LABEL, bannerLine, color } from './theme.js';
+import {
+	CapBlock,
+	HelpFooter,
+	ModelBreakdown,
+	ProviderBreakdown,
+	ProviderFilterRow,
+	SummaryCards,
+	TooSmall,
+	TrendSparkline
+} from './components.js';
+
+const MIN_COLUMNS = 40;
+const MIN_ROWS = 12;
+const TOP_MODELS = 6;
+
+/** What the root needs to render + stay live. The real engine satisfies this. */
+export interface DashboardSource {
+	snapshot(): RollupSnapshot;
+	subscribe(fn: (delta: RollupDelta) => void): () => void;
+	dispose?(): void;
+}
+
+export interface DashboardAppProps {
+	source: DashboardSource;
+	/** initial period (defaults to week, matching the web default) */
+	period?: Period;
+	/** show the banner slot (wave 5 art) unless suppressed */
+	noArt?: boolean;
+	/** injectable clock for the 5h block (tests pin this) */
+	now?: () => number;
+	/** test seam: override the measured terminal size */
+	dimensions?: { columns: number; rows: number };
+}
+
+export function DashboardApp({ source, period = 'week', noArt = false, now, dimensions }: DashboardAppProps) {
+	const { exit } = useApp();
+
+	// The snapshot is the source of truth; deltas merge into it. useReducer keeps the
+	// merge logic out of the render path and guarantees one re-render per delta.
+	const [snapshot, dispatch] = useReducer(
+		(prev: RollupSnapshot, delta: RollupDelta) => applyDelta(prev, delta),
+		undefined as unknown as RollupSnapshot,
+		() => source.snapshot()
+	);
+
+	// UI selection state. Period + provider filter survive deltas (separate state).
+	const [view, setView] = useState<ViewState>(() => ({ ...defaultViewState(period) }));
+
+	// Subscribe once; unsubscribe + dispose on unmount (clean lifecycle).
+	useEffect(() => {
+		const unsub = source.subscribe((delta) => dispatch(delta));
+		return () => {
+			unsub();
+			source.dispose?.();
+		};
+	}, [source]);
+
+	const providerList = useMemo(() => providers(snapshot, view), [snapshot, view]);
+
+	useInput((input, key) => {
+		if (input === 'q' || (key.ctrl && input === 'c')) {
+			exit();
+			return;
+		}
+		if (input === 'd') setView((v) => ({ ...v, period: 'day', zoom: null }));
+		else if (input === 'w') setView((v) => ({ ...v, period: 'week', zoom: null }));
+		else if (input === 'm') setView((v) => ({ ...v, period: 'month', zoom: null }));
+		else if (key.rightArrow) setView((v) => ({ ...v, period: nextPeriod(v.period, 1), zoom: null }));
+		else if (key.leftArrow) setView((v) => ({ ...v, period: nextPeriod(v.period, -1), zoom: null }));
+		else if (input === '0') setView((v) => ({ ...v, providerFilter: new Set() }));
+		else if (/^[1-9]$/.test(input)) {
+			const idx = Number(input) - 1;
+			const provider = providerList[idx]?.provider;
+			if (provider) {
+				setView((v) => {
+					const next = new Set(v.providerFilter);
+					if (next.has(provider)) next.delete(provider);
+					else next.add(provider);
+					return { ...v, providerFilter: next };
+				});
+			}
+		}
+	});
+
+	// Derived views (all via the shared view-model — same math the web app runs).
+	const totals = useMemo(() => scopedTotals(snapshot, view), [snapshot, view]);
+	const hero = useMemo(() => heroTotals(snapshot, view), [snapshot, view]);
+	const modelTotals = useMemo(() => models(snapshot, view), [snapshot, view]);
+	const buckets = useMemo(() => trend(snapshot, view), [snapshot, view]);
+	const activeBlock = useMemo(() => snapshot.blocks.find((b) => b.isActive) ?? null, [snapshot]);
+
+	const banner = bannerLine(noArt);
+	// useWindowSize re-renders on terminal resize (SIGWINCH) → the layout reflows.
+	// Tests inject `dimensions` for determinism. A real terminal reports
+	// columns/rows; some PTYs report 0 until the first SIGWINCH, so treat 0 as
+	// "unknown" and assume a usable default rather than flashing the fallback.
+	const measured = useWindowSize();
+	const cols = dimensions?.columns ?? (measured.columns || 80);
+	const rows = dimensions?.rows ?? (measured.rows || 24);
+	const clock = now ?? (() => Date.now());
+
+	if (cols < MIN_COLUMNS || rows < MIN_ROWS) {
+		return <TooSmall columns={cols} rows={rows} />;
+	}
+
+	const empty = snapshot.dayModel.length === 0;
+	const scopeLabel =
+		view.providerFilter.size > 0 ? ` · ${[...view.providerFilter].join(', ')}` : '';
+
+	return (
+		<Box flexDirection="column" paddingX={1}>
+			{banner ? (
+				<Text color={color(ACCENT)} bold>
+					{banner}
+				</Text>
+			) : null}
+
+			{/* Hero: current-period spend + label */}
+			<Box marginTop={banner ? 0 : 0}>
+				<Text color={color(DIM)}>{`Spend · ${hero.label}${scopeLabel}  `}</Text>
+				<Text color={color(ACCENT)} bold>
+					{money(hero.current.cost)}
+				</Text>
+			</Box>
+
+			{empty ? (
+				<Box flexDirection="column" marginTop={1}>
+					<Text color={color('yellow')}>No data found.</Text>
+					<Text color={color(DIM)}>Run `chaching init` to configure providers and start tracking spend.</Text>
+				</Box>
+			) : (
+				<>
+					<Box marginTop={1}>
+						<SummaryCards totals={totals} topModel={modelTotals[0] ?? null} />
+					</Box>
+
+					<Box marginTop={1}>
+						<TrendSparkline buckets={buckets} periodLabel={PERIOD_LABEL[view.period]} />
+					</Box>
+
+					<Box marginTop={1} gap={3} flexWrap="wrap">
+						<ProviderBreakdown providers={providerList} />
+						<ModelBreakdown models={modelTotals} topN={TOP_MODELS} />
+					</Box>
+
+					<Box marginTop={1}>
+						<CapBlock block={activeBlock} now={clock()} />
+					</Box>
+
+					<Box marginTop={1}>
+						<ProviderFilterRow providers={providerList} active={view.providerFilter} />
+					</Box>
+				</>
+			)}
+
+			<Box marginTop={1}>
+				<HelpFooter />
+			</Box>
+		</Box>
+	);
+}
+
+function nextPeriod(p: Period, dir: 1 | -1): Period {
+	const order: Period[] = ['day', 'week', 'month'];
+	const i = order.indexOf(p);
+	const next = (i + dir + order.length) % order.length;
+	return order[next];
+}
