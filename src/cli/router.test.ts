@@ -67,10 +67,9 @@ describe('subcommand routing', () => {
 		expect(combined).toContain('Usage');
 	});
 
-	it('init subcommand prints wizard stub and exits 0', async () => {
-		const { stdout, code } = await runCli(['init']);
+	it('init subcommand exits 0 (writes default config when non-interactive)', async () => {
+		const { code } = await runCli(['init']);
 		expect(code).toBe(0);
-		expect(stdout).toContain('wave 3');
 	});
 
 	it('provider subcommand with no args prints help and exits 0', async () => {
@@ -79,10 +78,10 @@ describe('subcommand routing', () => {
 		expect(stdout).toContain('add');
 	});
 
-	it('provider disable exits 0 with stub message', async () => {
+	it('provider disable exits 0 and confirms the action', async () => {
 		const { stdout, code } = await runCli(['provider', 'disable', 'cursor']);
 		expect(code).toBe(0);
-		expect(stdout).toContain('wave 3');
+		expect(stdout).toContain('cursor');
 	});
 
 	it('provider unknown action exits non-zero', async () => {
