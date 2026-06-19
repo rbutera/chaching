@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { createInterface } from 'node:readline';
-import type { UsageRecord } from '$lib/types';
+import type { UsageRecord } from '../../../types';
 import { createCodexLineParser } from './parse';
 
 export interface CodexReadResult {

@@ -4,7 +4,7 @@
 	// that scopes the whole dashboard to that model.
 	import { pie as d3pie, arc as d3arc } from 'd3-shape';
 	import { modelColor, modelLabel, money } from '$lib/format';
-	import type { ModelTotal } from '$lib/aggregate';
+	import type { ModelTotal } from '$lib/core/aggregate';
 
 	let {
 		models,

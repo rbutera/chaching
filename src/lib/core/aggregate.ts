@@ -2,7 +2,7 @@
 // The server ships `DayModelAgg[]`; the client re-aggregates to day/week/month,
 // to per-model splits, and to period buckets — all in-memory, no server round trip.
 
-import type { DayModelAgg, Period, TokenCounts } from './types';
+import type { DayModelAgg, Period, TokenCounts } from '../types';
 
 export function zeroTokens(): TokenCounts {
 	return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 };

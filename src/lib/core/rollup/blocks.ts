@@ -1,4 +1,4 @@
-import type { BlockSummary, TokenCounts, UsageRecord } from '$lib/types';
+import type { BlockSummary, TokenCounts, UsageRecord } from '../../types';
 
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
 

@@ -1,5 +1,5 @@
-import type { TokenCounts, UsageRecord } from '$lib/types';
-import { isoDayUTC } from '$lib/server/ingest/parse';
+import type { TokenCounts, UsageRecord } from '../../../types';
+import { isoDayUTC } from '../../ingest/parse';
 
 interface CursorTokenUsage {
 	inputTokens?: number;

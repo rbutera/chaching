@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { parseLine } from './parse';
 import { DedupSet, makeKey } from './dedup';
-import { computeCost, resolvePrice } from '$lib/server/pricing/cost';
-import { Rollup } from '$lib/server/rollup/rollup';
-import { aggregateByPeriod, aggregateByProvider, periodKey, sumGrain } from '$lib/aggregate';
-import type { DayModelAgg } from '$lib/types';
+import { computeCost, resolvePrice } from '../pricing/cost';
+import { Rollup } from '../rollup/rollup';
+import { aggregateByPeriod, aggregateByProvider, periodKey, sumGrain } from '../aggregate';
+import type { DayModelAgg } from '../../types';
 
 const ctx = { project: '/test', fileIsSidechain: false };
 

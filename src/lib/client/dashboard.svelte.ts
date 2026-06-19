@@ -13,7 +13,7 @@ import {
 	type PeriodBucket,
 	type ProviderTotal,
 	type Totals
-} from '$lib/aggregate';
+} from '$lib/core/aggregate';
 
 const LS_KEY = 'chaching.ui.v1';
 

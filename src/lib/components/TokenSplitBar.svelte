@@ -4,7 +4,7 @@
 	// doubles as a non-color a11y channel. Pure CSS/SVG, zero CPU at rest.
 	import type { TokenCounts } from '$lib/types';
 	import { compactTokens } from '$lib/format';
-	import { totalTokens } from '$lib/aggregate';
+	import { totalTokens } from '$lib/core/aggregate';
 
 	let { tokens, color = 'var(--accent)' }: { tokens: TokenCounts; color?: string } = $props();
 

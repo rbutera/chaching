@@ -20,8 +20,8 @@
 		fmtDay,
 		int
 	} from '$lib/format';
-	import { totalTokens } from '$lib/aggregate';
-	import type { PeriodBucket } from '$lib/aggregate';
+	import { totalTokens } from '$lib/core/aggregate';
+	import type { PeriodBucket } from '$lib/core/aggregate';
 
 	const feed = new FeedStore();
 	const dash = new Dashboard();

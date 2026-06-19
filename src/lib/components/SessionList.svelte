@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { SessionSummary } from '$lib/types';
 	import { money, compactTokens, modelColor, modelLabel, fmtDateTime, shortProject } from '$lib/format';
-	import { totalTokens } from '$lib/aggregate';
+	import { totalTokens } from '$lib/core/aggregate';
 
 	let {
 		sessions,

@@ -26,7 +26,7 @@
 		totalTokens,
 		zeroTokens,
 		type ModelTotal
-	} from '$lib/aggregate';
+	} from '$lib/core/aggregate';
 	import { resolvePriceClient } from '$lib/pricing-client';
 
 	let {

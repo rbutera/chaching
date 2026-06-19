@@ -8,7 +8,7 @@
 	import uPlot from 'uplot';
 	import 'uplot/dist/uPlot.min.css';
 	import { modelHex, modelLabel, money, fmtPeriodKey } from '$lib/format';
-	import type { PeriodBucket } from '$lib/aggregate';
+	import type { PeriodBucket } from '$lib/core/aggregate';
 
 	let {
 		buckets,

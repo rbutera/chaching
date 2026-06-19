@@ -6,10 +6,10 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { basename, sep } from 'node:path';
-import type { Rollup } from '$lib/server/rollup/rollup';
-import type { DedupSet } from '$lib/server/ingest/dedup';
-import { parseLine } from '$lib/server/ingest/parse';
-import { decodeProject } from '$lib/server/ingest/discover';
+import type { Rollup } from '../rollup/rollup';
+import type { DedupSet } from '../ingest/dedup';
+import { parseLine } from '../ingest/parse';
+import { decodeProject } from '../ingest/discover';
 
 export interface FileState {
 	offset: number; // bytes consumed so far (EOF after last read)

@@ -2,8 +2,8 @@
 // single JSONL line, or returns null for anything that isn't a real assistant
 // usage record. Tolerant of partial/corrupt lines (returns null, never throws).
 
-import type { TokenCounts, UsageRecord } from '$lib/types';
-import { computeCost } from '$lib/server/pricing/cost';
+import type { TokenCounts, UsageRecord } from '../../types';
+import { computeCost } from '../pricing/cost';
 import { makeKey } from './dedup';
 
 interface RawUsage {

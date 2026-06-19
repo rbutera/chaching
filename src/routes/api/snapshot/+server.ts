@@ -4,7 +4,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getService } from '$lib/server/service';
-import { getPricingMeta } from '$lib/server/pricing/cost';
+import { getPricingMeta } from '$lib/core/pricing/cost';
 
 export const GET: RequestHandler = async () => {
 	const service = getService();

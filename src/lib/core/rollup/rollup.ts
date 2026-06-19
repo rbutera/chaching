@@ -12,8 +12,8 @@ import type {
 	SessionSummary,
 	TokenCounts,
 	UsageRecord
-} from '$lib/types';
-import { getPricingMeta, hasPrice } from '$lib/server/pricing/cost';
+} from '../../types';
+import { getPricingMeta, hasPrice } from '../pricing/cost';
 import { BlockAccumulator } from './blocks';
 
 const KEY_SEP = '\u001f';
