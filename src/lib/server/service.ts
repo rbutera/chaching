@@ -8,6 +8,16 @@ import { createEngine, type Engine } from '$lib/core/engine';
 let instance: Engine | null = null;
 
 export function getService(): Engine {
-	if (!instance) instance = createEngine();
+	if (!instance) {
+		const engine = createEngine();
+		// If anything disposes the singleton, drop it so the next getService() rebuilds
+		// a fresh engine rather than handing back a dead one.
+		const dispose = engine.dispose.bind(engine);
+		engine.dispose = () => {
+			dispose();
+			if (instance === engine) instance = null;
+		};
+		instance = engine;
+	}
 	return instance;
 }

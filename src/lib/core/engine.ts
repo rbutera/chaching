@@ -108,11 +108,11 @@ class Ingestion {
 
 		if (cfg.providers.cursor.enabled && cfg.providers.cursor.adminApiToken) {
 			await this.ingestCursor(cfg.providers.cursor.adminApiToken, cfg.providers.cursor.email);
-			if (this.watchEnabled) this.startCursorPolling(cfg.providers.cursor);
+			if (this.watchEnabled && !this.disposed) this.startCursorPolling(cfg.providers.cursor);
 		}
 
 		this.coldScanMs = Date.now() - t0;
-		if (this.watchEnabled) this.startWatching();
+		if (this.watchEnabled && !this.disposed) this.startWatching();
 	}
 
 	private async ingestCodex(root: string): Promise<void> {
@@ -177,7 +177,9 @@ class Ingestion {
 	}
 
 	private async pollCursor(cfg: CursorProviderConfig): Promise<void> {
+		if (this.disposed) return;
 		await this.ingestCursor(cfg.adminApiToken, cfg.email);
+		if (this.disposed) return;
 		if (this.rollup.hasDirty()) {
 			const delta = this.rollup.drainDelta();
 			if (delta) for (const fn of this.listeners) fn(delta);
@@ -214,6 +216,7 @@ class Ingestion {
 	}
 
 	private queueChange(full: string): void {
+		if (this.disposed) return;
 		this.pendingChanges.add(full);
 		if (this.deltaTimer) return;
 		this.deltaTimer = setTimeout(() => void this.flushChanges(), DELTA_DEBOUNCE_MS);
@@ -222,6 +225,7 @@ class Ingestion {
 
 	private async flushChanges(): Promise<void> {
 		this.deltaTimer = null;
+		if (this.disposed) return;
 		const paths = [...this.pendingChanges];
 		this.pendingChanges.clear();
 
@@ -229,6 +233,7 @@ class Ingestion {
 			await this.tailFile(full);
 		}
 
+		if (this.disposed) return;
 		if (this.rollup.hasDirty()) {
 			const delta = this.rollup.drainDelta();
 			if (delta) for (const fn of this.listeners) fn(delta);
@@ -259,7 +264,7 @@ class Ingestion {
 		// Re-discover so brand-new files are picked up even if fs.watch missed them.
 		let changed = false;
 		try {
-			if (!this.claudeEnv) return;
+			if (this.disposed || !this.claudeEnv) return;
 			const files = await discoverFiles(this.claudeEnv);
 			for (const f of files) {
 				const m = await safeMtime(f.path);

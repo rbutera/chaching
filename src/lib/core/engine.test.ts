@@ -84,4 +84,20 @@ describe('core engine (no SvelteKit)', () => {
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(activeHandleCount()).toBeLessThanOrEqual(before);
 	});
+
+	it('dispose() during an in-flight start leaves no watchers/timers', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'chaching-race-'));
+		tmpRoots.push(root);
+		await mkdir(join(root, 'projects'), { recursive: true });
+		const cfg = disabledConfig();
+		cfg.providers.claude = { enabled: true, roots: [root] };
+
+		const before = activeHandleCount();
+		const engine = createEngine(cfg);
+		const started = engine.ensureStarted();
+		engine.dispose(); // race: dispose before the cold scan resolves
+		await started;
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(activeHandleCount()).toBeLessThanOrEqual(before);
+	});
 });
