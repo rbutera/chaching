@@ -42,14 +42,24 @@ chaching
 The default mode. Runs an interactive terminal dashboard that stays open and updates live as your AI tools write new records.
 
 ```
-  TODAY      WEEK       MONTH      TOTAL
-  $12.40     $87.22     $312.10    $1,048.33
+  💰 chaching                                       week ▾
 
-  claude-code   ████████████████████  $10.21  (82%)
-  codex         ████                   $2.19  (18%)
+  $487.20             1.84B tokens          top: Opus 4.8
+  this week           in · out · cache       $214.90
 
-  trend (7d) ▁▂▃▂▄▅▆▇█▇▅▄▃
+  trend (week)  ▁▂▃▂▄▅▆▇█▇▅▄▂▃    peak $92.10
+
+  By provider                   By model
+  ● Claude Code   $452.10        Opus 4.8     $214.90
+  ● Codex          $23.40        Sonnet 4.6    $78.40
+  ● OpenCode       $11.70        Haiku 4.5     $12.05
+
+  5h block  ███████████░░░░░░░░░  $18.40 · 2h50m in · 2h10m left
+
+  [d/w/m] period   [1-9] toggle provider   [0] clear   [q] quit
 ```
+
+*(Numbers above are illustrative.)*
 
 Keys: `d` / `w` / `m` switch the period (or `←` / `→` to step through it), number keys `1`-`9` toggle individual providers in the filter, `0` clears the filter, `q` / `Ctrl-C` quits cleanly. Add `--no-art` (or set `CHACHING_NO_ART`) to suppress the banner.
 
@@ -69,19 +79,29 @@ chaching stats --json                 # machine-readable JSON snapshot
 Sample output:
 
 ```
-💰 chaching — AI token spend register
+  chaching — spend summary
+  data since: 2026-05-20
 
-earliest data: 2026-05-20
+  Total cost:    $487.20
+  Total tokens:  1.84B
+    Input:       7.1M
+    Output:      3.4M
+    Cache read:  1.79B
+    Cache write: 38.2M
+  Requests:      6,204
 
-PROVIDER         COST       INPUT       OUTPUT      CACHE_READ  REQUESTS
-claude-code      $10.21     4,210,033   384,211     12,300,411  847
-codex            $2.19      891,002     44,312       —          103
+  By provider:
+    Claude Code           $452.10   1.74B tokens  5,486 req
+    Codex                  $23.40   71.0M tokens    498 req
+    OpenCode               $11.70   28.4M tokens    220 req
 
-MODEL                          COST
-claude-sonnet-4-5              $8.44
-claude-opus-4                  $1.77
-o4-mini                        $2.19
+  By model (top 8):
+    Opus 4.8              $214.90   1.10B tokens  3,902 req
+    Sonnet 4.6             $78.40   430.2M tokens 1,205 req
+    Haiku 4.5              $12.05    88.1M tokens   379 req
 ```
+
+*(Numbers above are illustrative.)*
 
 ### `chaching serve` — web dashboard
 
