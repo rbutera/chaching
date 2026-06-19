@@ -10,6 +10,7 @@
 	"files": [
 		"bin/",
 		"build/",
+		"dist/",
 		"static/",
 		"CONFIG.md",
 		"config.example.json",
@@ -32,7 +33,9 @@
 	},
 	"scripts": {
 		"dev": "vite dev",
-		"build": "vite build",
+		"build": "npm run build:sk && npm run build:cli",
+		"build:sk": "vite build",
+		"build:cli": "tsup",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
@@ -51,6 +54,7 @@
 		"@types/d3-time": "3.0.4",
 		"svelte": "^5.55.2",
 		"svelte-check": "^4.4.6",
+		"tsup": "8.5.1",
 		"typescript": "^6.0.2",
 		"vite": "^8.0.7",
 		"vitest": "4.1.7"
