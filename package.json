@@ -1,9 +1,19 @@
 {
 	"name": "chaching",
-	"version": "0.0.1",
+	"version": "1.3.37",
 	"description": "Local multi-provider AI token spend dashboard for Claude Code, Codex, OpenCode, and Cursor.",
 	"private": false,
 	"type": "module",
+	"license": "PolyForm-Noncommercial-1.0.0",
+	"author": "Rai Butera",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/rbutera/chaching.git"
+	},
+	"homepage": "https://github.com/rbutera/chaching#readme",
+	"bugs": {
+		"url": "https://github.com/rbutera/chaching/issues"
+	},
 	"bin": {
 		"chaching": "./bin/chaching.js"
 	},
@@ -14,6 +24,7 @@
 		"static/",
 		"CONFIG.md",
 		"config.example.json",
+		"LICENSE",
 		"README.md"
 	],
 	"engines": {
@@ -38,6 +49,8 @@
 		"build:cli": "tsup",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
+		"prepack": "npm run build",
+		"prepublishOnly": "npm run build",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"test": "vitest run",
