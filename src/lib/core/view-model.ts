@@ -60,16 +60,37 @@ export function scopedGrain(snap: RollupSnapshot, _state: ViewState) {
 }
 
 /**
- * Trend buckets for the chart: one DAY bucket per day in the current period
- * window, with the model/provider filter applied. Always day-grain so the
- * stacked bar chart renders one bar per day. The bars carry a per-model
- * breakdown (`byModel`) used for stacking, the hover tooltip, and the
- * click-to-drill day target.
+ * Trend buckets for the chart: one DAY bucket for EVERY calendar day in the
+ * current period window, with the model/provider filter applied. Days with no
+ * spend are emitted as zero-total buckets so gaps stay visible (a quiet
+ * Wednesday reads as a short/absent bar, not a collapsed axis). The buckets
+ * carry a per-model breakdown (`byModel`) used for stacking, the hover tooltip,
+ * and the click-to-drill day target.
  */
 export function trend(snap: RollupSnapshot, state: ViewState): PeriodBucket[] {
 	const w = periodWindow(snap, state);
 	const windowed = filterDays(snap.dayModel, w.from, w.to);
-	return aggregateByPeriod(windowed, 'day', asFilter(state.modelFilter), asFilter(state.providerFilter));
+	const present = aggregateByPeriod(windowed, 'day', asFilter(state.modelFilter), asFilter(state.providerFilter));
+	const byDay = new Map(present.map((b) => [b.key, b]));
+	const out: PeriodBucket[] = [];
+	for (let day = w.from; day <= w.to; day = addDaysISO(day, 1)) {
+		out.push(
+			byDay.get(day) ?? {
+				key: day,
+				startDay: day,
+				tokens: zeroTokensLocal(),
+				requests: 0,
+				cost: 0,
+				costUnknownRequests: 0,
+				byModel: new Map()
+			}
+		);
+	}
+	return out;
+}
+
+function zeroTokensLocal() {
+	return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 };
 }
 
 /** Per-model totals in scope (drives donut + legend + filter). Provider filter applied. */

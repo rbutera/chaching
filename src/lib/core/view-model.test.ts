@@ -219,6 +219,32 @@ describe('shared view-model — per-model bucket stacking', () => {
 		expect(day19.cost).toBeCloseTo(11.5, 10);
 	});
 
+	it('emits one bar per calendar day in the window, zero-filling gaps', () => {
+		// data only on the latest day and 6 days earlier; the 5 days between have
+		// no spend but must still appear as zero-total bars (gaps stay visible).
+		const grain = [
+			dm('2026-06-19', 'codex', 'claude-opus-4-8', 9),
+			dm('2026-06-13', 'codex', 'claude-opus-4-8', 4)
+		];
+		const snap = snapFrom(grain);
+		const buckets = trend(snap, defaultViewState('week'));
+		expect(buckets.length).toBe(7); // 06-13 .. 06-19 inclusive
+		expect(buckets.map((b) => b.key)).toEqual([
+			'2026-06-13',
+			'2026-06-14',
+			'2026-06-15',
+			'2026-06-16',
+			'2026-06-17',
+			'2026-06-18',
+			'2026-06-19'
+		]);
+		// the in-between days are real zero buckets
+		expect(buckets[1].cost).toBe(0);
+		expect(buckets[1].byModel.size).toBe(0);
+		expect(buckets[0].cost).toBe(4);
+		expect(buckets[6].cost).toBe(9);
+	});
+
 	it('respects the model filter in the per-bar breakdown', () => {
 		const grain = [
 			dm('2026-06-19', 'codex', 'claude-opus-4-8', 7),

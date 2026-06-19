@@ -2,10 +2,12 @@
 	// Hand-rolled SVG stacked bar chart: one vertical bar per day in the period
 	// window, each bar stacked + color-coded by model (segment height = that
 	// model's cost in the day, full bar = the day's total). Matches the pure-SVG
-	// d3-scale/d3-shape style of Donut/Sparkline (zero rAF, no canvas).
+	// d3-scale style of Donut/Sparkline (zero rAF, no canvas).
 	//
-	// Each bar is a real <button> (keyboard-operable) that drills into the day.
-	// Hover/focus surfaces a per-model tooltip for that bar.
+	// The SVG is purely visual (aria-hidden); a row of real, absolutely-positioned
+	// <button>s overlays it so each bar is keyboard-operable (Enter/Space drill
+	// into the day) and exposed to assistive tech with a descriptive aria-label.
+	// The visually-hidden data table is the non-visual fallback representation.
 	import { scaleLinear } from 'd3-scale';
 	import { modelColor, modelLabel, money, fmtDay } from '$lib/format';
 	import type { PeriodBucket } from '$lib/core/aggregate';
@@ -28,13 +30,10 @@
 	let plotH = $derived(H - PAD.top - PAD.bottom);
 
 	let maxCost = $derived(Math.max(1, ...buckets.map((b) => b.cost)));
-
 	let y = $derived(scaleLinear().domain([0, maxCost]).range([plotH, 0]).nice());
-
-	// y-axis ticks (4 gridlines)
 	let yTicks = $derived(y.ticks(4));
 
-	// per-bar geometry: band width, gap, stacked segments per model.
+	// per-bar geometry, in SVG user units (the overlay maps these to % of W/H).
 	let bars = $derived.by(() => {
 		const n = buckets.length;
 		if (n === 0) return [];
@@ -43,13 +42,9 @@
 		const barW = Math.max(1, band - gap);
 		return buckets.map((b, i) => {
 			const x = PAD.left + i * band + gap / 2;
-			// stack segments bottom-up in the given model order
 			let acc = 0;
 			const segs = models
-				.map((m) => {
-					const cost = b.byModel.get(m)?.cost ?? 0;
-					return { model: m, cost };
-				})
+				.map((m) => ({ model: m, cost: b.byModel.get(m)?.cost ?? 0 }))
 				.filter((s) => s.cost > 0)
 				.map((s) => {
 					const y1 = PAD.top + y(acc);
@@ -61,19 +56,14 @@
 		});
 	});
 
-	// x labels: thin out so they don't collide (target ~8 labels max).
 	let labelEvery = $derived(Math.max(1, Math.ceil(buckets.length / 8)));
 
 	let hovered = $state<number | null>(null);
 	let tip = $derived(hovered != null ? bars[hovered] : null);
-	// tooltip per-model rows (desc by cost)
-	let tipRows = $derived(
-		tip ? [...tip.segs].sort((a, b) => b.cost - a.cost) : []
-	);
+	let tipRows = $derived(tip ? [...tip.segs].sort((a, b) => b.cost - a.cost) : []);
 
-	function pick(b: PeriodBucket) {
-		onPick(b);
-	}
+	const pctX = (v: number) => (v / W) * 100;
+	const pctY = (v: number) => (v / H) * 100;
 </script>
 
 <div class="trend">
@@ -82,8 +72,7 @@
 	</div>
 
 	<div class="chart-wrap">
-		<svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" class="chart" role="presentation">
-			<!-- y gridlines + labels -->
+		<svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" class="chart" aria-hidden="true">
 			{#each yTicks as t (t)}
 				<line
 					x1={PAD.left}
@@ -98,36 +87,14 @@
 				</text>
 			{/each}
 
-			<!-- bars: each a focusable button via foreignObject overlay below; the
-			     SVG draws the visible segments. -->
 			{#each bars as bar, i (bar.bucket.key)}
-				<g
-					role="button"
-					tabindex="0"
-					aria-label={`${fmtDay(bar.bucket.startDay)}: ${money(bar.total)} across ${bar.segs.length} model${bar.segs.length === 1 ? '' : 's'}. Activate to open the day's detail.`}
-					class="bar"
-					class:dim={hovered != null && hovered !== i}
-					onclick={() => pick(bar.bucket)}
-					onkeydown={(e) => {
-						if (e.key === 'Enter' || e.key === ' ') {
-							e.preventDefault();
-							pick(bar.bucket);
-						}
-					}}
-					onmouseenter={() => (hovered = i)}
-					onmouseleave={() => (hovered = null)}
-					onfocus={() => (hovered = i)}
-					onblur={() => (hovered = null)}
-				>
-					<!-- hit area spanning the full plot height for easy hover/click -->
-					<rect x={bar.x} y={PAD.top} width={bar.w} height={plotH} fill="transparent" />
+				<g class="bar-seg" class:dim={hovered != null && hovered !== i}>
 					{#each bar.segs as s (s.model)}
 						<rect x={bar.x} y={s.y} width={bar.w} height={s.h} fill={s.color} rx="1" />
 					{/each}
 				</g>
 			{/each}
 
-			<!-- x labels -->
 			{#each bars as bar, i (bar.bucket.key)}
 				{#if i % labelEvery === 0}
 					<text x={bar.x + bar.w / 2} y={H - 10} text-anchor="middle" class="axis-lbl">
@@ -137,22 +104,43 @@
 			{/each}
 		</svg>
 
+		<!-- real <button> overlay: one per bar, keyboard + AT accessible -->
+		<div class="bar-buttons">
+			{#each bars as bar, i (bar.bucket.key)}
+				<button
+					type="button"
+					class="bar-btn"
+					style={`left:${pctX(bar.x)}%;width:${pctX(bar.w)}%;top:${pctY(PAD.top)}%;height:${pctY(plotH)}%`}
+					aria-label={`${fmtDay(bar.bucket.startDay)}: ${money(bar.total)}${bar.segs.length ? ` across ${bar.segs.length} model${bar.segs.length === 1 ? '' : 's'}` : ' (no spend)'}. Open the day's detail.`}
+					onclick={() => onPick(bar.bucket)}
+					onmouseenter={() => (hovered = i)}
+					onmouseleave={() => (hovered = null)}
+					onfocus={() => (hovered = i)}
+					onblur={() => (hovered = null)}
+				></button>
+			{/each}
+		</div>
+
 		{#if tip}
 			<div
 				class="tooltip"
-				style={`left:${(tip.x + tip.w / 2) / W * 100}%`}
+				style={`left:${pctX(tip.x + tip.w / 2)}%`}
 				class:flip={tip.x + tip.w / 2 > W * 0.62}
 			>
 				<p class="tip-head">{fmtDay(tip.bucket.startDay)} · <span class="num">{money(tip.total)}</span></p>
-				<ul>
-					{#each tipRows as r (r.model)}
-						<li>
-							<span class="tip-sw" style={`background:${modelColor(r.model)}`}></span>
-							<span class="tip-lbl">{modelLabel(r.model)}</span>
-							<span class="tip-val num">{money(r.cost)}</span>
-						</li>
-					{/each}
-				</ul>
+				{#if tipRows.length}
+					<ul>
+						{#each tipRows as r (r.model)}
+							<li>
+								<span class="tip-sw" style={`background:${modelColor(r.model)}`}></span>
+								<span class="tip-lbl">{modelLabel(r.model)}</span>
+								<span class="tip-val num">{money(r.cost)}</span>
+							</li>
+						{/each}
+					</ul>
+				{:else}
+					<p class="tip-empty">No spend</p>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -195,11 +183,11 @@
 	.chart-wrap {
 		position: relative;
 		width: 100%;
+		height: 280px;
 	}
 	.chart {
 		width: 100%;
-		height: 280px;
-		min-height: 280px;
+		height: 100%;
 		display: block;
 		overflow: visible;
 	}
@@ -208,19 +196,28 @@
 		font-size: 10px;
 		font-family: var(--font-num);
 	}
-	.bar {
-		cursor: pointer;
+	.bar-seg {
 		transition: opacity 0.12s;
 	}
-	.bar.dim {
+	.bar-seg.dim {
 		opacity: 0.5;
 	}
-	.bar:focus-visible {
-		outline: none;
+	.bar-buttons {
+		position: absolute;
+		inset: 0;
 	}
-	.bar:focus-visible rect:first-child {
-		stroke: var(--accent);
-		stroke-width: 2;
+	.bar-btn {
+		position: absolute;
+		background: transparent;
+		border: 0;
+		padding: 0;
+		margin: 0;
+		cursor: pointer;
+		border-radius: 2px;
+	}
+	.bar-btn:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 1px;
 	}
 	.tooltip {
 		position: absolute;
@@ -270,6 +267,11 @@
 	}
 	.tip-val {
 		color: var(--fg);
+	}
+	.tip-empty {
+		margin: 0;
+		font-size: 0.72rem;
+		color: var(--fg-dim);
 	}
 	.hint {
 		margin: 0;
