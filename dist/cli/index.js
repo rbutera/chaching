@@ -607,7 +607,8 @@ async function ingestRange(filePath, startOffset, projectsDir, rollup, dedup) {
 // src/lib/core/config.ts
 import { homedir as homedir2 } from "os";
 import { join as join3 } from "path";
-import { chmod, mkdir, readFile, stat as stat3, writeFile } from "fs/promises";
+import { chmod, mkdir, readFile, rename, stat as stat3, writeFile } from "fs/promises";
+import { randomBytes } from "crypto";
 var DEFAULT_HOST = "0.0.0.0";
 var DEFAULT_PORT = 5178;
 var DEFAULT_CURSOR_POLL_SECONDS = 3600;
@@ -677,6 +678,20 @@ async function loadConfig() {
     cache = defaultConfig();
   }
   return cache;
+}
+async function saveConfig(cfg) {
+  cache = normalizeConfig(cfg);
+  const file = configFilePath();
+  const dir = join3(file, "..");
+  await mkdir(dir, { recursive: true, mode: 448 });
+  const tmp = join3(dir, `.chaching-${randomBytes(6).toString("hex")}.tmp`);
+  await writeFile(tmp, JSON.stringify(cache, null, 2), { encoding: "utf8", mode: 384 });
+  await chmod(tmp, 384);
+  await rename(tmp, file);
+  await chmod(file, 384);
+}
+function clearConfigCache() {
+  cache = null;
 }
 function objectRecord(value) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
@@ -1605,29 +1620,228 @@ async function runServe() {
   await import(buildEntry);
 }
 
+// src/cli/wizard.ts
+import { intro, multiselect, password, outro, isCancel, cancel, log } from "@clack/prompts";
+var KNOWN_PROVIDERS = ["claude", "codex", "opencode", "cursor"];
+var PROVIDER_META = {
+  claude: {
+    label: "Claude Code",
+    hint: "reads ~/.claude session JSONL files"
+  },
+  codex: {
+    label: "Codex",
+    hint: "reads ~/.codex/sessions"
+  },
+  opencode: {
+    label: "OpenCode",
+    hint: "reads ~/.local/share/opencode/opencode.db"
+  },
+  cursor: {
+    label: "Cursor",
+    hint: "polls Cursor Admin API (requires CURSOR_ADMIN_API_TOKEN)",
+    secret: {
+      envVar: "CURSOR_ADMIN_API_TOKEN",
+      configKey: "adminApiToken",
+      promptLabel: "Cursor Admin API token"
+    }
+  }
+};
+function applySelectionToConfig(base, selection) {
+  const enabledSet = new Set(selection.enabled);
+  return {
+    ...base,
+    providers: {
+      claude: {
+        ...base.providers.claude,
+        enabled: enabledSet.has("claude")
+      },
+      codex: {
+        ...base.providers.codex,
+        enabled: enabledSet.has("codex")
+      },
+      opencode: {
+        ...base.providers.opencode,
+        enabled: enabledSet.has("opencode")
+      },
+      cursor: {
+        ...base.providers.cursor,
+        enabled: enabledSet.has("cursor"),
+        // Only write the token if it was explicitly collected by the wizard.
+        // If the token came from the env we leave the stored value unchanged so
+        // the engine can pick it up from the environment at runtime.
+        adminApiToken: selection.secrets.cursor !== void 0 ? selection.secrets.cursor : base.providers.cursor.adminApiToken
+      }
+    }
+  };
+}
+function resolveEnvSecret(providerName, env = process.env) {
+  const meta = PROVIDER_META[providerName];
+  if (!meta.secret) return void 0;
+  const val = env[meta.secret.envVar];
+  return typeof val === "string" && val.length > 0 ? val : void 0;
+}
+async function runWizard(opts = {}) {
+  const env = opts.env ?? process.env;
+  if (!process.stdin.isTTY) {
+    const base2 = await loadConfig();
+    const updated2 = applySelectionToConfig(base2, {
+      enabled: [...KNOWN_PROVIDERS],
+      secrets: {}
+    });
+    clearConfigCache();
+    await saveConfig(updated2);
+    return updated2;
+  }
+  intro("chaching \u2014 first-run setup");
+  const base = await loadConfig();
+  const selection = await multiselect({
+    message: "Which providers would you like to enable?",
+    options: KNOWN_PROVIDERS.map((p) => ({
+      value: p,
+      label: PROVIDER_META[p].label,
+      hint: PROVIDER_META[p].hint
+    })),
+    // All providers pre-ticked by default per spec requirement.
+    initialValues: [...KNOWN_PROVIDERS],
+    required: false
+  });
+  if (isCancel(selection)) {
+    cancel("Setup cancelled \u2014 no changes written.");
+    return null;
+  }
+  const enabledProviders = selection;
+  const secrets = {};
+  for (const providerName of enabledProviders) {
+    const meta = PROVIDER_META[providerName];
+    if (!meta.secret) continue;
+    const fromEnv = resolveEnvSecret(providerName, env);
+    if (fromEnv !== void 0) {
+      log.info(
+        `${meta.label}: token found in $${meta.secret.envVar} \u2014 no prompt needed.`
+      );
+      continue;
+    }
+    const prompted = await password({
+      message: `${meta.secret.promptLabel} (will be stored in 0600 config):`
+    });
+    if (isCancel(prompted)) {
+      cancel("Setup cancelled \u2014 no changes written.");
+      return null;
+    }
+    secrets[providerName] = prompted;
+  }
+  const updated = applySelectionToConfig(base, { enabled: enabledProviders, secrets });
+  clearConfigCache();
+  await saveConfig(updated);
+  const enabledNames = enabledProviders.map((p) => PROVIDER_META[p].label).join(", ");
+  outro(
+    enabledProviders.length > 0 ? `Config saved. Enabled: ${enabledNames}` : "Config saved with no providers enabled. Run `chaching init` to reconfigure."
+  );
+  return updated;
+}
+async function collectProviderSecret(providerName, env = process.env) {
+  const meta = PROVIDER_META[providerName];
+  if (!meta.secret) return null;
+  const fromEnv = resolveEnvSecret(providerName, env);
+  if (fromEnv !== void 0) {
+    return { value: fromEnv, fromEnv: true };
+  }
+  const prompted = await password({
+    message: `${meta.secret.promptLabel}:`
+  });
+  if (isCancel(prompted)) {
+    cancel("Cancelled.");
+    return null;
+  }
+  return { value: prompted, fromEnv: false };
+}
+
 // src/cli/commands/init.ts
-async function runWizard() {
-  console.log("chaching init: wizard coming in wave 3.");
-  console.log("");
-  console.log("For now, create ~/.config/chaching/config.json manually.");
-  console.log("See: https://github.com/rbutera/chaching#configuration");
+async function runInit() {
+  const result = await runWizard();
+  if (result === null) {
+    process.exit(0);
+  }
 }
 
 // src/cli/commands/provider.ts
+var VALID_ACTIONS = ["add", "enable", "disable"];
 async function runProvider(args) {
   const [action, name] = args;
   if (!action) {
-    console.log("chaching provider: sub-subcommands: add | enable | disable");
+    console.log("Usage: chaching provider <add|enable|disable> <provider>");
     console.log("");
-    console.log("Provider management is coming in wave 3.");
+    console.log(`Providers: ${KNOWN_PROVIDERS.join(", ")}`);
     return;
   }
-  if (action === "add" || action === "enable" || action === "disable") {
-    console.log(`chaching provider ${action}${name ? ` ${name}` : ""}: coming in wave 3.`);
-    return;
+  if (!VALID_ACTIONS.includes(action)) {
+    console.error(`chaching provider: unknown action '${action}' (must be add|enable|disable)`);
+    process.exit(1);
   }
-  console.error(`chaching provider: unknown action '${action}' (must be add|enable|disable)`);
-  process.exit(1);
+  if (!name) {
+    console.error(`chaching provider ${action}: missing provider name`);
+    console.error(`Providers: ${KNOWN_PROVIDERS.join(", ")}`);
+    process.exit(1);
+  }
+  if (!KNOWN_PROVIDERS.includes(name)) {
+    console.error(
+      `chaching provider: unknown provider '${name}' (must be one of: ${KNOWN_PROVIDERS.join(", ")})`
+    );
+    process.exit(1);
+  }
+  const providerName = name;
+  const cfg = await loadConfig();
+  switch (action) {
+    case "enable":
+      await setProviderEnabled(providerName, true, cfg);
+      console.log(`${providerName}: enabled.`);
+      break;
+    case "disable":
+      await setProviderEnabled(providerName, false, cfg);
+      console.log(`${providerName}: disabled.`);
+      break;
+    case "add": {
+      const secret = await collectProviderSecret(providerName);
+      const updated = { ...cfg };
+      if (providerName === "cursor") {
+        updated.providers = {
+          ...cfg.providers,
+          cursor: {
+            ...cfg.providers.cursor,
+            enabled: true,
+            // Only write the token to config if it came from the prompt (not env).
+            adminApiToken: secret !== null && !secret.fromEnv ? secret.value : cfg.providers.cursor.adminApiToken
+          }
+        };
+      } else {
+        updated.providers = {
+          ...cfg.providers,
+          [providerName]: {
+            ...cfg.providers[providerName],
+            enabled: true
+          }
+        };
+      }
+      clearConfigCache();
+      await saveConfig(updated);
+      console.log(`${providerName}: added and enabled.`);
+      break;
+    }
+  }
+}
+async function setProviderEnabled(providerName, enabled, cfg) {
+  const updated = {
+    ...cfg,
+    providers: {
+      ...cfg.providers,
+      [providerName]: {
+        ...cfg.providers[providerName],
+        enabled
+      }
+    }
+  };
+  clearConfigCache();
+  await saveConfig(updated);
 }
 
 // src/cli/help.ts
@@ -1703,7 +1917,7 @@ async function run(argv) {
       await runServe();
       return;
     case "init":
-      await runWizard();
+      await runInit();
       return;
     case "provider":
       await runProvider(rest);
@@ -1719,7 +1933,7 @@ async function runDefault(_rest) {
   const cfgPath = configFilePath();
   const hasConfig = existsSync2(cfgPath);
   if (!hasConfig) {
-    await runWizard();
+    await runInit();
   }
   await runStats({});
 }
