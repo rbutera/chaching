@@ -1,6 +1,6 @@
 // Tests for the CLI router, stats formatting, and subprocess smoke tests.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join, dirname } from 'node:path';
