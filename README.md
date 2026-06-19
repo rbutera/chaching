@@ -51,16 +51,17 @@ The default mode. Runs an interactive terminal dashboard that stays open and upd
   trend (7d) ▁▂▃▂▄▅▆▇█▇▅▄▃
 ```
 
-Keys: `d` / `w` / `m` toggle the period, `Tab` cycles the provider filter, `q` / `Ctrl-C` quits cleanly. Add `--no-art` (or set `CHACHING_NO_ART`) to suppress the banner.
+Keys: `d` / `w` / `m` switch the period (or `←` / `→` to step through it), number keys `1`-`9` toggle individual providers in the filter, `0` clears the filter, `q` / `Ctrl-C` quits cleanly. Add `--no-art` (or set `CHACHING_NO_ART`) to suppress the banner.
 
 ### `chaching stats` — one-shot print
 
 Prints totals, per-provider and per-model breakdown, and the earliest covered date, then exits.
 
 ```sh
-chaching stats                        # default (today)
-chaching stats --period week          # weekly totals
-chaching stats --period month
+chaching stats                        # all-time totals (default)
+chaching stats --period day           # just today
+chaching stats --period week          # this week
+chaching stats --period month         # this month
 chaching stats --provider claude      # single-provider filter
 chaching stats --json                 # machine-readable JSON snapshot
 ```
@@ -70,7 +71,7 @@ Sample output:
 ```
 💰 chaching — AI token spend register
 
-period: today  (2026-06-19)  earliest data: 2026-05-20
+earliest data: 2026-05-20
 
 PROVIDER         COST       INPUT       OUTPUT      CACHE_READ  REQUESTS
 claude-code      $10.21     4,210,033   384,211     12,300,411  847
@@ -140,11 +141,14 @@ See [CONFIG.md](CONFIG.md) for the full schema. A ready-to-edit example is in [`
 
 ```json
 {
+  "cutoverTs": null,
   "server": { "host": "0.0.0.0", "port": 5178 },
-  "claude": { "enabled": true, "roots": ["~/.claude", "~/.config/claude"] },
-  "codex": { "enabled": true, "root": "~/.codex/sessions" },
-  "opencode": { "enabled": true, "dbPath": "~/.local/share/opencode/opencode.db" },
-  "cursor": { "enabled": false, "adminApiToken": "" }
+  "providers": {
+    "claude": { "enabled": true, "roots": ["~/.claude", "~/.config/claude"] },
+    "codex": { "enabled": true, "root": "~/.codex/sessions" },
+    "opencode": { "enabled": true, "dbPath": "~/.local/share/opencode/opencode.db" },
+    "cursor": { "enabled": false, "adminApiToken": "", "email": null, "pollSeconds": 3600 }
+  }
 }
 ```
 
@@ -200,7 +204,7 @@ curl -s https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_
 > static/pricing/litellm-prices.json
 ```
 
-For a model that isn't in LiteLLM yet, add an exact-id row to `src/lib/server/pricing/overrides.ts` — it takes precedence over the snapshot.
+For a model that isn't in LiteLLM yet, add an exact-id row to `src/lib/core/pricing/overrides.ts` — it takes precedence over the snapshot.
 
 ---
 
@@ -208,11 +212,12 @@ For a model that isn't in LiteLLM yet, add an exact-id row to `src/lib/server/pr
 
 ```sh
 npm install
-npm run build       # SvelteKit build + CLI bundle
-npm run start       # serves on http://0.0.0.0:5178
+npm run build              # SvelteKit build + CLI bundle
+npm run start              # runs the CLI (bare = TUI dashboard)
+npm run start -- serve     # or boot the web server on :5178
 ```
 
-Dev mode (also on :5178, hot reload):
+`npm run start` is just `node bin/chaching.js`, so it takes the same subcommands as the published binary. Dev mode for the web app (hot reload, :5178):
 
 ```sh
 npm run dev
@@ -220,9 +225,9 @@ npm run dev
 
 | command | what |
 |---|---|
-| `npm run dev` | dev server on :5178 |
+| `npm run dev` | web dev server on :5178 (hot reload) |
 | `npm run build` | adapter-node build + CLI bundle |
-| `npm run start` | serve the build on :5178 |
+| `npm run start` | run the CLI (`-- serve` for the web server) |
 | `npm run check` | svelte-check (types) |
 | `npm test` | vitest unit tests |
 | `npm run pack:dry` | inspect package contents before publishing |
