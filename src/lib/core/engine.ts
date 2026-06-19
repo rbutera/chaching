@@ -11,6 +11,8 @@ import { discoverFiles, resolveProjectsDirs } from './ingest/discover';
 import { ingestRange, type FileState } from './watch/tail';
 import { loadConfig, type chachingConfig, type CursorProviderConfig } from './config';
 import { expandPath, safeMtime } from './fs-utils';
+import { isoDayUTC } from './ingest/parse';
+import { HistoryStore } from './history/store';
 import { ProviderStatus } from './provider-status';
 import { readCodexRecords } from './providers/codex/local';
 import { readOpenCodeSessions } from './providers/opencode/sqlite';
@@ -55,10 +57,13 @@ class Ingestion {
 	private claudeEnv: NodeJS.ProcessEnv | null = null;
 	private providerStatus = new ProviderStatus();
 	private disposed = false;
+	private historyStore: HistoryStore | null = null;
 
 	constructor(
 		private config: chachingConfig | null,
-		private watchEnabled: boolean
+		private watchEnabled: boolean,
+		/** clock seam: epoch ms used to compute "today" (UTC). Defaults to wall clock. */
+		private now: () => number = Date.now
 	) {}
 
 	/** Idempotent: kicks off the cold scan + watchers once. */
@@ -71,6 +76,11 @@ class Ingestion {
 		const t0 = Date.now();
 		const cfg = this.config ?? (await loadConfig());
 		this.rollup.setCutover(cfg.cutoverTs);
+
+		// History: seed the rollup with frozen past-day aggregates + mark those days so the
+		// live scan skips them (no double-count). MUST happen before any rollup.add call.
+		this.loadHistory(cfg);
+
 		const claudeEnv = {
 			...process.env,
 			CLAUDE_CONFIG_DIR: cfg.providers.claude.roots.map(expandPath).join(',')
@@ -116,8 +126,50 @@ class Ingestion {
 			if (this.watchEnabled && !this.disposed) this.startCursorPolling(cursorCfgWithToken);
 		}
 
+		// Freeze newly-complete past days (day < today, scanned, not already frozen).
+		this.freezeNewDays(cfg);
+
 		this.coldScanMs = Date.now() - t0;
 		if (this.watchEnabled && !this.disposed) this.startWatching();
+	}
+
+	/** Open the history DB and seed the rollup with frozen aggregates + sessions. */
+	private loadHistory(cfg: chachingConfig): void {
+		if (!cfg.history.enabled) return;
+		try {
+			const store = new HistoryStore();
+			store.open(expandPath(cfg.history.dbPath));
+			this.historyStore = store;
+			const frozen = store.frozenDays();
+			this.rollup.setFrozenDays(frozen);
+			this.rollup.loadAggregates(store.loadAggregates(), store.loadSessions());
+		} catch (error) {
+			this.providerStatus.recordError('history', error);
+			if (this.historyStore) {
+				this.historyStore.close();
+				this.historyStore = null;
+			}
+		}
+	}
+
+	/** Freeze each past day (day < today UTC) that was scanned and is not yet frozen. */
+	private freezeNewDays(cfg: chachingConfig): void {
+		if (!cfg.history.enabled || !this.historyStore) return;
+		const today = isoDayUTC(this.now());
+		const frozen = this.rollup.frozenDaySet();
+		const newDays = new Set<string>();
+		for (const day of this.rollup.scannedDays()) {
+			if (day < today && !frozen.has(day)) newDays.add(day);
+		}
+		if (newDays.size === 0) return;
+		try {
+			const { aggregates, sessions } = this.rollup.freezeCandidates(newDays);
+			this.historyStore.freezeDays(newDays, aggregates, sessions);
+			// Mark them frozen in-memory too, so a subsequent live tail for these days is skipped.
+			this.rollup.setFrozenDays(newDays);
+		} catch (error) {
+			this.providerStatus.recordError('history', error);
+		}
 	}
 
 	private async ingestCodex(root: string): Promise<void> {
@@ -326,6 +378,10 @@ class Ingestion {
 			clearTimeout(this.deltaTimer);
 			this.deltaTimer = null;
 		}
+		if (this.historyStore) {
+			this.historyStore.close();
+			this.historyStore = null;
+		}
 		this.listeners.clear();
 	}
 
@@ -339,13 +395,16 @@ class Ingestion {
 }
 
 /** Create a live engine: cold scan + watchers/polling, fans deltas to subscribers. */
-export function createEngine(config?: chachingConfig | null): Engine {
-	return new Ingestion(config ?? null, true);
+export function createEngine(config?: chachingConfig | null, now?: () => number): Engine {
+	return new Ingestion(config ?? null, true, now ?? Date.now);
 }
 
 /** One cold scan, resolve a snapshot, dispose all resources (no watchers/timers left). */
-export async function runOnce(config?: chachingConfig | null): Promise<RollupSnapshot> {
-	const engine = new Ingestion(config ?? null, false);
+export async function runOnce(
+	config?: chachingConfig | null,
+	now?: () => number
+): Promise<RollupSnapshot> {
+	const engine = new Ingestion(config ?? null, false, now ?? Date.now);
 	try {
 		await engine.ensureStarted();
 		return engine.snapshot();
