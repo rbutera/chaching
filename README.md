@@ -207,13 +207,13 @@ SSE (`GET /api/feed`) delivers a snapshot on connect and deltas as they arrive. 
 
 ## Refresh the price map
 
-The vendored snapshot is `static/pricing/litellm-prices.json` (Claude entries only). To pull a fresh copy:
+The vendored snapshot is `static/pricing/litellm-prices.json` (Claude + OpenAI/Codex entries — the two providers whose cost chaching computes; OpenCode and Cursor report their own cost). To pull a fresh copy:
 
 ```sh
 curl -s https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json \
 | jq '{ _meta: { source: "litellm", snapshot_date: (now|strftime("%Y-%m-%d")) },
         prices: ([ to_entries[] | select(.value|type=="object")
-          | select(.key|test("claude";"i"))
+          | select(.key|test("claude|gpt-|codex|chatgpt|^o[0-9]|/o[0-9]";"i"))
           | select(.value.input_cost_per_token != null)
           | { key: .key, value: {
               input_cost_per_token: .value.input_cost_per_token,
