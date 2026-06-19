@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 
 export interface ClaudeProviderConfig {
 	enabled: boolean;
@@ -149,14 +150,21 @@ export async function loadConfig(): Promise<chachingConfig> {
 
 export async function saveConfig(cfg: chachingConfig): Promise<void> {
 	cache = normalizeConfig(cfg);
-	try {
-		const file = configFilePath();
-		await mkdir(join(file, '..'), { recursive: true, mode: 0o700 });
-		await writeFile(file, JSON.stringify(cache, null, 2), { encoding: 'utf8', mode: 0o600 });
-		await chmod(file, 0o600);
-	} catch {
-		return;
-	}
+	const file = configFilePath();
+	const dir = join(file, '..');
+	await mkdir(dir, { recursive: true, mode: 0o700 });
+	// Atomic write: write to a temp file then rename so a crash can't leave a partial config.
+	const tmp = join(dir, `.chaching-${randomBytes(6).toString('hex')}.tmp`);
+	await writeFile(tmp, JSON.stringify(cache, null, 2), { encoding: 'utf8', mode: 0o600 });
+	await chmod(tmp, 0o600);
+	await rename(tmp, file);
+	// Ensure the final file has 0600 (rename may inherit different perms on some FSes).
+	await chmod(file, 0o600);
+}
+
+/** Invalidate the in-memory config cache (useful after saveConfig in tests or re-init). */
+export function clearConfigCache(): void {
+	cache = null;
 }
 
 export async function configFileMode(): Promise<number | null> {
