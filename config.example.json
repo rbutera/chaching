@@ -1,0 +1,27 @@
+{
+	"cutoverTs": null,
+	"server": {
+		"host": "0.0.0.0",
+		"port": 5178
+	},
+	"providers": {
+		"claude": {
+			"enabled": true,
+			"roots": ["~/.claude", "~/.config/claude"]
+		},
+		"codex": {
+			"enabled": true,
+			"root": "~/.codex/sessions"
+		},
+		"opencode": {
+			"enabled": true,
+			"dbPath": "~/.local/share/opencode/opencode.db"
+		},
+		"cursor": {
+			"enabled": false,
+			"adminApiToken": "",
+			"email": null,
+			"pollSeconds": 3600
+		}
+	}
+}

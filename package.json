@@ -1,0 +1,65 @@
+{
+	"name": "chaching",
+	"version": "0.0.1",
+	"description": "Local multi-provider AI token spend dashboard for Claude Code, Codex, OpenCode, and Cursor.",
+	"private": false,
+	"type": "module",
+	"bin": {
+		"chaching": "./bin/chaching.js"
+	},
+	"files": [
+		"bin/",
+		"build/",
+		"static/",
+		"CONFIG.md",
+		"config.example.json",
+		"README.md"
+	],
+	"engines": {
+		"node": ">=24.16.0"
+	},
+	"keywords": [
+		"ai",
+		"tokens",
+		"claude-code",
+		"codex",
+		"opencode",
+		"cursor",
+		"dashboard"
+	],
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"test": "vitest run",
+		"start": "node bin/chaching.js",
+		"pack:dry": "npm pack --dry-run"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-node": "5.5.4",
+		"@sveltejs/kit": "^2.57.0",
+		"@sveltejs/vite-plugin-svelte": "^7.0.0",
+		"@types/d3-array": "3.2.2",
+		"@types/d3-scale": "4.0.9",
+		"@types/d3-shape": "3.1.8",
+		"@types/d3-time": "3.0.4",
+		"svelte": "^5.55.2",
+		"svelte-check": "^4.4.6",
+		"typescript": "^6.0.2",
+		"vite": "^8.0.7",
+		"vitest": "4.1.7"
+	},
+	"dependencies": {
+		"d3-array": "3.2.4",
+		"d3-scale": "4.0.2",
+		"d3-shape": "3.2.0",
+		"d3-time": "3.1.0",
+		"uplot": "1.6.32"
+	}
+}

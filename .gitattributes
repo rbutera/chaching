@@ -1,0 +1,5 @@
+*.ts text diff
+*.svelte text diff
+*.js text diff
+*.json text diff
+*.md text diff
