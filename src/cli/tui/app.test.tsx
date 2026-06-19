@@ -190,6 +190,58 @@ describe('DashboardApp', () => {
 		expect(dispose).toHaveBeenCalled();
 	});
 
+	it('shows a loading frame during the cold scan and quits on q while loading', async () => {
+		// A source whose start() never resolves keeps the app in the loading state.
+		let resolveStart!: () => void;
+		const base = makeSource(snapFrom([]));
+		const dispose = vi.fn();
+		const unsubscribe = vi.fn();
+		const source: DashboardSource = {
+			snapshot: () => snapFrom([]),
+			subscribe: (fn) => {
+				base.source.subscribe(fn);
+				return () => unsubscribe();
+			},
+			dispose,
+			start: () => new Promise<void>((res) => (resolveStart = res))
+		};
+		const { lastFrame, stdin, unmount } = render(
+			<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={DIMS} />
+		);
+		expect(lastFrame()).toContain('cold-scanning');
+		// q during loading must quit (useInput is mounted) → cleanup runs on unmount
+		stdin.write('q');
+		await new Promise((r) => setTimeout(r, 20));
+		unmount();
+		await new Promise((r) => setTimeout(r, 10));
+		expect(unsubscribe).toHaveBeenCalled();
+		expect(dispose).toHaveBeenCalled();
+		resolveStart(); // avoid dangling promise
+	});
+
+	it('replaces the loading frame with data once the cold scan resolves', async () => {
+		let snap = snapFrom([]);
+		const listeners = new Set<(d: RollupDelta) => void>();
+		const source: DashboardSource = {
+			snapshot: () => snap,
+			subscribe: (fn) => {
+				listeners.add(fn);
+				return () => listeners.delete(fn);
+			},
+			dispose: vi.fn(),
+			start: async () => {
+				snap = POPULATED; // the scan "fills" the engine
+			}
+		};
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={DIMS} />
+		);
+		await new Promise((r) => setTimeout(r, 30));
+		expect(lastFrame()).toContain('Total spend');
+		expect(lastFrame()).not.toContain('cold-scanning');
+		unmount();
+	});
+
 	it('shows a fallback below the minimum terminal size', () => {
 		const { source } = makeSource(POPULATED);
 		const { lastFrame, unmount } = render(

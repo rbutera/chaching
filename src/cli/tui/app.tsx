@@ -6,7 +6,7 @@
 // rather than reaching for the real engine directly — that makes it testable with
 // a fake source under ink-testing-library, and keeps the React tree free of disk IO.
 
-import { useEffect, useMemo, useReducer, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useApp, useInput, useWindowSize } from 'ink';
 import type { Period, RollupDelta, RollupSnapshot } from '../../lib/types.js';
 import {
@@ -41,6 +41,12 @@ export interface DashboardSource {
 	snapshot(): RollupSnapshot;
 	subscribe(fn: (delta: RollupDelta) => void): () => void;
 	dispose?(): void;
+	/**
+	 * Optional cold-scan kickoff. When present, the app mounts a loading state
+	 * (keypresses already live, so `q` quits during the scan) and re-reads the
+	 * snapshot once it resolves. Omitted by tests, which inject ready data.
+	 */
+	start?(): Promise<void>;
 }
 
 export interface DashboardAppProps {
@@ -58,25 +64,50 @@ export interface DashboardAppProps {
 export function DashboardApp({ source, period = 'week', noArt = false, now, dimensions }: DashboardAppProps) {
 	const { exit } = useApp();
 
-	// The snapshot is the source of truth; deltas merge into it. useReducer keeps the
-	// merge logic out of the render path and guarantees one re-render per delta.
-	const [snapshot, dispatch] = useReducer(
-		(prev: RollupSnapshot, delta: RollupDelta) => applyDelta(prev, delta),
-		undefined as unknown as RollupSnapshot,
-		() => source.snapshot()
-	);
+	// The snapshot is the source of truth; deltas merge into it. Held in state so a
+	// delta (or the post-cold-scan re-read) triggers exactly one re-render.
+	const [snapshot, setSnapshot] = useState<RollupSnapshot>(() => source.snapshot());
 
 	// UI selection state. Period + provider filter survive deltas (separate state).
 	const [view, setView] = useState<ViewState>(() => ({ ...defaultViewState(period) }));
 
+	// Loading state while the cold scan runs (only when source.start is provided).
+	const [loading, setLoading] = useState(() => typeof source.start === 'function');
+
 	// Subscribe once; unsubscribe + dispose on unmount (clean lifecycle).
 	useEffect(() => {
-		const unsub = source.subscribe((delta) => dispatch(delta));
+		const unsub = source.subscribe((delta) => setSnapshot((prev) => applyDelta(prev, delta)));
 		return () => {
 			unsub();
 			source.dispose?.();
 		};
 	}, [source]);
+
+	// Kick off the cold scan AFTER mount so keypresses (q/Ctrl-C) stay live during it.
+	useEffect(() => {
+		if (typeof source.start !== 'function') return;
+		let cancelled = false;
+		source
+			.start()
+			.catch(() => undefined)
+			.finally(() => {
+				if (cancelled) return;
+				setSnapshot(source.snapshot()); // replace the initial (empty) snapshot
+				setLoading(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [source]);
+
+	// Tick once a minute so the 5h-window elapsed/remaining + active flag advance
+	// even when no usage deltas arrive (finding: static clock never updated).
+	const [, forceTick] = useState(0);
+	useEffect(() => {
+		const t = setInterval(() => forceTick((n) => n + 1), 60_000);
+		if (typeof t.unref === 'function') t.unref();
+		return () => clearInterval(t);
+	}, []);
 
 	const providerList = useMemo(() => providers(snapshot, view), [snapshot, view]);
 
@@ -126,6 +157,21 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 		return <TooSmall columns={cols} rows={rows} />;
 	}
 
+	// Loading frame during the cold scan. useInput is already mounted above, so
+	// q/Ctrl-C quit while the scan runs (keypresses are not blocked).
+	if (loading && snapshot.dayModel.length === 0) {
+		return (
+			<Box paddingX={1}>
+				{banner ? (
+					<Text color={color(ACCENT)} bold>
+						{banner}
+					</Text>
+				) : null}
+				<Text color={color(DIM)}> · cold-scanning transcripts… (q to quit)</Text>
+			</Box>
+		);
+	}
+
 	const empty = snapshot.dayModel.length === 0;
 	const scopeLabel =
 		view.providerFilter.size > 0 ? ` · ${[...view.providerFilter].join(', ')}` : '';
@@ -139,7 +185,7 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 			) : null}
 
 			{/* Hero: current-period spend + label */}
-			<Box marginTop={banner ? 0 : 0}>
+			<Box>
 				<Text color={color(DIM)}>{`Spend · ${hero.label}${scopeLabel}  `}</Text>
 				<Text color={color(ACCENT)} bold>
 					{money(hero.current.cost)}

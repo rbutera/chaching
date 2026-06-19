@@ -5,10 +5,10 @@
 // keeps the React tree free of disk IO by doing the cold scan here, then handing
 // the started engine to <DashboardApp> as an injected DashboardSource.
 
-import { render, Box, Text } from 'ink';
+import { render } from 'ink';
 import { createEngine, type Engine } from '../../lib/core/engine.js';
 import { loadConfig } from '../../lib/core/config.js';
-import { ACCENT, color, noArt } from './theme.js';
+import { noArt } from './theme.js';
 import { DashboardApp, type DashboardSource } from './app.js';
 
 export interface RunDashboardOptions {
@@ -27,29 +27,13 @@ export async function runDashboard(opts: RunDashboardOptions = {}): Promise<void
 	const cfg = await loadConfig();
 	const engine: Engine = createEngine(cfg);
 
-	// Loading frame while the cold scan runs (it must not block keypresses, but
-	// here we simply show a scanning line until the first snapshot is ready).
-	const loading = render(
-		<Box paddingX={1}>
-			<Text color={color(ACCENT)}>◈ chaching</Text>
-			<Text color={color('gray')}> · cold-scanning transcripts…</Text>
-		</Box>
-	);
-	try {
-		await engine.ensureStarted();
-	} catch (err) {
-		loading.unmount();
-		engine.dispose();
-		console.error('chaching: failed to start engine:', err instanceof Error ? err.message : err);
-		process.exitCode = 1;
-		return;
-	}
-	loading.unmount();
-
+	// The cold scan runs INSIDE the React lifecycle (source.start) so the loading
+	// frame renders with keypresses already live (q/Ctrl-C work during the scan).
 	const source: DashboardSource = {
 		snapshot: () => engine.snapshot(),
 		subscribe: (fn) => engine.subscribe(fn),
-		dispose: () => engine.dispose()
+		dispose: () => engine.dispose(),
+		start: () => engine.ensureStarted()
 	};
 
 	const { waitUntilExit } = render(<DashboardApp source={source} noArt={noArt(opts.argv)} />, {

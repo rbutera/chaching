@@ -2119,24 +2119,39 @@ var init_components = __esm({
 });
 
 // src/cli/tui/app.tsx
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Box as Box2, Text as Text2, useApp, useInput, useWindowSize } from "ink";
 import { Fragment, jsx as jsx2, jsxs as jsxs2 } from "react/jsx-runtime";
 function DashboardApp({ source, period = "week", noArt: noArt2 = false, now, dimensions }) {
   const { exit } = useApp();
-  const [snapshot2, dispatch] = useReducer(
-    (prev, delta) => applyDelta(prev, delta),
-    void 0,
-    () => source.snapshot()
-  );
+  const [snapshot2, setSnapshot] = useState(() => source.snapshot());
   const [view, setView] = useState(() => ({ ...defaultViewState(period) }));
+  const [loading, setLoading] = useState(() => typeof source.start === "function");
   useEffect(() => {
-    const unsub = source.subscribe((delta) => dispatch(delta));
+    const unsub = source.subscribe((delta) => setSnapshot((prev) => applyDelta(prev, delta)));
     return () => {
       unsub();
       source.dispose?.();
     };
   }, [source]);
+  useEffect(() => {
+    if (typeof source.start !== "function") return;
+    let cancelled = false;
+    source.start().catch(() => void 0).finally(() => {
+      if (cancelled) return;
+      setSnapshot(source.snapshot());
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [source]);
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => forceTick((n) => n + 1), 6e4);
+    if (typeof t.unref === "function") t.unref();
+    return () => clearInterval(t);
+  }, []);
   const providerList = useMemo(() => providers(snapshot2, view), [snapshot2, view]);
   useInput((input, key) => {
     if (input === "q" || key.ctrl && input === "c") {
@@ -2175,11 +2190,17 @@ function DashboardApp({ source, period = "week", noArt: noArt2 = false, now, dim
   if (cols < MIN_COLUMNS || rows < MIN_ROWS) {
     return /* @__PURE__ */ jsx2(TooSmall, { columns: cols, rows });
   }
+  if (loading && snapshot2.dayModel.length === 0) {
+    return /* @__PURE__ */ jsxs2(Box2, { paddingX: 1, children: [
+      banner ? /* @__PURE__ */ jsx2(Text2, { color: color(ACCENT), bold: true, children: banner }) : null,
+      /* @__PURE__ */ jsx2(Text2, { color: color(DIM), children: " \xB7 cold-scanning transcripts\u2026 (q to quit)" })
+    ] });
+  }
   const empty = snapshot2.dayModel.length === 0;
   const scopeLabel = view.providerFilter.size > 0 ? ` \xB7 ${[...view.providerFilter].join(", ")}` : "";
   return /* @__PURE__ */ jsxs2(Box2, { flexDirection: "column", paddingX: 1, children: [
     banner ? /* @__PURE__ */ jsx2(Text2, { color: color(ACCENT), bold: true, children: banner }) : null,
-    /* @__PURE__ */ jsxs2(Box2, { marginTop: banner ? 0 : 0, children: [
+    /* @__PURE__ */ jsxs2(Box2, { children: [
       /* @__PURE__ */ jsx2(Text2, { color: color(DIM), children: `Spend \xB7 ${hero.label}${scopeLabel}  ` }),
       /* @__PURE__ */ jsx2(Text2, { color: color(ACCENT), bold: true, children: money(hero.current.cost) })
     ] }),
@@ -2225,8 +2246,8 @@ var tui_exports = {};
 __export(tui_exports, {
   runDashboard: () => runDashboard
 });
-import { render, Box as Box3, Text as Text3 } from "ink";
-import { jsx as jsx3, jsxs as jsxs3 } from "react/jsx-runtime";
+import { render } from "ink";
+import { jsx as jsx3 } from "react/jsx-runtime";
 async function runDashboard(opts = {}) {
   if (!process.stdout.isTTY) {
     const { runStats: runStats2 } = await Promise.resolve().then(() => (init_stats(), stats_exports));
@@ -2235,26 +2256,11 @@ async function runDashboard(opts = {}) {
   }
   const cfg = await loadConfig();
   const engine = createEngine(cfg);
-  const loading = render(
-    /* @__PURE__ */ jsxs3(Box3, { paddingX: 1, children: [
-      /* @__PURE__ */ jsx3(Text3, { color: color(ACCENT), children: "\u25C8 chaching" }),
-      /* @__PURE__ */ jsx3(Text3, { color: color("gray"), children: " \xB7 cold-scanning transcripts\u2026" })
-    ] })
-  );
-  try {
-    await engine.ensureStarted();
-  } catch (err) {
-    loading.unmount();
-    engine.dispose();
-    console.error("chaching: failed to start engine:", err instanceof Error ? err.message : err);
-    process.exitCode = 1;
-    return;
-  }
-  loading.unmount();
   const source = {
     snapshot: () => engine.snapshot(),
     subscribe: (fn) => engine.subscribe(fn),
-    dispose: () => engine.dispose()
+    dispose: () => engine.dispose(),
+    start: () => engine.ensureStarted()
   };
   const { waitUntilExit } = render(/* @__PURE__ */ jsx3(DashboardApp, { source, noArt: noArt(opts.argv) }), {
     // We restore the terminal + dispose the engine in the app's unmount effect;
@@ -2607,6 +2613,10 @@ async function run(argv) {
     return;
   }
   const [subcommand, ...rest] = argv;
+  if (subcommand !== void 0 && subcommand.startsWith("-")) {
+    await runDefault(argv);
+    return;
+  }
   switch (subcommand) {
     case void 0:
     case "":

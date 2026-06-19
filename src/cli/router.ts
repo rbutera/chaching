@@ -24,6 +24,14 @@ export async function run(argv: string[]): Promise<void> {
 
 	const [subcommand, ...rest] = argv;
 
+	// A leading flag (e.g. `chaching --no-art`) is a bare-dashboard invocation with
+	// options, not a subcommand. Route the whole argv into runDefault so the TUI
+	// sees its flags. (Global --version/--help are already handled above.)
+	if (subcommand !== undefined && subcommand.startsWith('-')) {
+		await runDefault(argv);
+		return;
+	}
+
 	switch (subcommand) {
 		case undefined:
 		case '':
