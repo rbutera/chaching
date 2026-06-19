@@ -25,12 +25,18 @@ export interface OpenCodeProviderConfig {
 	dbPath: string;
 }
 
+export interface HistoryConfig {
+	enabled: boolean;
+	dbPath: string;
+}
+
 export interface chachingConfig {
 	cutoverTs: number | null;
 	server: {
 		host: string;
 		port: number;
 	};
+	history: HistoryConfig;
 	providers: {
 		claude: ClaudeProviderConfig;
 		codex: CodexProviderConfig;
@@ -39,7 +45,8 @@ export interface chachingConfig {
 	};
 }
 
-export interface PublicchachingConfig extends Omit<chachingConfig, 'providers'> {
+export interface PublicchachingConfig extends Omit<chachingConfig, 'providers' | 'history'> {
+	history: HistoryConfig;
 	providers: {
 		claude: ClaudeProviderConfig;
 		codex: CodexProviderConfig;
@@ -56,6 +63,7 @@ export interface ConfigPathInput {
 const DEFAULT_HOST = '0.0.0.0';
 const DEFAULT_PORT = 5178;
 const DEFAULT_CURSOR_POLL_SECONDS = 3600;
+const DEFAULT_HISTORY_DB_PATH = '~/.local/share/chaching/history.db';
 
 let cache: chachingConfig | null = null;
 
@@ -70,6 +78,7 @@ export function defaultConfig(): chachingConfig {
 	return {
 		cutoverTs: null,
 		server: { host: DEFAULT_HOST, port: DEFAULT_PORT },
+		history: { enabled: true, dbPath: DEFAULT_HISTORY_DB_PATH },
 		providers: {
 			claude: { enabled: true, roots: ['~/.claude', '~/.config/claude'] },
 			codex: { enabled: true, root: '~/.codex/sessions' },
@@ -84,6 +93,7 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 	const root = objectRecord(raw);
 	const providers = objectRecord(root.providers);
 	const server = objectRecord(root.server);
+	const history = objectRecord(root.history);
 	const claude = objectRecord(providers.claude);
 	const codex = objectRecord(providers.codex);
 	const cursor = objectRecord(providers.cursor);
@@ -94,6 +104,10 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 		server: {
 			host: stringOr(server.host, defaults.server.host),
 			port: positiveIntOr(server.port, defaults.server.port)
+		},
+		history: {
+			enabled: booleanOr(history.enabled, defaults.history.enabled),
+			dbPath: stringOr(history.dbPath, defaults.history.dbPath)
 		},
 		providers: {
 			claude: {
@@ -122,6 +136,7 @@ export function publicConfig(cfg: chachingConfig): PublicchachingConfig {
 	return {
 		cutoverTs: cfg.cutoverTs,
 		server: { ...cfg.server },
+		history: { ...cfg.history },
 		providers: {
 			claude: { ...cfg.providers.claude, roots: [...cfg.providers.claude.roots] },
 			codex: { ...cfg.providers.codex },

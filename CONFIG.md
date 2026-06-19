@@ -27,6 +27,30 @@ cp config.example.json "${XDG_CONFIG_HOME:-$HOME/.config}/chaching/config.json"
 
 The `chaching` CLI uses these values unless `HOST` or `PORT` is already set in the environment.
 
+## History
+
+```json
+"history": {
+	"enabled": true,
+	"dbPath": "~/.local/share/chaching/history.db"
+}
+```
+
+chaching keeps a local SQLite store of finalized past-day aggregates so spend history
+survives the source logs being pruned (Claude Code prunes roughly the last 30 days). The
+DB lives under the XDG data dir, `${XDG_DATA_HOME:-$HOME/.local/share}/chaching/`, by
+default.
+
+A day is frozen into the DB exactly once, when it first appears as a complete past day
+(day `< today`, UTC). Past-day logs never change, so freezing is safe and the DB copy is
+authoritative thereafter. On every run chaching loads the frozen days from the DB and
+skips re-scanning them from the logs, so spend is never double-counted; pruned days keep
+showing up from the DB. Today is never frozen — it stays live from the log scan/tail and
+is frozen on a future run, once it becomes a past day.
+
+Set `enabled` to `false` to disable the store entirely (chaching then shows only what the
+current logs cover). Uses Node's built-in `node:sqlite`, so it requires Node `>=24.16.0`.
+
 ## Providers
 
 ### Claude Code
