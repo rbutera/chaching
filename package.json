@@ -53,6 +53,7 @@
 		"prepublishOnly": "npm test && npm run check",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"pretest": "npm run build:cli",
 		"test": "vitest run",
 		"start": "node bin/chaching.js",
 		"pack:dry": "npm pack --dry-run"
