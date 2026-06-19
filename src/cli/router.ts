@@ -9,24 +9,32 @@ import { runProvider } from './commands/provider.js';
 import { printUsage, printVersion } from './help.js';
 import { configFilePath } from '../lib/core/config.js';
 import { existsSync } from 'node:fs';
+import { noArt } from './tui/theme.js';
+
+/** Known global flags that may appear before the subcommand token. */
+const GLOBAL_FLAGS = new Set(['--no-art', '--no-color']);
 
 /** Parse raw argv (after slice(2)) and dispatch. */
 export async function run(argv: string[]): Promise<void> {
-	// Global flags first
+	// Global flags first (checked across all argv positions)
 	if (argv.includes('--version') || argv.includes('-v')) {
 		printVersion();
 		return;
 	}
 	if (argv.includes('--help') || argv.includes('-h')) {
-		printUsage();
+		printUsage(argv);
 		return;
 	}
 
-	const [subcommand, ...rest] = argv;
+	// Strip recognized global flags so they don't block subcommand detection.
+	// e.g. `chaching --no-art stats` → subcommand='stats', rest=['--no-art']
+	const stripped = argv.filter((a) => !GLOBAL_FLAGS.has(a));
+	const globalArgs = argv.filter((a) => GLOBAL_FLAGS.has(a));
 
-	// A leading flag (e.g. `chaching --no-art`) is a bare-dashboard invocation with
-	// options, not a subcommand. Route the whole argv into runDefault so the TUI
-	// sees its flags. (Global --version/--help are already handled above.)
+	const [subcommand, ...rest] = stripped;
+
+	// A leading flag that isn't a recognized global is a bare-dashboard invocation
+	// with unknown options — route everything to runDefault (legacy behaviour).
 	if (subcommand !== undefined && subcommand.startsWith('-')) {
 		await runDefault(argv);
 		return;
@@ -40,7 +48,8 @@ export async function run(argv: string[]): Promise<void> {
 			return;
 
 		case 'stats':
-			await runStats(parseStatsFlags(rest));
+			// Merge global flags (like --no-art) that appeared before the subcommand
+			await runStats(parseStatsFlags([...globalArgs, ...rest]));
 			return;
 
 		case 'serve':
@@ -57,7 +66,7 @@ export async function run(argv: string[]): Promise<void> {
 
 		default:
 			console.error(`chaching: unknown subcommand '${subcommand}'\n`);
-			printUsage();
+			printUsage(argv);
 			process.exit(1);
 	}
 }
@@ -80,11 +89,16 @@ function parseStatsFlags(argv: string[]): StatsFlags {
 	const flags: StatsFlags = {};
 	const providers: string[] = [];
 
+	// Resolve no-art from the full argv + env (consistent with the TUI path).
+	flags.noArt = noArt(argv);
+
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i];
 
 		if (arg === '--json') {
 			flags.json = true;
+		} else if (arg === '--no-art') {
+			// already handled above via noArt(); skip so it doesn't fall through to unknown flag
 		} else if (arg === '--period') {
 			const p = argv[i + 1];
 			if (!p || p.startsWith('--')) {

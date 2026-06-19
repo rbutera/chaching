@@ -20,7 +20,7 @@ import {
 } from '../../lib/core/view-model.js';
 import { applyDelta } from '../../lib/core/merge.js';
 import { money } from '../../lib/format.js';
-import { ACCENT, DIM, PERIOD_LABEL, bannerLine, color } from './theme.js';
+import { ACCENT, DIM, PERIOD_LABEL, bannerLine, color, scanningLine, emptyLine } from './theme.js';
 import {
 	CapBlock,
 	HelpFooter,
@@ -143,7 +143,6 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 	const buckets = useMemo(() => trend(snapshot, view), [snapshot, view]);
 	const activeBlock = useMemo(() => snapshot.blocks.find((b) => b.isActive) ?? null, [snapshot]);
 
-	const banner = bannerLine(noArt);
 	// useWindowSize re-renders on terminal resize (SIGWINCH) → the layout reflows.
 	// Tests inject `dimensions` for determinism. A real terminal reports
 	// columns/rows; some PTYs report 0 until the first SIGWINCH, so treat 0 as
@@ -153,6 +152,8 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 	const rows = dimensions?.rows ?? (measured.rows || 24);
 	const clock = now ?? (() => Date.now());
 
+	const banner = bannerLine(noArt, cols);
+
 	if (cols < MIN_COLUMNS || rows < MIN_ROWS) {
 		return <TooSmall columns={cols} rows={rows} />;
 	}
@@ -160,14 +161,15 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 	// Loading frame during the cold scan. useInput is already mounted above, so
 	// q/Ctrl-C quit while the scan runs (keypresses are not blocked).
 	if (loading && snapshot.dayModel.length === 0) {
+		const scanMsg = noArt ? 'cold-scanning transcripts… (q to quit)' : `${scanningLine()} (q to quit)`;
 		return (
-			<Box paddingX={1}>
+			<Box flexDirection="column" paddingX={1}>
 				{banner ? (
 					<Text color={color(ACCENT)} bold>
 						{banner}
 					</Text>
 				) : null}
-				<Text color={color(DIM)}> · cold-scanning transcripts… (q to quit)</Text>
+				<Text color={color(DIM)}>{` · ${scanMsg}`}</Text>
 			</Box>
 		);
 	}
@@ -194,7 +196,7 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 
 			{empty ? (
 				<Box flexDirection="column" marginTop={1}>
-					<Text color={color('yellow')}>No data found.</Text>
+					<Text color={color('yellow')}>{noArt ? 'No data found.' : emptyLine()}</Text>
 					<Text color={color(DIM)}>Run `chaching init` to configure providers and start tracking spend.</Text>
 				</Box>
 			) : (
@@ -213,7 +215,7 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 					</Box>
 
 					<Box marginTop={1}>
-						<CapBlock block={activeBlock} now={clock()} />
+						<CapBlock block={activeBlock} now={clock()} noArt={noArt} />
 					</Box>
 
 					<Box marginTop={1}>

@@ -10,6 +10,15 @@ import {
 } from '../../lib/core/aggregate.js';
 import { money, compactTokens, providerLabel, modelLabel, int } from '../../lib/format.js';
 import type { Period, RollupSnapshot } from '../../lib/types.js';
+import {
+	noArt as resolveNoArt,
+	wordmark,
+	emptyLine,
+	flourishFor,
+	formatFlourish,
+	DAILY_FLOURISHES,
+	LIFETIME_FLOURISHES,
+} from '../theme/personality.js';
 
 const TOP_MODELS = 8;
 
@@ -17,17 +26,18 @@ export interface StatsFlags {
 	period?: Period;
 	providers?: string[];
 	json?: boolean;
+	/** Suppress ASCII art + decorative copy (--no-art flag or CHACHING_NO_ART env). */
+	noArt?: boolean;
 }
 
 export async function runStats(flags: StatsFlags): Promise<void> {
 	const cfg = await loadConfig();
 	const snapshot = await runOnce(cfg);
 
-	// --json: emit only the raw snapshot, respecting any --period/--provider scoping.
-	// A script that passes --period week --provider codex --json should get scoped data.
+	// --json: emit only the raw snapshot. ZERO art/decoration regardless of flags.
+	// A script that passes --period week --provider codex --json gets scoped data only.
 	if (flags.json) {
 		if (flags.period || flags.providers) {
-			// Produce a scoped snapshot by filtering dayModel and recomputing totals.
 			const providerFilter = flags.providers && flags.providers.length > 0
 				? new Set(flags.providers)
 				: null;
@@ -60,7 +70,6 @@ function periodDayRange(period: Period | undefined): { from: string | undefined;
 	}
 
 	if (period === 'week') {
-		// Start of ISO week (Monday)
 		const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 		const dow = (d.getUTCDay() + 6) % 7; // Mon=0
 		d.setUTCDate(d.getUTCDate() - dow);
@@ -77,23 +86,31 @@ function periodDayRange(period: Period | undefined): { from: string | undefined;
 }
 
 function printHuman(snapshot: RollupSnapshot, flags: StatsFlags): void {
+	const isNoArt = flags.noArt ?? resolveNoArt();
 	const providerFilter = flags.providers && flags.providers.length > 0
 		? new Set(flags.providers)
 		: null;
 
 	const { from, to } = periodDayRange(flags.period);
 
-	// Filter the dayModel grain
 	let grain = filterDays(snapshot.dayModel, from, to);
 	if (providerFilter) {
 		grain = grain.filter((dm) => providerFilter.has(dm.provider));
 	}
 
-	// If no data at all (original snapshot is also empty), friendly empty state
+	// If no data at all, friendly empty state
 	if (snapshot.dayModel.length === 0) {
-		console.log('chaching: no data found.');
+		if (!isNoArt) {
+			console.log('');
+			const wm = wordmark({ noArt: false });
+			if (wm) console.log(`  ${wm}`);
+			console.log('');
+			console.log(`  ${emptyLine()}`);
+		} else {
+			console.log('chaching: no data found.');
+		}
 		console.log('');
-		console.log('Run `chaching init` to configure your providers and start tracking spend.');
+		console.log('  Run `chaching init` to configure your providers and start tracking spend.');
 		return;
 	}
 
@@ -119,15 +136,28 @@ function printHuman(snapshot: RollupSnapshot, flags: StatsFlags): void {
 		? `  provider filter: ${flags.providers?.join(', ')}`
 		: '';
 
+	// Big-spend flourish: use LIFETIME_FLOURISHES for all-time totals (no period
+	// filter), DAILY_FLOURISHES when scoped to a day/week/month period.
+	const flourishTiers = flags.period ? DAILY_FLOURISHES : LIFETIME_FLOURISHES;
+	const spendFlourish = !isNoArt ? flourishFor(totals.cost, flourishTiers) : null;
+	const flourishStr = spendFlourish ? formatFlourish(spendFlourish) : '';
+
 	console.log('');
-	console.log('  chaching — spend summary');
+
+	if (!isNoArt) {
+		const wm = wordmark({ noArt: false });
+		if (wm) console.log(`  ${wm}`);
+	} else {
+		console.log('  chaching — spend summary');
+	}
+
 	if (periodLabel) console.log(periodLabel);
 	if (provLabel) console.log(provLabel);
 	if (snapshot.earliestDay) {
 		console.log(`  data since: ${snapshot.earliestDay}`);
 	}
 	console.log('');
-	console.log(`  Total cost:    ${money(totals.cost)}`);
+	console.log(`  Total cost:    ${money(totals.cost)}${flourishStr ? `  ${flourishStr}` : ''}`);
 	console.log(`  Total tokens:  ${compactTokens(totalToks)}`);
 	console.log(`    Input:       ${compactTokens(totals.tokens.input)}`);
 	console.log(`    Output:      ${compactTokens(totals.tokens.output)}`);

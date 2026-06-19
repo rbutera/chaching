@@ -5,6 +5,7 @@
 
 import { intro, multiselect, password, outro, isCancel, cancel, log } from '@clack/prompts';
 import { loadConfig, saveConfig, clearConfigCache, type chachingConfig } from '../lib/core/config.js';
+import { noArt, wordmark } from './theme/personality.js';
 
 // ── Provider registry ──────────────────────────────────────────────────────────
 
@@ -140,7 +141,13 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 		return updated;
 	}
 
-	intro('chaching — first-run setup');
+	// Show branded intro unless art is suppressed. Wizard doesn't receive argv,
+	// but the env flag (CHACHING_NO_ART) is the reliable signal here.
+	const isNoArt = noArt([], process.env);
+	const introLabel = isNoArt
+		? 'chaching — first-run setup'
+		: (wordmark({ noArt: false }) ?? 'chaching') + ' — first-run setup';
+	intro(introLabel);
 
 	// Load whatever base config exists (or the default).
 	const base = await loadConfig();

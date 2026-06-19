@@ -3,6 +3,7 @@
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 import { readFileSync } from 'node:fs';
+import { noArt, wordmark } from './theme/personality.js';
 
 function packageVersion(): string {
 	try {
@@ -31,8 +32,17 @@ export function printVersion(): void {
 	console.log(packageVersion());
 }
 
-export function printUsage(): void {
-	console.log(`chaching — multi-provider AI token spend dashboard
+export function printUsage(argv: string[] = process.argv.slice(2)): void {
+	const isNoArt = noArt(argv);
+	const wm = wordmark({ noArt: isNoArt });
+
+	if (wm) {
+		console.log('');
+		console.log(`  ${wm}`);
+		console.log('');
+	}
+
+	console.log(`${isNoArt ? 'chaching' : ''} multi-provider AI token spend dashboard
 
 Usage:
   chaching               Open the TUI dashboard (or run wizard on first launch)
@@ -44,6 +54,7 @@ Usage:
 Flags (global):
   --version, -v          Print version and exit
   --help, -h             Print this help and exit
+  --no-art               Suppress ASCII art and decorative copy
 
 Flags for stats:
   --period day|week|month  Aggregate by period (default: all time)

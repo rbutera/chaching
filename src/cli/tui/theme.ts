@@ -1,16 +1,45 @@
 // TUI theme: terminal color names (Ink maps these via chalk), NO_COLOR honoring,
-// the Unicode-block sparkline renderer, and a banner slot for wave 5.
+// the Unicode-block sparkline renderer, and the banner/personality wiring for wave 5.
 //
 // Ink's <Text color> takes chalk color names or hex. We use named ANSI colors so
 // they degrade well across terminals; chalk auto-disables color when NO_COLOR is
 // set or stdout is not a TTY, but we ALSO expose noColor() so layout/components
 // can drop color props entirely for a clean, single-attribute render.
+//
+// All decorative copy (art, scanning lines, empty state, flourishes) lives in
+// src/cli/theme/personality.ts — this file is the Ink-specific wiring layer.
 
 import type { Period } from '../../lib/types.js';
+import {
+	noColor as _noColor,
+	noArt as _noArt,
+	BANNER_FULL,
+	BANNER_COMPACT,
+} from '../theme/personality.js';
+
+// Re-export personality helpers (excluding noColor/noArt which are re-wrapped
+// below with the same signature for backward compat with existing callers).
+export {
+	scanningLine,
+	emptyLine,
+	errorLine,
+	wordmark,
+	flourishFor,
+	formatFlourish,
+	BLOCK_FLOURISHES,
+	DAILY_FLOURISHES,
+	LIFETIME_FLOURISHES,
+	pick,
+} from '../theme/personality.js';
 
 /** Respect the NO_COLOR convention (https://no-color.org). */
 export function noColor(): boolean {
-	return process.env.NO_COLOR !== undefined && process.env.NO_COLOR !== '';
+	return _noColor();
+}
+
+/** --no-art flag or CHACHING_NO_ART env (NO_COLOR-style quietness, design D6). */
+export function noArt(argv: string[] = []): boolean {
+	return _noArt(argv);
 }
 
 /** A color prop helper: returns undefined when NO_COLOR is set so Text renders plain. */
@@ -79,17 +108,11 @@ export const PERIOD_LABEL: Record<Period, string> = {
 };
 
 /**
- * Banner slot. WAVE 5 fills this with the ASCII-art mascot + personality copy
- * (see design D6, src/cli/theme/). For now: a minimal one-line wordmark, honoring
- * --no-art / CHACHING_NO_ART so wave 5's quiet-mode contract already holds.
+ * Banner for the TUI (Ink). Returns plain multi-line text; Ink renders it via
+ * <Text color> on the caller side. Wide banner at ≥72 cols, compact fallback below.
+ * Returns null when noArt is true.
  */
-export function bannerLine(noArt: boolean): string | null {
-	if (noArt) return null;
-	return '◈ chaching';
-}
-
-/** --no-art flag or CHACHING_NO_ART env (NO_COLOR-style quietness, design D6). */
-export function noArt(argv: string[] = []): boolean {
-	if (process.env.CHACHING_NO_ART !== undefined && process.env.CHACHING_NO_ART !== '') return true;
-	return argv.includes('--no-art');
+export function bannerLine(isNoArt: boolean, columns = 80): string | null {
+	if (isNoArt) return null;
+	return columns >= 72 ? BANNER_FULL : BANNER_COMPACT;
 }

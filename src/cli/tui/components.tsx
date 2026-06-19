@@ -13,7 +13,10 @@ import {
 	gaugeBar,
 	modelColorName,
 	providerColorName,
-	sparkline
+	sparkline,
+	flourishFor,
+	formatFlourish,
+	BLOCK_FLOURISHES,
 } from './theme.js';
 
 /** A single labelled summary card. */
@@ -104,8 +107,9 @@ export function TrendSparkline({ buckets, periodLabel }: { buckets: PeriodBucket
 /**
  * The rolling 5h cap-proximity block. Shows elapsed/remaining within the window
  * plus the spend in that window. `now` is injectable for deterministic tests.
+ * `noArt` suppresses the big-spend flourish emoji/copy.
  */
-export function CapBlock({ block, now }: { block: BlockSummary | null; now: number }) {
+export function CapBlock({ block, now, noArt = false }: { block: BlockSummary | null; now: number; noArt?: boolean }) {
 	if (!block) {
 		return (
 			<Box flexDirection="column">
@@ -122,12 +126,16 @@ export function CapBlock({ block, now }: { block: BlockSummary | null; now: numb
 		const m = mins(ms);
 		return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`;
 	};
+	const flourish = !noArt ? formatFlourish(flourishFor(block.cost, BLOCK_FLOURISHES)) : '';
 	return (
 		<Box flexDirection="column">
 			<Text color={color(DIM)}>5h window (cap proximity)</Text>
-			<Text color={color(ACCENT)} bold>
-				{money(block.cost)}
-			</Text>
+			<Box>
+				<Text color={color(ACCENT)} bold>
+					{money(block.cost)}
+				</Text>
+				{flourish ? <Text color={color(DIM)}>{`  ${flourish}`}</Text> : null}
+			</Box>
 			<Text color={color(DIM)}>{`${compactTokens(totalTokens(block.tokens))} tok · ${int(block.requests)} req`}</Text>
 			<Text>
 				<Text color={color(ACCENT)}>{gaugeBar(span > 0 ? elapsed / span : 0, 20)}</Text>

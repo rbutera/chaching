@@ -1672,6 +1672,111 @@ var init_format = __esm({
   }
 });
 
+// src/cli/theme/personality.ts
+function noArt(argv = [], env = process.env) {
+  if (env.CHACHING_NO_ART !== void 0 && env.CHACHING_NO_ART !== "") return true;
+  return argv.includes("--no-art");
+}
+function noColor(env = process.env) {
+  return env.NO_COLOR !== void 0 && env.NO_COLOR !== "";
+}
+function ansi(code, text, env = process.env) {
+  if (noColor(env)) return text;
+  return `\x1B[${code}m${text}\x1B[0m`;
+}
+function green(t, env = process.env) {
+  return ansi("32", t, env);
+}
+function dim(t, env = process.env) {
+  return ansi("2", t, env);
+}
+function wordmark(opts = {}) {
+  const env = opts.env ?? process.env;
+  if (opts.noArt || noArt([], env)) return null;
+  return noColor(env) ? WORDMARK : green(WORDMARK, env);
+}
+function pick(items, index) {
+  const i = index ?? Math.floor(Date.now() / 6e4);
+  return items[i % items.length];
+}
+function scanningLine(index) {
+  return pick(SCANNING_LINES, index);
+}
+function emptyLine(index) {
+  return pick(EMPTY_LINES, index);
+}
+function flourishFor(amount, tiers) {
+  let result = tiers[0];
+  for (const tier of tiers) {
+    if (amount >= tier.threshold) result = tier;
+  }
+  return result;
+}
+function formatFlourish(f, env = process.env) {
+  if (!f.emoji && !f.remark) return "";
+  const parts = [f.emoji, f.remark].filter(Boolean).join(" ");
+  return noColor(env) ? parts : dim(parts, env);
+}
+var BANNER_FULL, BANNER_COMPACT, WORDMARK, SCANNING_LINES, EMPTY_LINES, BLOCK_FLOURISHES, DAILY_FLOURISHES, LIFETIME_FLOURISHES;
+var init_personality = __esm({
+  "src/cli/theme/personality.ts"() {
+    "use strict";
+    BANNER_FULL = `
+  \u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2557  \u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2557  \u2588\u2588\u2557\u2588\u2588\u2557\u2588\u2588\u2588\u2557   \u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557
+ \u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255D\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255D\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255D
+ \u2588\u2588\u2551     \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2551     \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551\u2588\u2588\u2551  \u2588\u2588\u2588\u2557
+ \u2588\u2588\u2551     \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2551\u2588\u2588\u2551     \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2551\u255A\u2588\u2588\u2557\u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551
+ \u255A\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551  \u2588\u2588\u2551\u255A\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2551 \u255A\u2588\u2588\u2588\u2588\u2551\u255A\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255D
+  \u255A\u2550\u2550\u2550\u2550\u2550\u255D\u255A\u2550\u255D  \u255A\u2550\u255D\u255A\u2550\u255D  \u255A\u2550\u255D \u255A\u2550\u2550\u2550\u2550\u2550\u255D\u255A\u2550\u255D  \u255A\u2550\u255D\u255A\u2550\u255D\u255A\u2550\u255D  \u255A\u2550\u2550\u2550\u255D \u255A\u2550\u2550\u2550\u2550\u2550\u255D
+`.trimStart();
+    BANNER_COMPACT = `
+ $$  chaching  \u{1F4B0}
+ \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+`.trimStart();
+    WORDMARK = "\u{1F4B0} chaching \u2014 AI token spend register";
+    SCANNING_LINES = [
+      "counting your sins\u2026",
+      "tallying the damage\u2026",
+      "auditing the carnage\u2026",
+      "summing the burn rate\u2026",
+      "itemising the splurge\u2026",
+      "calculating your runway\u2026",
+      "adding up the cache misses\u2026",
+      "reconciling your token ledger\u2026"
+    ];
+    EMPTY_LINES = [
+      "no receipts yet. agents are free until they aren't.",
+      "nothing to report \u2014 either you're efficient or you haven't started.",
+      "the register is silent. run `chaching init` to start listening.",
+      "clean slate. won't last.",
+      "no spend data found. try `chaching init` to connect your providers."
+    ];
+    BLOCK_FLOURISHES = [
+      { threshold: 0, emoji: "", remark: "" },
+      { threshold: 10, emoji: "\u{1F4B8}", remark: "warming up" },
+      { threshold: 30, emoji: "\u{1F4B8}\u{1F4B8}", remark: "getting spicy" },
+      { threshold: 75, emoji: "\u{1F525}", remark: "full send" },
+      { threshold: 120, emoji: "\u{1F525}\u{1F525}", remark: "please take a break" },
+      { threshold: 200, emoji: "\u{1F6A8}", remark: "the register is on fire" }
+    ];
+    DAILY_FLOURISHES = [
+      { threshold: 0, emoji: "", remark: "" },
+      { threshold: 20, emoji: "\u{1F4B0}", remark: "decent day" },
+      { threshold: 50, emoji: "\u{1F4B8}", remark: "treating yourself" },
+      { threshold: 100, emoji: "\u{1F4B8}\u{1F4B8}", remark: "big day" },
+      { threshold: 200, emoji: "\u{1F525}", remark: "account on fire" },
+      { threshold: 500, emoji: "\u{1F6A8}\u{1F6A8}", remark: "send help" }
+    ];
+    LIFETIME_FLOURISHES = [
+      { threshold: 0, emoji: "", remark: "" },
+      { threshold: 100, emoji: "\u{1F4B0}", remark: "you've committed" },
+      { threshold: 500, emoji: "\u{1F4B8}", remark: "well into it now" },
+      { threshold: 1e3, emoji: "\u{1F525}", remark: "you live here now" },
+      { threshold: 5e3, emoji: "\u{1F6A8}", remark: "write a blog post" }
+    ];
+  }
+});
+
 // src/cli/commands/stats.ts
 var stats_exports = {};
 __export(stats_exports, {
@@ -1721,6 +1826,7 @@ function periodDayRange(period) {
   return { from: void 0, to: void 0 };
 }
 function printHuman(snapshot2, flags) {
+  const isNoArt = flags.noArt ?? noArt();
   const providerFilter = flags.providers && flags.providers.length > 0 ? new Set(flags.providers) : null;
   const { from, to } = periodDayRange(flags.period);
   let grain = filterDays(snapshot2.dayModel, from, to);
@@ -1728,9 +1834,17 @@ function printHuman(snapshot2, flags) {
     grain = grain.filter((dm) => providerFilter.has(dm.provider));
   }
   if (snapshot2.dayModel.length === 0) {
-    console.log("chaching: no data found.");
+    if (!isNoArt) {
+      console.log("");
+      const wm = wordmark({ noArt: false });
+      if (wm) console.log(`  ${wm}`);
+      console.log("");
+      console.log(`  ${emptyLine()}`);
+    } else {
+      console.log("chaching: no data found.");
+    }
     console.log("");
-    console.log("Run `chaching init` to configure your providers and start tracking spend.");
+    console.log("  Run `chaching init` to configure your providers and start tracking spend.");
     return;
   }
   if (grain.length === 0) {
@@ -1745,15 +1859,23 @@ function printHuman(snapshot2, flags) {
   const totalToks = totals.tokens.input + totals.tokens.output + totals.tokens.cacheCreation + totals.tokens.cacheRead;
   const periodLabel = flags.period ? `  period: ${flags.period}${from ? ` (${from} \u2192 ${to ?? "today"})` : ""}` : "";
   const provLabel = providerFilter ? `  provider filter: ${flags.providers?.join(", ")}` : "";
+  const flourishTiers = flags.period ? DAILY_FLOURISHES : LIFETIME_FLOURISHES;
+  const spendFlourish = !isNoArt ? flourishFor(totals.cost, flourishTiers) : null;
+  const flourishStr = spendFlourish ? formatFlourish(spendFlourish) : "";
   console.log("");
-  console.log("  chaching \u2014 spend summary");
+  if (!isNoArt) {
+    const wm = wordmark({ noArt: false });
+    if (wm) console.log(`  ${wm}`);
+  } else {
+    console.log("  chaching \u2014 spend summary");
+  }
   if (periodLabel) console.log(periodLabel);
   if (provLabel) console.log(provLabel);
   if (snapshot2.earliestDay) {
     console.log(`  data since: ${snapshot2.earliestDay}`);
   }
   console.log("");
-  console.log(`  Total cost:    ${money(totals.cost)}`);
+  console.log(`  Total cost:    ${money(totals.cost)}${flourishStr ? `  ${flourishStr}` : ""}`);
   console.log(`  Total tokens:  ${compactTokens(totalToks)}`);
   console.log(`    Input:       ${compactTokens(totals.tokens.input)}`);
   console.log(`    Output:      ${compactTokens(totals.tokens.output)}`);
@@ -1789,16 +1911,20 @@ var init_stats = __esm({
     init_config();
     init_aggregate();
     init_format();
+    init_personality();
     TOP_MODELS = 8;
   }
 });
 
 // src/cli/tui/theme.ts
-function noColor() {
-  return process.env.NO_COLOR !== void 0 && process.env.NO_COLOR !== "";
+function noColor2() {
+  return noColor();
+}
+function noArt2(argv = []) {
+  return noArt(argv);
 }
 function color(name) {
-  return noColor() ? void 0 : name;
+  return noColor2() ? void 0 : name;
 }
 function providerColorName(provider) {
   switch (provider) {
@@ -1836,18 +1962,16 @@ function gaugeBar(fraction, width) {
   const filled = Math.round(f * width);
   return "\u2588".repeat(filled) + "\u2591".repeat(Math.max(0, width - filled));
 }
-function bannerLine(noArt2) {
-  if (noArt2) return null;
-  return "\u25C8 chaching";
-}
-function noArt(argv = []) {
-  if (process.env.CHACHING_NO_ART !== void 0 && process.env.CHACHING_NO_ART !== "") return true;
-  return argv.includes("--no-art");
+function bannerLine(isNoArt, columns = 80) {
+  if (isNoArt) return null;
+  return columns >= 72 ? BANNER_FULL : BANNER_COMPACT;
 }
 var ACCENT, DIM, SPARK_CHARS, PERIOD_LABEL;
 var init_theme = __esm({
   "src/cli/tui/theme.ts"() {
     "use strict";
+    init_personality();
+    init_personality();
     ACCENT = "green";
     DIM = "gray";
     SPARK_CHARS = ["\u2581", "\u2582", "\u2583", "\u2584", "\u2585", "\u2586", "\u2587", "\u2588"];
@@ -2056,7 +2180,7 @@ function TrendSparkline({ buckets, periodLabel }) {
     peak > 0 ? /* @__PURE__ */ jsx(Text, { color: color(DIM), children: `peak ${money(peak)}` }) : null
   ] });
 }
-function CapBlock({ block, now }) {
+function CapBlock({ block, now, noArt: noArt3 = false }) {
   if (!block) {
     return /* @__PURE__ */ jsxs(Box, { flexDirection: "column", children: [
       /* @__PURE__ */ jsx(Text, { color: color(DIM), children: "5h window" }),
@@ -2071,9 +2195,13 @@ function CapBlock({ block, now }) {
     const m = mins(ms);
     return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}m`;
   };
+  const flourish = !noArt3 ? formatFlourish(flourishFor(block.cost, BLOCK_FLOURISHES)) : "";
   return /* @__PURE__ */ jsxs(Box, { flexDirection: "column", children: [
     /* @__PURE__ */ jsx(Text, { color: color(DIM), children: "5h window (cap proximity)" }),
-    /* @__PURE__ */ jsx(Text, { color: color(ACCENT), bold: true, children: money(block.cost) }),
+    /* @__PURE__ */ jsxs(Box, { children: [
+      /* @__PURE__ */ jsx(Text, { color: color(ACCENT), bold: true, children: money(block.cost) }),
+      flourish ? /* @__PURE__ */ jsx(Text, { color: color(DIM), children: `  ${flourish}` }) : null
+    ] }),
     /* @__PURE__ */ jsx(Text, { color: color(DIM), children: `${compactTokens(totalTokens(block.tokens))} tok \xB7 ${int(block.requests)} req` }),
     /* @__PURE__ */ jsxs(Text, { children: [
       /* @__PURE__ */ jsx(Text, { color: color(ACCENT), children: gaugeBar(span > 0 ? elapsed / span : 0, 20) }),
@@ -2122,7 +2250,7 @@ var init_components = __esm({
 import { useEffect, useMemo, useState } from "react";
 import { Box as Box2, Text as Text2, useApp, useInput, useWindowSize } from "ink";
 import { Fragment, jsx as jsx2, jsxs as jsxs2 } from "react/jsx-runtime";
-function DashboardApp({ source, period = "week", noArt: noArt2 = false, now, dimensions }) {
+function DashboardApp({ source, period = "week", noArt: noArt3 = false, now, dimensions }) {
   const { exit } = useApp();
   const [snapshot2, setSnapshot] = useState(() => source.snapshot());
   const [view, setView] = useState(() => ({ ...defaultViewState(period) }));
@@ -2182,18 +2310,19 @@ function DashboardApp({ source, period = "week", noArt: noArt2 = false, now, dim
   const modelTotals = useMemo(() => models(snapshot2, view), [snapshot2, view]);
   const buckets = useMemo(() => trend(snapshot2, view), [snapshot2, view]);
   const activeBlock = useMemo(() => snapshot2.blocks.find((b) => b.isActive) ?? null, [snapshot2]);
-  const banner = bannerLine(noArt2);
   const measured = useWindowSize();
   const cols = dimensions?.columns ?? (measured.columns || 80);
   const rows = dimensions?.rows ?? (measured.rows || 24);
   const clock = now ?? (() => Date.now());
+  const banner = bannerLine(noArt3, cols);
   if (cols < MIN_COLUMNS || rows < MIN_ROWS) {
     return /* @__PURE__ */ jsx2(TooSmall, { columns: cols, rows });
   }
   if (loading && snapshot2.dayModel.length === 0) {
-    return /* @__PURE__ */ jsxs2(Box2, { paddingX: 1, children: [
+    const scanMsg = noArt3 ? "cold-scanning transcripts\u2026 (q to quit)" : `${scanningLine()} (q to quit)`;
+    return /* @__PURE__ */ jsxs2(Box2, { flexDirection: "column", paddingX: 1, children: [
       banner ? /* @__PURE__ */ jsx2(Text2, { color: color(ACCENT), bold: true, children: banner }) : null,
-      /* @__PURE__ */ jsx2(Text2, { color: color(DIM), children: " \xB7 cold-scanning transcripts\u2026 (q to quit)" })
+      /* @__PURE__ */ jsx2(Text2, { color: color(DIM), children: ` \xB7 ${scanMsg}` })
     ] });
   }
   const empty = snapshot2.dayModel.length === 0;
@@ -2205,7 +2334,7 @@ function DashboardApp({ source, period = "week", noArt: noArt2 = false, now, dim
       /* @__PURE__ */ jsx2(Text2, { color: color(ACCENT), bold: true, children: money(hero.current.cost) })
     ] }),
     empty ? /* @__PURE__ */ jsxs2(Box2, { flexDirection: "column", marginTop: 1, children: [
-      /* @__PURE__ */ jsx2(Text2, { color: color("yellow"), children: "No data found." }),
+      /* @__PURE__ */ jsx2(Text2, { color: color("yellow"), children: noArt3 ? "No data found." : emptyLine() }),
       /* @__PURE__ */ jsx2(Text2, { color: color(DIM), children: "Run `chaching init` to configure providers and start tracking spend." })
     ] }) : /* @__PURE__ */ jsxs2(Fragment, { children: [
       /* @__PURE__ */ jsx2(Box2, { marginTop: 1, children: /* @__PURE__ */ jsx2(SummaryCards, { totals, topModel: modelTotals[0] ?? null }) }),
@@ -2214,7 +2343,7 @@ function DashboardApp({ source, period = "week", noArt: noArt2 = false, now, dim
         /* @__PURE__ */ jsx2(ProviderBreakdown, { providers: providerList }),
         /* @__PURE__ */ jsx2(ModelBreakdown, { models: modelTotals, topN: TOP_MODELS2 })
       ] }),
-      /* @__PURE__ */ jsx2(Box2, { marginTop: 1, children: /* @__PURE__ */ jsx2(CapBlock, { block: activeBlock, now: clock() }) }),
+      /* @__PURE__ */ jsx2(Box2, { marginTop: 1, children: /* @__PURE__ */ jsx2(CapBlock, { block: activeBlock, now: clock(), noArt: noArt3 }) }),
       /* @__PURE__ */ jsx2(Box2, { marginTop: 1, children: /* @__PURE__ */ jsx2(ProviderFilterRow, { providers: providerList, active: view.providerFilter }) })
     ] }),
     /* @__PURE__ */ jsx2(Box2, { marginTop: 1, children: /* @__PURE__ */ jsx2(HelpFooter, {}) })
@@ -2262,7 +2391,7 @@ async function runDashboard(opts = {}) {
     dispose: () => engine.dispose(),
     start: () => engine.ensureStarted()
   };
-  const { waitUntilExit } = render(/* @__PURE__ */ jsx3(DashboardApp, { source, noArt: noArt(opts.argv) }), {
+  const { waitUntilExit } = render(/* @__PURE__ */ jsx3(DashboardApp, { source, noArt: noArt2(opts.argv) }), {
     // We restore the terminal + dispose the engine in the app's unmount effect;
     // let Ink handle Ctrl-C → exit (default true) so raw mode is restored cleanly.
     exitOnCtrlC: true
@@ -2323,6 +2452,7 @@ async function runServe() {
 
 // src/cli/wizard.ts
 init_config();
+init_personality();
 import { intro, multiselect, password, outro, isCancel, cancel, log } from "@clack/prompts";
 var KNOWN_PROVIDERS = ["claude", "codex", "opencode", "cursor"];
 var PROVIDER_META = {
@@ -2394,7 +2524,9 @@ async function runWizard(opts = {}) {
     await saveConfig(updated2);
     return updated2;
   }
-  intro("chaching \u2014 first-run setup");
+  const isNoArt = noArt([], process.env);
+  const introLabel = isNoArt ? "chaching \u2014 first-run setup" : (wordmark({ noArt: false }) ?? "chaching") + " \u2014 first-run setup";
+  intro(introLabel);
   const base = await loadConfig();
   const selection = await multiselect({
     message: "Which providers would you like to enable?",
@@ -2552,6 +2684,7 @@ async function setProviderEnabled(providerName, enabled, cfg) {
 }
 
 // src/cli/help.ts
+init_personality();
 import { fileURLToPath as fileURLToPath3 } from "url";
 import { join as join7, dirname as dirname3 } from "path";
 import { readFileSync as readFileSync2 } from "fs";
@@ -2574,8 +2707,15 @@ function packageVersion() {
 function printVersion() {
   console.log(packageVersion());
 }
-function printUsage() {
-  console.log(`chaching \u2014 multi-provider AI token spend dashboard
+function printUsage(argv = process.argv.slice(2)) {
+  const isNoArt = noArt(argv);
+  const wm = wordmark({ noArt: isNoArt });
+  if (wm) {
+    console.log("");
+    console.log(`  ${wm}`);
+    console.log("");
+  }
+  console.log(`${isNoArt ? "chaching" : ""} multi-provider AI token spend dashboard
 
 Usage:
   chaching               Open the TUI dashboard (or run wizard on first launch)
@@ -2587,6 +2727,7 @@ Usage:
 Flags (global):
   --version, -v          Print version and exit
   --help, -h             Print this help and exit
+  --no-art               Suppress ASCII art and decorative copy
 
 Flags for stats:
   --period day|week|month  Aggregate by period (default: all time)
@@ -2602,17 +2743,21 @@ Examples:
 
 // src/cli/router.ts
 init_config();
+init_theme();
 import { existsSync as existsSync2 } from "fs";
+var GLOBAL_FLAGS = /* @__PURE__ */ new Set(["--no-art", "--no-color"]);
 async function run(argv) {
   if (argv.includes("--version") || argv.includes("-v")) {
     printVersion();
     return;
   }
   if (argv.includes("--help") || argv.includes("-h")) {
-    printUsage();
+    printUsage(argv);
     return;
   }
-  const [subcommand, ...rest] = argv;
+  const stripped = argv.filter((a) => !GLOBAL_FLAGS.has(a));
+  const globalArgs = argv.filter((a) => GLOBAL_FLAGS.has(a));
+  const [subcommand, ...rest] = stripped;
   if (subcommand !== void 0 && subcommand.startsWith("-")) {
     await runDefault(argv);
     return;
@@ -2623,7 +2768,7 @@ async function run(argv) {
       await runDefault(rest);
       return;
     case "stats":
-      await runStats(parseStatsFlags(rest));
+      await runStats(parseStatsFlags([...globalArgs, ...rest]));
       return;
     case "serve":
       await runServe();
@@ -2637,7 +2782,7 @@ async function run(argv) {
     default:
       console.error(`chaching: unknown subcommand '${subcommand}'
 `);
-      printUsage();
+      printUsage(argv);
       process.exit(1);
   }
 }
@@ -2653,10 +2798,12 @@ async function runDefault(rest) {
 function parseStatsFlags(argv) {
   const flags = {};
   const providers2 = [];
+  flags.noArt = noArt2(argv);
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--json") {
       flags.json = true;
+    } else if (arg === "--no-art") {
     } else if (arg === "--period") {
       const p = argv[i + 1];
       if (!p || p.startsWith("--")) {
