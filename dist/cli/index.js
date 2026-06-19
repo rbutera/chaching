@@ -607,7 +607,7 @@ async function ingestRange(filePath, startOffset, projectsDir, rollup, dedup) {
 // src/lib/core/config.ts
 import { homedir as homedir2 } from "os";
 import { join as join3 } from "path";
-import { chmod, mkdir, readFile, rename, stat as stat3, writeFile } from "fs/promises";
+import { chmod, mkdir, readFile, rename, stat as stat3, unlink, writeFile } from "fs/promises";
 import { randomBytes } from "crypto";
 var DEFAULT_HOST = "0.0.0.0";
 var DEFAULT_PORT = 5178;
@@ -680,15 +680,22 @@ async function loadConfig() {
   return cache;
 }
 async function saveConfig(cfg) {
-  cache = normalizeConfig(cfg);
+  const normalized = normalizeConfig(cfg);
   const file = configFilePath();
   const dir = join3(file, "..");
   await mkdir(dir, { recursive: true, mode: 448 });
   const tmp = join3(dir, `.chaching-${randomBytes(6).toString("hex")}.tmp`);
-  await writeFile(tmp, JSON.stringify(cache, null, 2), { encoding: "utf8", mode: 384 });
-  await chmod(tmp, 384);
-  await rename(tmp, file);
-  await chmod(file, 384);
+  try {
+    await writeFile(tmp, JSON.stringify(normalized, null, 2), { encoding: "utf8", mode: 384 });
+    await chmod(tmp, 384);
+    await rename(tmp, file);
+    await chmod(file, 384);
+  } catch (err) {
+    await unlink(tmp).catch(() => {
+    });
+    throw err;
+  }
+  cache = normalized;
 }
 function clearConfigCache() {
   cache = null;
@@ -1151,9 +1158,11 @@ var Ingestion = class {
     if (cfg.providers.opencode.enabled) {
       await this.ingestOpenCode(expandPath(cfg.providers.opencode.dbPath));
     }
-    if (cfg.providers.cursor.enabled && cfg.providers.cursor.adminApiToken) {
-      await this.ingestCursor(cfg.providers.cursor.adminApiToken, cfg.providers.cursor.email);
-      if (this.watchEnabled && !this.disposed) this.startCursorPolling(cfg.providers.cursor);
+    const cursorToken = cfg.providers.cursor.adminApiToken || process.env.CURSOR_ADMIN_API_TOKEN || "";
+    if (cfg.providers.cursor.enabled && cursorToken) {
+      const cursorCfgWithToken = { ...cfg.providers.cursor, adminApiToken: cursorToken };
+      await this.ingestCursor(cursorToken, cfg.providers.cursor.email);
+      if (this.watchEnabled && !this.disposed) this.startCursorPolling(cursorCfgWithToken);
     }
     this.coldScanMs = Date.now() - t0;
     if (this.watchEnabled && !this.disposed) this.startWatching();
@@ -1801,7 +1810,11 @@ async function runProvider(args) {
       console.log(`${providerName}: disabled.`);
       break;
     case "add": {
+      const hasSecret = providerName === "cursor";
       const secret = await collectProviderSecret(providerName);
+      if (secret === null && hasSecret) {
+        process.exit(0);
+      }
       const updated = { ...cfg };
       if (providerName === "cursor") {
         updated.providers = {

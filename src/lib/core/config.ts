@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { chmod, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 
 export interface ClaudeProviderConfig {
@@ -149,17 +149,26 @@ export async function loadConfig(): Promise<chachingConfig> {
 }
 
 export async function saveConfig(cfg: chachingConfig): Promise<void> {
-	cache = normalizeConfig(cfg);
+	const normalized = normalizeConfig(cfg);
 	const file = configFilePath();
 	const dir = join(file, '..');
 	await mkdir(dir, { recursive: true, mode: 0o700 });
 	// Atomic write: write to a temp file then rename so a crash can't leave a partial config.
+	// Only update the in-memory cache once the rename succeeds.
 	const tmp = join(dir, `.chaching-${randomBytes(6).toString('hex')}.tmp`);
-	await writeFile(tmp, JSON.stringify(cache, null, 2), { encoding: 'utf8', mode: 0o600 });
-	await chmod(tmp, 0o600);
-	await rename(tmp, file);
-	// Ensure the final file has 0600 (rename may inherit different perms on some FSes).
-	await chmod(file, 0o600);
+	try {
+		await writeFile(tmp, JSON.stringify(normalized, null, 2), { encoding: 'utf8', mode: 0o600 });
+		await chmod(tmp, 0o600);
+		await rename(tmp, file);
+		// Ensure the final file has 0600 (rename may inherit different perms on some FSes).
+		await chmod(file, 0o600);
+	} catch (err) {
+		// Remove the temp file if anything went wrong, then re-throw.
+		await unlink(tmp).catch(() => {});
+		throw err;
+	}
+	// Cache is updated only after the write succeeds.
+	cache = normalized;
 }
 
 /** Invalidate the in-memory config cache (useful after saveConfig in tests or re-init). */

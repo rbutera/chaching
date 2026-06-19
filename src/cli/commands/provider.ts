@@ -50,8 +50,16 @@ export async function runProvider(args: string[]): Promise<void> {
 			break;
 
 		case 'add': {
-			// add = enable + run secret flow if needed
+			// add = enable + run secret flow if needed.
+			// collectProviderSecret returns null when: (a) provider has no secret, or
+			// (b) user cancelled the prompt. We need the meta to distinguish these cases.
+			const hasSecret = providerName === 'cursor'; // only cursor has a secret today
 			const secret = await collectProviderSecret(providerName);
+			// null from a provider that DOES have a secret means the user cancelled
+			if (secret === null && hasSecret) {
+				// collectProviderSecret already printed a cancel message via clack
+				process.exit(0);
+			}
 			const updated = { ...cfg };
 			if (providerName === 'cursor') {
 				updated.providers = {

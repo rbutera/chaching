@@ -106,9 +106,14 @@ class Ingestion {
 			await this.ingestOpenCode(expandPath(cfg.providers.opencode.dbPath));
 		}
 
-		if (cfg.providers.cursor.enabled && cfg.providers.cursor.adminApiToken) {
-			await this.ingestCursor(cfg.providers.cursor.adminApiToken, cfg.providers.cursor.email);
-			if (this.watchEnabled && !this.disposed) this.startCursorPolling(cfg.providers.cursor);
+		// Env-first: if the token is absent from config, fall back to the env var so
+		// users who source the token from the environment don't have to store it in the file.
+		const cursorToken =
+			cfg.providers.cursor.adminApiToken || process.env.CURSOR_ADMIN_API_TOKEN || '';
+		if (cfg.providers.cursor.enabled && cursorToken) {
+			const cursorCfgWithToken = { ...cfg.providers.cursor, adminApiToken: cursorToken };
+			await this.ingestCursor(cursorToken, cfg.providers.cursor.email);
+			if (this.watchEnabled && !this.disposed) this.startCursorPolling(cursorCfgWithToken);
 		}
 
 		this.coldScanMs = Date.now() - t0;
