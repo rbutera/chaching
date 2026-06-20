@@ -303,6 +303,14 @@ export class Rollup {
 				webFetchRequests: extra.webFetchRequests
 			});
 		}
+		// Sessions are persisted once their LAST activity falls on a frozen day (the session
+		// is keyed by its whole lifetime, not split per day). The day/week/month aggregates
+		// above are the authoritative spend numbers and are always correct; the session index
+		// is a secondary drill-down. Known limitation: a session that straddles a freeze
+		// boundary AND a process restart can persist an under-counted summary, because the
+		// earlier day's records are skipped on reload. Spend totals are unaffected (the
+		// day-model aggregates already captured those tokens); only that session's drill-down
+		// row is short. Fixing this fully needs per-day session fragments — out of scope here.
 		const sessions: SessionSummary[] = [];
 		for (const s of this.sessions.values()) {
 			if (days.has(isoDayUTC(s.lastTs))) sessions.push(this.sessionSummary(s));

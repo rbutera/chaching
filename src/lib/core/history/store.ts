@@ -28,9 +28,19 @@ export class HistoryStore {
 		if (this.db) return;
 		mkdirSync(dirname(dbPath), { recursive: true });
 		const db = new DatabaseSync(dbPath, { readOnly: false });
-		db.exec('PRAGMA journal_mode = WAL');
-		db.exec('PRAGMA foreign_keys = ON');
-		this.createSchema(db);
+		try {
+			db.exec('PRAGMA journal_mode = WAL');
+			db.exec('PRAGMA foreign_keys = ON');
+			this.createSchema(db);
+		} catch (err) {
+			// Don't leak the handle if PRAGMA/schema setup fails before we adopt it.
+			try {
+				db.close();
+			} catch {
+				// already closed / nothing to release
+			}
+			throw err;
+		}
 		this.db = db;
 	}
 

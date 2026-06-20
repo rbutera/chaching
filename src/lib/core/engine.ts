@@ -58,6 +58,10 @@ class Ingestion {
 	private providerStatus = new ProviderStatus();
 	private disposed = false;
 	private historyStore: HistoryStore | null = null;
+	/** any read/parse failure during the cold scan makes a day potentially partial -> don't freeze. */
+	private scanHadErrors = false;
+	/** resolved config, captured in start() for the live (tail/poll) freeze path. */
+	private resolvedConfig: chachingConfig | null = null;
 
 	constructor(
 		private config: chachingConfig | null,
@@ -75,6 +79,7 @@ class Ingestion {
 	private async start(): Promise<void> {
 		const t0 = Date.now();
 		const cfg = this.config ?? (await loadConfig());
+		this.resolvedConfig = cfg;
 		this.rollup.setCutover(cfg.cutoverTs);
 
 		// History: seed the rollup with frozen past-day aggregates + mark those days so the
@@ -104,7 +109,9 @@ class Ingestion {
 				const m = await safeMtime(f.path);
 				if (m != null) this.mtimes.set(f.path, m);
 			} catch {
-				// skip unreadable file; keep scanning
+				// skip unreadable file; keep scanning. But a missed file may make a past
+				// day partial, so don't freeze this run (freeze on a later clean run).
+				this.scanHadErrors = true;
 			}
 		}
 
@@ -155,6 +162,13 @@ class Ingestion {
 	/** Freeze each past day (day < today UTC) that was scanned and is not yet frozen. */
 	private freezeNewDays(cfg: chachingConfig): void {
 		if (!cfg.history.enabled || !this.historyStore) return;
+		// A partial scan (unreadable file, provider error) may leave a past day incomplete.
+		// Freezing it would lock in the partial copy forever, so skip freezing this run and
+		// let a later clean run capture the complete day.
+		if (this.scanHadErrors) return;
+		for (const msg of Object.values(this.providerStatus.snapshot())) {
+			if (msg) return; // a provider failed to ingest -> a day may be partial
+		}
 		const today = isoDayUTC(this.now());
 		const frozen = this.rollup.frozenDaySet();
 		const newDays = new Set<string>();
@@ -237,6 +251,7 @@ class Ingestion {
 		if (this.disposed) return;
 		await this.ingestCursor(cfg.adminApiToken, cfg.email);
 		if (this.disposed) return;
+		this.maybeFreezeLive();
 		if (this.rollup.hasDirty()) {
 			const delta = this.rollup.drainDelta();
 			if (delta) for (const fn of this.listeners) fn(delta);
@@ -291,10 +306,19 @@ class Ingestion {
 		}
 
 		if (this.disposed) return;
+		// A long-running process can cross UTC midnight: yesterday becomes a complete past
+		// day mid-run. Freeze it now so it persists even if logs are pruned before restart.
+		this.maybeFreezeLive();
 		if (this.rollup.hasDirty()) {
 			const delta = this.rollup.drainDelta();
 			if (delta) for (const fn of this.listeners) fn(delta);
 		}
+	}
+
+	/** Freeze any past day that just completed (used by the live tail/poll paths). */
+	private maybeFreezeLive(): void {
+		if (this.disposed || !this.resolvedConfig) return;
+		this.freezeNewDays(this.resolvedConfig);
 	}
 
 	private async tailFile(full: string): Promise<void> {

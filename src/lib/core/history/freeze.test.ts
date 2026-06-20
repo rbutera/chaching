@@ -2,7 +2,7 @@
 // today is never frozen. Drives runOnce over a temp Claude root + temp history DB
 // with an injected "today" clock so assertions don't depend on the wall clock.
 
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -150,6 +150,32 @@ describe('engine freeze-past-days invariants', () => {
 		// D1 survives from the DB even though it is no longer in the logs.
 		expect(days).toContain('2026-06-01');
 		expect(days).toContain('2026-06-02');
+	});
+
+	it('does not freeze when the cold scan had a read error (a day may be partial)', async () => {
+		const root = await makeRoot([{ day: '2026-06-01' }, { day: '2026-06-02' }]);
+		// Add an unreadable .jsonl so the cold scan records an error and refuses to freeze.
+		const projectDir = join(root, 'projects', '-proj');
+		const bad = join(projectDir, 'unreadable.jsonl');
+		await writeFile(bad, '{"type":"assistant"}\n', 'utf8');
+		await chmod(bad, 0o000);
+
+		const dbDir = await mkdtemp(join(tmpdir(), 'chaching-freezedb5-'));
+		roots.push(dbDir);
+		const dbPath = join(dbDir, 'history.db');
+
+		try {
+			await runOnce(cfg(root, dbPath), clockAt('2026-06-05'));
+		} finally {
+			await chmod(bad, 0o600); // restore so afterEach can clean up
+		}
+
+		const store = new HistoryStore();
+		store.open(dbPath);
+		const frozen = [...store.frozenDays()];
+		store.close();
+		// Nothing frozen this run despite past days present — partial-scan guard held.
+		expect(frozen).toEqual([]);
 	});
 
 	it('disabled history: no DB written, snapshot still produced', async () => {
