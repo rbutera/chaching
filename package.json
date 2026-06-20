@@ -15,7 +15,7 @@
 		"url": "https://github.com/rbutera/chaching/issues"
 	},
 	"bin": {
-		"chaching": "./bin/chaching.js"
+		"chaching": "bin/chaching.js"
 	},
 	"files": [
 		"bin/",
