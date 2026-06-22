@@ -10,12 +10,19 @@
 // src/cli/theme/personality.ts — this file is the Ink-specific wiring layer.
 
 import type { Period } from '../../lib/types.js';
+import { tokens } from '../../lib/brand/tokens.js';
+import { toAnsiMap } from '../../lib/brand/generate.js';
 import {
 	noColor as _noColor,
 	noArt as _noArt,
 	BANNER_FULL,
 	BANNER_COMPACT,
 } from '../theme/personality.js';
+
+// Shared brand → terminal color map. The CLI passes token hex to Ink/chalk,
+// which auto-downsamples Truecolor → 256 → 16; the curated basic name is the
+// explicit fallback for reduced-capability terminals.
+const ANSI = toAnsiMap(tokens);
 
 // Re-export personality helpers (excluding noColor/noArt which are re-wrapped
 // below with the same signature for backward compat with existing callers).
@@ -47,32 +54,39 @@ export function color(name: string): string | undefined {
 	return noColor() ? undefined : name;
 }
 
-/** Provider → chalk color name (mirrors the web providerColor intent). */
+/**
+ * Provider → renderable color, sourced from the shared brand tokens. Returns the
+ * token hex (Ink/chalk auto-downsample); mirrors the web providerColor intent.
+ */
 export function providerColorName(provider: string): string {
 	switch (provider) {
 		case 'claude':
-			return 'magenta';
+			return ANSI.providers.claude.hex;
 		case 'codex':
-			return 'cyan';
+			return ANSI.providers.codex.hex;
 		case 'opencode':
-			return 'green';
+			return ANSI.providers.opencode.hex;
 		case 'cursor':
-			return 'yellow';
+			return ANSI.providers.cursor.hex;
 		default:
-			return 'gray';
+			return ANSI.dim.hex;
 	}
 }
 
-/** Model family → chalk color name (mirrors the web modelColor intent). */
+/**
+ * Model family → renderable color, sourced from the shared brand tokens. Returns
+ * the token hex (Ink/chalk auto-downsample); mirrors the web modelColor intent.
+ */
 export function modelColorName(model: string): string {
-	if (/opus/i.test(model)) return 'magenta';
-	if (/sonnet/i.test(model)) return 'cyan';
-	if (/haiku/i.test(model)) return 'yellow';
-	return 'gray';
+	if (/opus/i.test(model)) return ANSI.models.opus.hex;
+	if (/sonnet/i.test(model)) return ANSI.models.sonnet.hex;
+	if (/haiku/i.test(model)) return ANSI.models.haiku.hex;
+	return ANSI.models.other.hex;
 }
 
-export const ACCENT = 'green';
-export const DIM = 'gray';
+/** Brand accent — register-gold (brass), shared across web + CLI. */
+export const ACCENT = ANSI.accent.hex;
+export const DIM = ANSI.dim.hex;
 export const SPARK_CHARS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'] as const;
 
 /**
