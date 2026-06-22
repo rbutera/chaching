@@ -9,6 +9,7 @@
 	import SessionList from '$lib/components/SessionList.svelte';
 	import DetailSheet from '$lib/components/DetailSheet.svelte';
 	import Sparkline from '$lib/components/Sparkline.svelte';
+	import Wordmark from '$lib/brand/Wordmark.svelte';
 	import {
 		money,
 		compactTokens,
@@ -108,11 +109,8 @@
 <div class="page">
 	<header class="topbar">
 		<div class="brand">
-			<span class="logo">◈</span>
-			<div>
-				<h1>chaching</h1>
-				<p class="tagline">Claude Code spend on kinto</p>
-			</div>
+			<h1 class="brand-title"><Wordmark size={22} /></h1>
+			<p class="tagline">local AI token spend</p>
 		</div>
 		<div class="status" title={`feed: ${feed.conn}`}>
 			<span class="dot" style={`background:${connDot}`}></span>
@@ -302,17 +300,14 @@
 	}
 	.brand {
 		display: flex;
-		align-items: center;
+		align-items: baseline;
 		gap: 0.6rem;
 	}
-	.logo {
-		font-size: 1.4rem;
-		color: var(--accent);
-	}
-	h1 {
+	.brand-title {
 		margin: 0;
 		font-size: 1.05rem;
-		letter-spacing: -0.01em;
+		font-weight: inherit;
+		line-height: 1;
 	}
 	.tagline {
 		margin: 0;

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" role="img" aria-labelledby="chaching-mark-title chaching-mark-desc" color="#e0a52f">
+  <title id="chaching-mark-title">chaching mark</title>
+  <desc id="chaching-mark-desc">A register slot cut into a diamond above two stacked cache layers.</desc>
+  <g fill="currentColor">
+    <path fill-rule="evenodd" d="M12 1.5 22 6.1 12 10.7 2 6.1ZM9.2 5.35h5.6v1.5H9.2Z"/>
+    <path d="m2 10.35 10 4.6 10-4.6v3.2l-10 4.6-10-4.6Z"/>
+    <path d="m2 16.15 10 4.6 10-4.6v3.2L12 23.95 2 19.35Z"/>
+  </g>
+</svg>
