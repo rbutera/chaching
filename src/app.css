@@ -2,6 +2,11 @@
    near-black base, layered surfaces, restrained accent, tabular numerals. */
 
 :root {
+	/* Color custom properties are generated from src/lib/brand/tokens.ts via
+	   toCss(). Do not hand-edit between the markers — a unit test
+	   (src/lib/brand/generate.test.ts) fails if this block drifts from the
+	   tokens. Edit the tokens module and regenerate instead. */
+	/* BEGIN GENERATED brand tokens — do not hand-edit (src/lib/brand) */
 	/* surfaces (near-black, not pure #000) */
 	--bg: #0a0b0f;
 	--surface-1: #12141b;
@@ -16,16 +21,17 @@
 	--fg-dim: #6a7280;
 
 	/* accents */
-	--accent: #6ea8fe;
+	--accent: #e0a52f;
 	--good: #4ade80;
 	--bad: #f87171;
 	--warn: #fbbf24;
 
 	/* model family palette — categorical, brightened for dark bg, 3:1+ vs surfaces */
-	--m-opus: #c084fc; /* richest hue — the expensive one dominates */
-	--m-sonnet: #38bdf8; /* distinct mid hue */
-	--m-haiku: #facc15; /* lighter-weight third hue */
+	--m-opus: #c084fc;
+	--m-sonnet: #38bdf8;
+	--m-haiku: #facc15;
 	--m-other: #94a3b8;
+	/* END GENERATED brand tokens */
 
 	/* token-class encodings (within a model's color, by opacity in charts) */
 	--radius: 14px;

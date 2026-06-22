@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="168" height="48" viewBox="0 0 168 48" role="img" aria-labelledby="chaching-title chaching-desc" color="#e0a52f">
+  <title id="chaching-title">chaching</title>
+  <desc id="chaching-desc">A register slot cut into a diamond above two stacked cache layers, followed by the chaching wordmark.</desc>
+  <g fill="currentColor" transform="translate(-2.5 3.2) scale(1.62)">
+    <path fill-rule="evenodd" d="M12 1.5 22 6.1 12 10.7 2 6.1ZM9.2 5.35h5.6v1.5H9.2Z"/>
+    <path d="m2 10.35 10 4.6 10-4.6v3.2l-10 4.6-10-4.6Z"/>
+    <path d="m2 16.15 10 4.6 10-4.6v3.2L12 23.95 2 19.35Z"/>
+  </g>
+  <text x="45" y="35.5" fill="currentColor" font-family="Inter Display, Inter, ui-sans-serif, system-ui, sans-serif" font-size="31.5" font-weight="500" letter-spacing="-1.15">chachıng</text>
+  <path fill="currentColor" d="M127.05 12.35h4.2v4.2h-4.2Z"/>
+</svg>

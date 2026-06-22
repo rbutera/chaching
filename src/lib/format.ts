@@ -1,5 +1,7 @@
 // Formatting + model-color helpers shared across the UI.
 
+import { tokens } from './brand/tokens.js';
+
 export function modelFamily(model: string): 'opus' | 'sonnet' | 'haiku' | 'other' {
 	if (/opus/i.test(model)) return 'opus';
 	if (/sonnet/i.test(model)) return 'sonnet';
@@ -7,14 +9,35 @@ export function modelFamily(model: string): 'opus' | 'sonnet' | 'haiku' | 'other
 	return 'other';
 }
 
-// Family hue anchors (degrees on the HSL wheel). A model's color is its family
-// hue shifted by a stable per-model offset, so every distinct model id gets a
-// distinct-but-related color: opus stays purple-ish, sonnet blue-ish, etc.
+/** HSL hue (degrees, 0–360) of a hex color. Local + dependency-free so the web
+ *  bundle stays lean (culori is a dev-only dep). */
+export function hueOf(hex: string): number {
+	const h = hex.replace('#', '');
+	const r = parseInt(h.slice(0, 2), 16) / 255;
+	const g = parseInt(h.slice(2, 4), 16) / 255;
+	const b = parseInt(h.slice(4, 6), 16) / 255;
+	const max = Math.max(r, g, b);
+	const min = Math.min(r, g, b);
+	const d = max - min;
+	if (d === 0) return 0;
+	let hue: number;
+	if (max === r) hue = ((g - b) / d) % 6;
+	else if (max === g) hue = (b - r) / d + 2;
+	else hue = (r - g) / d + 4;
+	hue = Math.round(hue * 60);
+	return (hue + 360) % 360;
+}
+
+// Family hue anchors (degrees on the HSL wheel), derived from the model-family
+// brand tokens so they cannot drift from the source of truth. A model's color
+// is its family hue shifted by a stable per-model offset, so every distinct
+// model id gets a distinct-but-related color: opus stays purple-ish, sonnet
+// blue-ish, etc.
 const FAMILY_HUE: Record<string, number> = {
-	opus: 280, // purple
-	sonnet: 200, // cyan/blue
-	haiku: 48, // amber
-	other: 215 // slate-blue
+	opus: hueOf(tokens.models.opus.hex),
+	sonnet: hueOf(tokens.models.sonnet.hex),
+	haiku: hueOf(tokens.models.haiku.hex),
+	other: hueOf(tokens.models.other.hex)
 };
 
 /** Deterministic 32-bit-ish hash of a string (FNV-1a), for stable color offsets. */
