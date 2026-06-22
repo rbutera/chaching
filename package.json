@@ -44,6 +44,10 @@
 	},
 	"scripts": {
 		"dev": "vite dev",
+		"gen:favicons": "tsx scripts/gen-favicons.ts",
+		"gen:og": "tsx scripts/gen-og.ts",
+		"gen:assets": "npm run gen:favicons && npm run gen:og",
+		"prebuild": "npm run gen:assets",
 		"build": "npm run build:sk && npm run build:cli",
 		"build:sk": "vite build",
 		"build:cli": "tsup",
@@ -59,6 +63,8 @@
 		"pack:dry": "npm pack --dry-run"
 	},
 	"devDependencies": {
+		"@fontsource/inter": "5.2.8",
+		"@resvg/resvg-js": "2.6.2",
 		"@sveltejs/adapter-node": "5.5.4",
 		"@sveltejs/kit": "^2.57.0",
 		"@sveltejs/vite-plugin-svelte": "^7.0.0",
@@ -71,9 +77,12 @@
 		"@types/react": "19.2.17",
 		"culori": "4.0.2",
 		"ink-testing-library": "4.0.0",
+		"satori": "0.26.0",
+		"sharp": "0.35.1",
 		"svelte": "^5.55.2",
 		"svelte-check": "^4.4.6",
 		"tsup": "8.5.1",
+		"tsx": "4.22.4",
 		"typescript": "^6.0.2",
 		"vite": "^8.0.7",
 		"vitest": "4.1.7"
