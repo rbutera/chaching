@@ -10,7 +10,12 @@ export default defineConfig({
 	sourcemap: false,
 	clean: true,
 	platform: 'node',
-	external: [/^node:/],
+	// Keep node: builtins external; also keep the PNG renderer deps external so the
+	// native @resvg/resvg-js binding is never bundled. They are optionalDependencies,
+	// lazily `import()`-ed only on `receipt --png`, and resolved from node_modules at
+	// runtime — bundling them would (a) try to load a native .node at build time and
+	// (b) force them into the base install. external = stays a runtime require.
+	external: [/^node:/, 'satori', '@resvg/resvg-js'],
 	// Ink TUI uses .tsx; compile JSX with the automatic runtime (no `import React`).
 	esbuildOptions(options) {
 		options.jsx = 'automatic';

@@ -64,6 +64,7 @@
 	},
 	"devDependencies": {
 		"@fontsource/inter": "5.2.8",
+		"@fontsource/jetbrains-mono": "5.2.8",
 		"@resvg/resvg-js": "2.6.2",
 		"@sveltejs/adapter-node": "5.5.4",
 		"@sveltejs/kit": "^2.57.0",
@@ -96,5 +97,9 @@
 		"d3-time": "3.1.0",
 		"ink": "7.0.5",
 		"react": "19.2.7"
+	},
+	"optionalDependencies": {
+		"@resvg/resvg-js": "2.6.2",
+		"satori": "0.26.0"
 	}
 }
