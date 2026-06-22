@@ -97,4 +97,26 @@ describe('redactReceipt — privacy by default', () => {
 		redactReceipt(input, redactOpts);
 		expect(input.footer).toBe(before);
 	});
+
+	it('scrubs a username smuggled in via --provider (providers[] field)', () => {
+		const m = adversarialModel();
+		m.providers = [SECRET_USER, 'codex'];
+		const redacted = redactReceipt(m, redactOpts);
+		expect(redacted.providers).not.toContain(SECRET_USER);
+		const text = renderReceiptText(redacted, { noColor: true });
+		expect(text).not.toContain(SECRET_USER);
+	});
+
+	it('collapses paths containing special chars without leaking the tail', () => {
+		const m = adversarialModel();
+		// path with @, parens, +, spaces — the old [\w.- ] class would truncate here
+		m.footer = 'log at /Users/topsecretuser/Client (Secret+Co)/run@2/private.ts done';
+		const redacted = redactReceipt(m, redactOpts);
+		// every interior path segment must be gone (collapsed to the basename)
+		expect(redacted.footer).not.toContain('topsecretuser');
+		expect(redacted.footer).not.toContain('Client (Secret+Co)');
+		expect(redacted.footer).not.toContain('run@2');
+		// no surviving absolute-path prefix
+		expect(redacted.footer).not.toContain('/Users/');
+	});
 });

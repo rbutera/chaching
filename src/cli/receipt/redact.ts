@@ -92,13 +92,20 @@ function redactText(text: string, secrets: string[]): string {
 	let out = text;
 
 	// Absolute *nix paths and ~-paths → basename (last segment) so we keep some
-	// signal (the project/file name itself is separately redacted where it's a
-	// known project token, but a stray path basename is low-risk and useful).
-	out = out.replace(/(?:~|\/)(?:[\w.\- ]+\/)*[\w.\- ]+/g, (m) => {
-		// leave short non-path tokens alone (heuristic: must contain a slash)
-		if (!m.includes('/')) return m;
+	// signal (the file/project name) while dropping every interior segment that
+	// might carry a username/host/project. Privacy bias is OVER-redaction:
+	//
+	// - Anchored on `/` or `~`, then segments allowed to contain ANY char except a
+	//   newline or `/` (INCLUDING spaces, `@`, `(`, `)`, `+`, `#`, `:` …). The old
+	//   `[\w.\- ]` class truncated at the first unsupported char and leaked the
+	//   tail — a real leak. This consumes the whole path instead.
+	// - `(?:\/[^\n\r/]*)+` requires at least one MORE separator, so a lone slash in
+	//   prose (e.g. "a/b", "and/or") is left untouched; only multi-segment paths
+	//   collapse. Each `[^\n\r/]*` is bounded by the `/` separators, so there is no
+	//   overlapping unbounded quantifier → no catastrophic backtracking.
+	out = out.replace(/(?:~|\/)[^\n\r/]*(?:\/[^\n\r/]*)+/g, (m) => {
 		const base = m.split('/').filter(Boolean).slice(-1)[0];
-		return base ? base : PLACEHOLDER;
+		return base ? base.trim() : PLACEHOLDER;
 	});
 
 	for (const s of secrets) {
@@ -128,6 +135,10 @@ export function redactReceipt(model: ReceiptModel, opts: RedactOptions = {}): Re
 		periodLabel: redactText(model.periodLabel, secrets),
 		footer: redactText(model.footer, secrets),
 		ref: redactText(model.ref, secrets),
+		// providers come straight from --provider argv, so a value like
+		// `--provider "$USER"` would otherwise echo unredacted into the header
+		// (text + PNG). Scrub each one.
+		providers: model.providers ? model.providers.map((p) => redactText(p, secrets)) : null,
 		// line items: model/provider ids are not PII, but scrub the label defensively
 		lineItems: model.lineItems.map((it) => ({
 			...it,

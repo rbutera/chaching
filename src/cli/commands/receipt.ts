@@ -147,9 +147,17 @@ async function writePng(model: import('../receipt/model.js').ReceiptModel, flags
 
 function failPng(err: unknown): never {
 	const msg = err instanceof Error ? err.message : String(err);
+	const code = err instanceof Error ? (err as NodeJS.ErrnoException).code : undefined;
+	// Only treat genuine module-resolution failures as "missing renderer". A
+	// satori/resvg RUNTIME error (deps present, e.g. a layout/font error) must NOT
+	// tell the user to install deps they already have — route it to the generic
+	// render-failed branch instead.
 	const missingDep =
-		/Cannot find (package|module)|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND/.test(msg) ||
-		/satori|resvg/i.test(msg);
+		code === 'ERR_MODULE_NOT_FOUND' ||
+		code === 'MODULE_NOT_FOUND' ||
+		/Cannot find (package|module) '(satori|@resvg\/resvg-js)'|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND/.test(
+			msg
+		);
 	process.stderr.write(
 		'chaching receipt: PNG export requires the brand renderer.\n' +
 			(missingDep
