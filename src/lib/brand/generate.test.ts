@@ -1,0 +1,107 @@
+/**
+ * Tests for the brand-token generators.
+ *
+ * Covers:
+ *  - toCss output equals the committed app.css :root GENERATED block (drift test)
+ *    and declares every expected variable name.
+ *  - toAnsiMap resolves each token to the right hex/basic/256 triple; the 256
+ *    path goes through ansi-styles (no hand-rolled converter).
+ */
+
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { join, dirname } from 'node:path';
+import styles from 'ansi-styles';
+
+import { tokens } from './tokens.js';
+import { toCss, toAnsiMap, CSS_BEGIN_MARKER, CSS_END_MARKER } from './generate.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const appCssPath = join(here, '..', '..', 'app.css');
+
+/** Extract the committed generated block from app.css, normalising the leading
+ *  indentation on the marker lines (the file tab-indents them inside :root). */
+function committedBlock(): string {
+	const css = readFileSync(appCssPath, 'utf8');
+	const begin = css.indexOf(CSS_BEGIN_MARKER);
+	const end = css.indexOf(CSS_END_MARKER);
+	expect(begin).toBeGreaterThan(-1);
+	expect(end).toBeGreaterThan(begin);
+	const raw = css.slice(begin, end + CSS_END_MARKER.length);
+	// app.css indents the END marker line with a tab; toCss emits it flush. Strip
+	// any leading tab that directly precedes the END marker.
+	return raw.replace(/\t(\/\* END GENERATED brand tokens \*\/)$/, '$1');
+}
+
+describe('toCss', () => {
+	it('matches the committed app.css :root generated block (drift guard)', () => {
+		expect(committedBlock()).toBe(toCss(tokens));
+	});
+
+	it('declares every expected color variable name', () => {
+		const css = toCss(tokens);
+		for (const name of [
+			'--bg',
+			'--surface-1',
+			'--surface-2',
+			'--surface-3',
+			'--border',
+			'--border-strong',
+			'--fg',
+			'--fg-muted',
+			'--fg-dim',
+			'--accent',
+			'--good',
+			'--bad',
+			'--warn',
+			'--m-opus',
+			'--m-sonnet',
+			'--m-haiku',
+			'--m-other'
+		]) {
+			expect(css).toContain(`${name}: `);
+		}
+	});
+
+	it('emits the brass accent and keeps haiku lemon', () => {
+		const css = toCss(tokens);
+		expect(css).toContain('--accent: #e0a52f;');
+		expect(css).toContain('--m-haiku: #facc15;');
+	});
+});
+
+describe('toAnsiMap', () => {
+	const map = toAnsiMap(tokens);
+
+	it('resolves accent to the brass gold token', () => {
+		expect(map.accent.hex).toBe('#e0a52f');
+		expect(map.accent.basic).toBe('yellow');
+		expect(map.accent.ansi256).toBe(styles.hexToAnsi256('#e0a52f'));
+	});
+
+	it('resolves model families to their distinct tokens', () => {
+		expect(map.models.opus.hex).toBe(tokens.models.opus.hex);
+		expect(map.models.opus.basic).toBe('magenta');
+		expect(map.models.sonnet.hex).toBe(tokens.models.sonnet.hex);
+		expect(map.models.haiku.hex).toBe(tokens.models.haiku.hex);
+		expect(map.models.other.hex).toBe(tokens.models.other.hex);
+	});
+
+	it('resolves providers to their tokens', () => {
+		expect(map.providers.claude.hex).toBe(tokens.providers.claude.hex);
+		expect(map.providers.codex.hex).toBe(tokens.providers.codex.hex);
+		expect(map.providers.opencode.hex).toBe(tokens.providers.opencode.hex);
+		expect(map.providers.cursor.hex).toBe(tokens.providers.cursor.hex);
+	});
+
+	it('uses ansi-styles for the 256 fallback path (no hand-rolled converter)', () => {
+		// Every resolved 256 index must equal ansi-styles' computation for the hex.
+		for (const c of [map.accent, map.good, map.bad, map.warn, map.dim]) {
+			expect(c.ansi256).toBe(styles.hexToAnsi256(c.hex));
+		}
+		for (const c of Object.values(map.models)) {
+			expect(c.ansi256).toBe(styles.hexToAnsi256(c.hex));
+		}
+	});
+});

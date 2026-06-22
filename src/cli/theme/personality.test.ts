@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import {
 	noArt,
 	noColor,
+	accent,
 	banner,
 	wordmark,
 	scanningLine,
@@ -166,6 +167,25 @@ describe('wordmark()', () => {
 	it('returns plain text when NO_COLOR', () => {
 		const result = wordmark({ noArt: false, env: { NO_COLOR: '1' } });
 		expect(result).toBe(WORDMARK);
+	});
+});
+
+// ── accent() (register-gold) ────────────────────────────────────────────────────
+
+describe('accent()', () => {
+	it('wraps text in a 24-bit truecolor escape for brass #e0a52f', () => {
+		const out = accent('x', {} as NodeJS.ProcessEnv);
+		expect(out).toBe('\x1b[38;2;224;165;47mx\x1b[0m');
+	});
+
+	it('falls back to the curated 16-color SGR (yellow) on the basic tier', () => {
+		const out = accent('x', {} as NodeJS.ProcessEnv, 'basic');
+		expect(out).toBe('\x1b[33mx\x1b[0m');
+	});
+
+	it('returns plain text under NO_COLOR in either tier (quiet-mode preserved)', () => {
+		expect(accent('x', { NO_COLOR: '1' } as unknown as NodeJS.ProcessEnv)).toBe('x');
+		expect(accent('x', { NO_COLOR: '1' } as unknown as NodeJS.ProcessEnv, 'basic')).toBe('x');
 	});
 });
 
