@@ -217,6 +217,25 @@ export function scanningLine(index?: number): string {
 	return pick(SCANNING_LINES, index);
 }
 
+/**
+ * Receipt footer flourishes — the wry "thank you for shopping" line at the
+ * bottom of a thermal receipt. Same gallows-humor register as the rest.
+ */
+export const RECEIPT_FOOTERS = [
+	'thank you for burning with us 💸',
+	'no refunds. the tokens are gone.',
+	'keep this receipt for your accountant (lol)',
+	"cha-ching! that's the sound of your runway",
+	'cached and confused since day one',
+	'come back soon — the agents missed you',
+	'every cache hit is a tiny act of mercy',
+] as const;
+
+/** Current receipt footer line (rotates per minute). */
+export function receiptFooter(index?: number): string {
+	return pick(RECEIPT_FOOTERS, index);
+}
+
 /** Current empty-state line (rotates per minute). */
 export function emptyLine(index?: number): string {
 	return pick(EMPTY_LINES, index);

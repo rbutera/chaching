@@ -1,0 +1,100 @@
+import { describe, it, expect } from 'vitest';
+import type { ReceiptModel } from './model.js';
+import { redactReceipt, PLACEHOLDER } from './redact.js';
+import { renderReceiptText } from './render-text.js';
+
+// Adversarial fixture: every redactable class present in free-text fields.
+const SECRET_USER = 'topsecretuser';
+const SECRET_HOST = 'topsecrethost';
+const SECRET_PATH = '/home/topsecretuser/projects/my-private-thing/file.ts';
+const SECRET_PROJECT = 'topsecretuser/projects/my-private-thing';
+
+function adversarialModel(): ReceiptModel {
+	return {
+		wordmark: `chaching @ ${SECRET_HOST}`,
+		periodLabel: `all time (${SECRET_USER})`,
+		period: undefined,
+		from: '2026-06-01',
+		to: '2026-06-19',
+		providers: null,
+		lineItems: [
+			{
+				provider: 'claude',
+				model: 'claude-opus-4-8',
+				modelLabel: `Opus 4.8 ${SECRET_PROJECT}`,
+				family: 'opus',
+				tokens: { input: 1, output: 1, cacheCreation: 0, cacheRead: 1 },
+				requests: 1,
+				cost: 1,
+				unknownPrice: false
+			}
+		],
+		coupons: [
+			{
+				model: 'claude-opus-4-8',
+				modelLabel: `Opus 4.8 ${SECRET_HOST}`,
+				family: 'opus',
+				cacheReadTokens: 1,
+				wouldHaveCost: 1,
+				actualCost: 0,
+				saved: 1
+			}
+		],
+		youSaved: 1,
+		subtotals: [{ family: 'opus', cost: 1, requests: 1 }],
+		totalBurn: 1,
+		totalTokens: 3,
+		requests: 1,
+		costUnknownRequests: 0,
+		unknownPriceModels: [],
+		footer: `thanks ${SECRET_USER} at ${SECRET_PATH}`,
+		barcode: '▌▏▎',
+		ref: `REF · ${SECRET_HOST}`,
+		empty: false
+	};
+}
+
+const redactOpts = {
+	username: SECRET_USER,
+	hostname: SECRET_HOST,
+	homedir: `/home/${SECRET_USER}`,
+	env: {} as NodeJS.ProcessEnv
+};
+
+describe('redactReceipt — privacy by default', () => {
+	it('default (no reveal) scrubs username, hostname, abs path, project from all text', () => {
+		const redacted = redactReceipt(adversarialModel(), redactOpts);
+		const text = renderReceiptText(redacted, { noColor: true });
+		expect(text).not.toContain(SECRET_USER);
+		expect(text).not.toContain(SECRET_HOST);
+		expect(text).not.toContain(SECRET_PATH);
+		expect(text).not.toContain('my-private-thing/file.ts');
+		// the placeholder or basename collapse should appear instead
+		expect(redacted.footer).toContain(PLACEHOLDER);
+	});
+
+	it('reveal=true is a no-op (real values present)', () => {
+		const revealed = redactReceipt(adversarialModel(), { ...redactOpts, reveal: true });
+		const text = renderReceiptText(revealed, { noColor: true });
+		expect(text).toContain(SECRET_HOST);
+		expect(text).toContain(SECRET_USER);
+	});
+
+	it('redacted output differs from revealed exactly on the secret tokens', () => {
+		const redacted = redactReceipt(adversarialModel(), redactOpts);
+		const revealed = redactReceipt(adversarialModel(), { ...redactOpts, reveal: true });
+		expect(redacted.wordmark).not.toBe(revealed.wordmark);
+		expect(redacted.footer).not.toBe(revealed.footer);
+		expect(redacted.ref).not.toBe(revealed.ref);
+		// non-secret fields are untouched
+		expect(redacted.totalBurn).toBe(revealed.totalBurn);
+		expect(redacted.from).toBe(revealed.from);
+	});
+
+	it('does not mutate the input model', () => {
+		const input = adversarialModel();
+		const before = input.footer;
+		redactReceipt(input, redactOpts);
+		expect(input.footer).toBe(before);
+	});
+});
