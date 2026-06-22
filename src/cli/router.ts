@@ -1,8 +1,9 @@
 // Subcommand router — hand-rolled per design decision D3.
-// Surface: chaching [stats|serve|init|provider|--version|--help]
+// Surface: chaching [stats|receipt|serve|init|provider|--version|--help]
 // Unknown subcommands → usage + exit(1).
 
 import { runStats, type StatsFlags } from './commands/stats.js';
+import { runReceipt, type ReceiptFlags } from './commands/receipt.js';
 import { runServe } from './commands/serve.js';
 import { runInit } from './commands/init.js';
 import { runProvider } from './commands/provider.js';
@@ -50,6 +51,11 @@ export async function run(argv: string[]): Promise<void> {
 		case 'stats':
 			// Merge global flags (like --no-art) that appeared before the subcommand
 			await runStats(parseStatsFlags([...globalArgs, ...rest]));
+			return;
+
+		case 'receipt':
+			// Same global-flag merge as stats (--no-art / --no-color before the subcommand).
+			await runReceipt(parseReceiptFlags([...globalArgs, ...rest]));
 			return;
 
 		case 'serve':
@@ -143,6 +149,89 @@ function parseStatsFlags(argv: string[]): StatsFlags {
 		} else if (arg.startsWith('-')) {
 			// Unknown flag
 			console.error(`chaching stats: unknown flag '${arg}'`);
+			console.error(`Run \`chaching --help\` for usage.`);
+			process.exit(1);
+		}
+	}
+
+	if (providers.length > 0) flags.providers = providers;
+
+	return flags;
+}
+
+/**
+ * Parse `chaching receipt` flags. Mirrors parseStatsFlags' period/provider
+ * handling and adds --png [path], --reveal/--no-redact, --json. Unknown flag →
+ * error + nonzero exit (same discipline as stats).
+ */
+function parseReceiptFlags(argv: string[]): ReceiptFlags {
+	const flags: ReceiptFlags = {};
+	const providers: string[] = [];
+
+	flags.noArt = noArt(argv);
+
+	const setPeriod = (p: string): void => {
+		if (p === 'day' || p === 'week' || p === 'month' || p === 'all') {
+			if (p !== 'all') flags.period = p;
+		} else {
+			console.error(`chaching receipt: unknown period '${p}' (must be day|week|month|all)`);
+			process.exit(1);
+		}
+	};
+
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+
+		if (arg === '--json') {
+			flags.json = true;
+		} else if (arg === '--reveal' || arg === '--no-redact') {
+			flags.reveal = true;
+		} else if (arg === '--no-art') {
+			// already handled via noArt(); skip
+		} else if (arg === '--png') {
+			flags.png = true;
+			// optional value: a following non-flag token is the path
+			const next = argv[i + 1];
+			if (next && !next.startsWith('-')) {
+				flags.pngPath = next;
+				i++;
+			}
+		} else if (arg.startsWith('--png=')) {
+			flags.png = true;
+			const p = arg.slice('--png='.length);
+			if (p) flags.pngPath = p;
+		} else if (arg === '--period') {
+			const p = argv[i + 1];
+			if (!p || p.startsWith('--')) {
+				console.error(`chaching receipt: --period requires a value (day|week|month|all)`);
+				process.exit(1);
+			}
+			i++;
+			setPeriod(p);
+		} else if (arg.startsWith('--period=')) {
+			const p = arg.slice('--period='.length);
+			if (!p) {
+				console.error(`chaching receipt: --period requires a value (day|week|month|all)`);
+				process.exit(1);
+			}
+			setPeriod(p);
+		} else if (arg === '--provider') {
+			const raw = argv[i + 1];
+			if (!raw || raw.startsWith('--')) {
+				console.error(`chaching receipt: --provider requires a value`);
+				process.exit(1);
+			}
+			i++;
+			providers.push(...raw.split(',').map((s) => s.trim()).filter(Boolean));
+		} else if (arg.startsWith('--provider=')) {
+			const raw = arg.slice('--provider='.length);
+			if (!raw) {
+				console.error(`chaching receipt: --provider requires a value`);
+				process.exit(1);
+			}
+			providers.push(...raw.split(',').map((s) => s.trim()).filter(Boolean));
+		} else if (arg.startsWith('-')) {
+			console.error(`chaching receipt: unknown flag '${arg}'`);
 			console.error(`Run \`chaching --help\` for usage.`);
 			process.exit(1);
 		}

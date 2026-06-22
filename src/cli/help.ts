@@ -47,6 +47,7 @@ export function printUsage(argv: string[] = process.argv.slice(2)): void {
 Usage:
   chaching               Open the TUI dashboard (or run wizard on first launch)
   chaching stats         One-shot summary: totals, per-provider, per-model
+  chaching receipt       Print your spend as a branded thermal receipt
   chaching serve         Start the web dashboard server
   chaching init          Run the setup wizard (re-runnable)
   chaching provider      Manage providers (add | enable | disable)
@@ -61,9 +62,18 @@ Flags for stats:
   --provider <name>        Filter to provider(s); repeatable or comma-separated
   --json                   Output only the raw JSON snapshot to stdout
 
+Flags for receipt:
+  --period day|week|month  Aggregate by period (default: all time)
+  --provider <name>        Filter to provider(s); repeatable or comma-separated
+  --json                   Machine-readable receipt model to stdout (art-free)
+  --png [path]             Write a shareable PNG (default: ./chaching-receipt-<period>.png)
+  --reveal, --no-redact    Show real usernames/hosts/paths (default: redacted)
+
 Examples:
   chaching stats --period week --provider codex
   chaching stats --json | jq .totals.cost
+  chaching receipt --period month
+  chaching receipt --png receipt.png
   chaching serve
 `);
 }
