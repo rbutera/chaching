@@ -1,0 +1,27 @@
+{
+	"name": "chaching",
+	"short_name": "chaching",
+	"description": "Local, multi-provider AI token spend — Claude Code, Codex, OpenCode, Cursor.",
+	"theme_color": "#0a0b0f",
+	"background_color": "#0a0b0f",
+	"display": "standalone",
+	"icons": [
+		{
+			"src": "/icon.svg",
+			"type": "image/svg+xml",
+			"sizes": "any"
+		},
+		{
+			"src": "/icon-192.png",
+			"type": "image/png",
+			"sizes": "192x192",
+			"purpose": "maskable"
+		},
+		{
+			"src": "/icon-512.png",
+			"type": "image/png",
+			"sizes": "512x512",
+			"purpose": "maskable"
+		}
+	]
+}

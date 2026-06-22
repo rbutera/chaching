@@ -1,12 +1,10 @@
 <script lang="ts">
 	import '../app.css';
-	import favicon from '$lib/assets/favicon.svg';
+
+	// Favicon / OG head tags live in src/app.html (they point at the generated
+	// static asset set: icon.svg, favicon.ico, apple-touch-icon.png, manifest).
 
 	let { children } = $props();
 </script>
-
-<svelte:head>
-	<link rel="icon" href={favicon} />
-</svelte:head>
 
 {@render children()}

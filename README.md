@@ -1,19 +1,24 @@
-# chaching
+<p align="center">
+  <img src="src/lib/brand/assets/logo.svg" alt="chaching" width="320" />
+</p>
 
-```
-  ██████╗██╗  ██╗ █████╗  ██████╗██╗  ██╗██╗███╗   ██╗ ██████╗
- ██╔════╝██║  ██║██╔══██╗██╔════╝██║  ██║██║████╗  ██║██╔════╝
- ██║     ███████║███████║██║     ███████║██║██╔██╗ ██║██║  ███╗
- ██║     ██╔══██║██╔══██║██║     ██╔══██║██║██║╚██╗██║██║   ██║
- ╚██████╗██║  ██║██║  ██║╚██████╗██║  ██║██║██║ ╚████║╚██████╔╝
-  ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝ ╚═════╝
-```
+<p align="center"><strong>local AI token spend</strong></p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/chaching"><img alt="npm version" src="https://img.shields.io/npm/v/chaching?color=e0a52f&label=npm" /></a>
+  <img alt="node engine" src="https://img.shields.io/badge/node-%3E%3D24.16-e0a52f" />
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-PolyForm--Noncommercial--1.0.0-blue" /></a>
+</p>
+
+<p align="center">
+  <img src="static/og.png" alt="chaching social card — local AI token spend dashboard" width="640" />
+</p>
 
 *cha-ching. it counts the cache hits too.*
 
 Local, multi-provider AI token spend monitor for Claude Code, Codex, OpenCode, and Cursor. Reads your machine's own artifacts — no cloud, no account, no tracking.
 
-<!-- screenshot / asciinema placeholder — add one here before the npm announcement -->
+<!-- TODO (follow-up): animated TUI asciinema cast of the live dashboard. -->
 
 ---
 
