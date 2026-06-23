@@ -46,6 +46,7 @@
 	} from '$lib/voice';
 	import { countUp, trailingThrottle } from '$lib/client/motion';
 	import { JoyController } from '$lib/client/joy';
+	import { webSuppressArt } from '$lib/client/suppress';
 
 	const feed = new FeedStore();
 	const dash = new Dashboard();
@@ -69,9 +70,14 @@
 	// immediately when reduced; the token base reset already nukes CSS transitions).
 	let reducedMotion = $state(false);
 
+	// Web "no-art" equivalent (design D9): suppress personality copy + extra motion
+	// when `?no-art` or the persisted setting is on, mirroring the CLI contract.
+	let suppressArt = $state(false);
+
 	onMount(() => {
 		feed.start();
 		void loadPublicConfig();
+		suppressArt = webSuppressArt();
 		const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
 		reducedMotion = mq.matches;
 		const onMq = (e: MediaQueryListEvent) => (reducedMotion = e.matches);
@@ -259,6 +265,8 @@
 	// total is meaningless (resolves the design.md open question — scope-gate rather
 	// than per-period rescale). Emoji are the severity encoding (data, not decor).
 	let flourish = $derived.by(() => {
+		// Web suppression (D9): no personality copy when no-art is in effect.
+		if (suppressArt) return '';
 		// only meaningful at a single-day grain: a pinned day, or the rolling "day" period.
 		const dayScoped = focusedDay != null || dash.period === 'day';
 		if (!dayScoped) return '';
@@ -290,6 +298,14 @@
 		// Initialise the baseline on first observation (no retroactive fire).
 		if (lastDailyTier < 0) lastDailyTier = dailyTier;
 		if (lastLifetimeTier < 0) lastLifetimeTier = lifeTier;
+		// Web no-art (D9): joy is personality — never fire it when suppressed, even if
+		// a persisted enabled=true survives. Keep the tiers tracked so re-enabling
+		// doesn't retroactively fire a crossing that happened while suppressed.
+		if (suppressArt) {
+			lastDailyTier = dailyTier;
+			lastLifetimeTier = lifeTier;
+			return;
+		}
 		if (crossedUp(lastDailyTier, dailyTier)) {
 			joy.onEscalationCrossing(); // chime (gated internally: enabled+visible+unmuted)
 		}
@@ -374,31 +390,35 @@
 		</div>
 		<div class="topbar-right">
 			<!-- Opt-in joy (default OFF): a sound toggle + a mute. No AudioContext, no
-			     asset, no canvas-confetti loads until enabled and a crossing fires. -->
-			<div class="joy-controls">
-				<button
-					type="button"
-					class="joy-toggle ka-chunk"
-					class:on={joyEnabled}
-					aria-pressed={joyEnabled}
-					title={joyEnabled ? 'cha-ching sound on' : 'cha-ching sound off'}
-					onclick={toggleJoy}
-				>
-					{joyEnabled ? '🔔 sound on' : '🔕 sound off'}
-				</button>
-				{#if joyEnabled}
+			     asset, no canvas-confetti loads until enabled and a crossing fires. The
+			     joy treat is itself personality, so the web no-art equivalent (D9)
+			     hides the controls entirely. -->
+			{#if !suppressArt}
+				<div class="joy-controls">
 					<button
 						type="button"
-						class="joy-mute ka-chunk"
-						class:on={joyMuted}
-						aria-pressed={joyMuted}
-						title={joyMuted ? 'chime muted' : 'chime unmuted'}
-						onclick={toggleMute}
+						class="joy-toggle ka-chunk"
+						class:on={joyEnabled}
+						aria-pressed={joyEnabled}
+						title={joyEnabled ? 'cha-ching sound on' : 'cha-ching sound off'}
+						onclick={toggleJoy}
 					>
-						{joyMuted ? 'muted' : 'mute'}
+						{joyEnabled ? '🔔 sound on' : '🔕 sound off'}
 					</button>
-				{/if}
-			</div>
+					{#if joyEnabled}
+						<button
+							type="button"
+							class="joy-mute ka-chunk"
+							class:on={joyMuted}
+							aria-pressed={joyMuted}
+							title={joyMuted ? 'chime muted' : 'chime unmuted'}
+							onclick={toggleMute}
+						>
+							{joyMuted ? 'muted' : 'mute'}
+						</button>
+					{/if}
+				</div>
+			{/if}
 			<div class="conn" title={`feed: ${feed.conn}`}>
 				<span class="dot" style={`background:${connDot}; box-shadow: 0 0 8px ${connDot}`}></span>
 				<span class="conn-txt">{feed.conn}</span>
@@ -409,7 +429,9 @@
 	{#if !snap}
 		<div class="loading" aria-live="polite">
 			<div class="spinner" aria-hidden="true"></div>
-			<p>Counting your sins… cold-scanning Claude Code transcripts.</p>
+			<!-- Personality loading copy falls back to the plain functional label under
+			     the web no-art equivalent (D9). -->
+			<p>{suppressArt ? 'Cold-scanning Claude Code transcripts.' : 'Counting your sins… cold-scanning Claude Code transcripts.'}</p>
 			<p class="loading-sub">First load streams every session file once. This is the only slow part.</p>
 		</div>
 	{:else}
