@@ -119,6 +119,8 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 		if (input === 'd') setView((v) => ({ ...v, period: 'day' }));
 		else if (input === 'w') setView((v) => ({ ...v, period: 'week' }));
 		else if (input === 'm') setView((v) => ({ ...v, period: 'month' }));
+		else if (input === 'Q') setView((v) => ({ ...v, period: 'quarter' }));
+		else if (input === 'a') setView((v) => ({ ...v, period: 'all' }));
 		else if (key.rightArrow) setView((v) => ({ ...v, period: nextPeriod(v.period, 1) }));
 		else if (key.leftArrow) setView((v) => ({ ...v, period: nextPeriod(v.period, -1) }));
 		else if (input === '0') setView((v) => ({ ...v, providerFilter: new Set() }));
@@ -232,7 +234,7 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 }
 
 function nextPeriod(p: Period, dir: 1 | -1): Period {
-	const order: Period[] = ['day', 'week', 'month'];
+	const order: Period[] = ['day', 'week', 'month', 'quarter', 'all'];
 	const i = order.indexOf(p);
 	const next = (i + dir + order.length) % order.length;
 	return order[next];

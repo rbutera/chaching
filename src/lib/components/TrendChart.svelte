@@ -9,8 +9,15 @@
 	// into the day) and exposed to assistive tech with a descriptive aria-label.
 	// The visually-hidden data table is the non-visual fallback representation.
 	import { scaleLinear } from 'd3-scale';
-	import { modelColor, modelLabel, money, fmtDay } from '$lib/format';
+	import { modelColor, modelLabel, money, fmtPeriodKey } from '$lib/format';
 	import type { PeriodBucket } from '$lib/core/aggregate';
+
+	// A bucket is a single day (key = YYYY-MM-DD) or a coarse week/month span
+	// (key = YYYY-Www / YYYY-MM) when the window is long. The label + drill noun
+	// follow the key shape so a weekly bar never reads as one "day".
+	const isDayBucket = (b: PeriodBucket) => /^\d{4}-\d{2}-\d{2}$/.test(b.key);
+	const bucketLabel = (b: PeriodBucket) => fmtPeriodKey(b.key);
+	const bucketNoun = (b: PeriodBucket) => (isDayBucket(b) ? 'day' : /-W\d{2}$/.test(b.key) ? 'week' : 'month');
 
 	let {
 		buckets,
@@ -68,7 +75,7 @@
 
 <div class="trend">
 	<div class="trend-head">
-		<span class="trend-title">Spend by day, stacked by model</span>
+		<span class="trend-title">Spend over time, stacked by model</span>
 	</div>
 
 	<div class="chart-wrap">
@@ -98,7 +105,7 @@
 			{#each bars as bar, i (bar.bucket.key)}
 				{#if i % labelEvery === 0}
 					<text x={bar.x + bar.w / 2} y={H - 10} text-anchor="middle" class="axis-lbl">
-						{fmtDay(bar.bucket.startDay)}
+						{bucketLabel(bar.bucket)}
 					</text>
 				{/if}
 			{/each}
@@ -111,7 +118,7 @@
 					type="button"
 					class="bar-btn"
 					style={`left:${pctX(bar.x)}%;width:${pctX(bar.w)}%;top:${pctY(PAD.top)}%;height:${pctY(plotH)}%`}
-					aria-label={`${fmtDay(bar.bucket.startDay)}: ${money(bar.total)}${bar.segs.length ? ` across ${bar.segs.length} model${bar.segs.length === 1 ? '' : 's'}` : ' (no spend)'}. Open the day's detail.`}
+					aria-label={`${bucketLabel(bar.bucket)}: ${money(bar.total)}${bar.segs.length ? ` across ${bar.segs.length} model${bar.segs.length === 1 ? '' : 's'}` : ' (no spend)'}. Open the ${bucketNoun(bar.bucket)}'s detail.`}
 					onclick={() => onPick(bar.bucket)}
 					onmouseenter={() => (hovered = i)}
 					onmouseleave={() => (hovered = null)}
@@ -127,7 +134,7 @@
 				style={`left:${pctX(tip.x + tip.w / 2)}%`}
 				class:flip={tip.x + tip.w / 2 > W * 0.62}
 			>
-				<p class="tip-head">{fmtDay(tip.bucket.startDay)} · <span class="num">{money(tip.total)}</span></p>
+				<p class="tip-head">{bucketLabel(tip.bucket)} · <span class="num">{money(tip.total)}</span></p>
 				{#if tipRows.length}
 					<ul>
 						{#each tipRows as r (r.model)}
@@ -145,18 +152,18 @@
 		{/if}
 	</div>
 
-	<p class="hint">Click a bar to open that day's detail</p>
+	<p class="hint">Click a bar to open its detail</p>
 
 	<table class="visually-hidden">
-		<caption>Spend by day, stacked by model</caption>
+		<caption>Spend by period, stacked by model</caption>
 		<thead>
-			<tr><th>Day</th><th>Spend (USD)</th><th>Top model</th></tr>
+			<tr><th>Period</th><th>Spend (USD)</th><th>Top model</th></tr>
 		</thead>
 		<tbody>
 			{#each buckets as b (b.key)}
 				{@const top = [...b.byModel.entries()].sort((a, c) => c[1].cost - a[1].cost)[0]}
 				<tr>
-					<td>{fmtDay(b.startDay)}</td>
+					<td>{bucketLabel(b)}</td>
 					<td>{money(b.cost)}</td>
 					<td>{top ? `${modelLabel(top[0])} ${money(top[1].cost)}` : '—'}</td>
 				</tr>

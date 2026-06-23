@@ -115,9 +115,19 @@ export class Dashboard {
 		return vm.scopedGrain(snap, this.state());
 	}
 
-	/** Trend buckets (one per day in the period window) for the stacked bar chart. */
+	/** Trend buckets for the stacked bar chart (day grain short-span, week/month for long spans). */
 	trend(snap: RollupSnapshot): PeriodBucket[] {
 		return vm.trend(snap, this.state());
+	}
+
+	/**
+	 * The inclusive day range a trend bucket covers (single day, or a week/month
+	 * span), clamped to the active period window so a click on an edge coarse bar
+	 * drills exactly the days that bar aggregated.
+	 */
+	bucketDayRange(snap: RollupSnapshot, bucket: PeriodBucket): { from: string; to: string } {
+		const w = vm.periodWindow(snap, this.state());
+		return vm.bucketDayRange(bucket, { from: w.from, to: w.to });
 	}
 
 	/** Per-model totals in scope (drives donut + legend + filter). */

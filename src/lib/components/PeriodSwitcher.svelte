@@ -6,15 +6,30 @@
 	const options: { id: Period; label: string }[] = [
 		{ id: 'day', label: 'Day' },
 		{ id: 'week', label: 'Week' },
-		{ id: 'month', label: 'Month' }
+		{ id: 'month', label: 'Month' },
+		{ id: 'quarter', label: 'Quarter' },
+		{ id: 'all', label: 'All' }
 	];
 
+	// Roving-tabindex refs so arrow/Home/End move DOM focus to the newly-selected
+	// tab (the WAI-ARIA tablist pattern): selecting a tab also focuses it.
+	let tabs = $state<HTMLButtonElement[]>([]);
+
+	function select(idx: number) {
+		const opt = options[idx];
+		onChange(opt.id);
+		tabs[idx]?.focus();
+	}
+
 	function onKey(e: KeyboardEvent, idx: number) {
-		if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+		let next: number | null = null;
+		if (e.key === 'ArrowRight') next = (idx + 1) % options.length;
+		else if (e.key === 'ArrowLeft') next = (idx - 1 + options.length) % options.length;
+		else if (e.key === 'Home') next = 0;
+		else if (e.key === 'End') next = options.length - 1;
+		if (next !== null) {
 			e.preventDefault();
-			const dir = e.key === 'ArrowRight' ? 1 : -1;
-			const next = (idx + dir + options.length) % options.length;
-			onChange(options[next].id);
+			select(next);
 		}
 	}
 </script>
@@ -22,6 +37,7 @@
 <div class="seg" role="tablist" aria-label="Aggregation period">
 	{#each options as opt, i (opt.id)}
 		<button
+			bind:this={tabs[i]}
 			role="tab"
 			aria-selected={value === opt.id}
 			class:active={value === opt.id}

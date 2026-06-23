@@ -19,6 +19,7 @@
 		providerColor,
 		providerLabel,
 		fmtDay,
+		fmtPeriodKey,
 		int
 	} from '$lib/format';
 	import { totalTokens } from '$lib/core/aggregate';
@@ -80,7 +81,12 @@
 	let activeBlock = $derived(snap?.blocks.find((b) => b.isActive) ?? null);
 
 	function onTrendPick(b: PeriodBucket) {
-		dash.openPeriodDrill({ from: b.startDay, to: b.startDay, periodKey: b.startDay, label: b.startDay });
+		// A bar may be a single day OR a coarse week/month bucket (long spans);
+		// drill the days the bar aggregated (its bucket range, clamped to the
+		// active window), not just its first day.
+		if (!snap) return;
+		const range = dash.bucketDayRange(snap, b);
+		dash.openPeriodDrill({ from: range.from, to: range.to, periodKey: b.key, label: fmtPeriodKey(b.key) });
 	}
 
 	let unknownNote = $derived(snap && snap.unknownPriceModels.length > 0 ? snap.unknownPriceModels.join(', ') : null);

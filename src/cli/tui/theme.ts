@@ -118,7 +118,9 @@ export function gaugeBar(fraction: number, width: number): string {
 export const PERIOD_LABEL: Record<Period, string> = {
 	day: 'Day',
 	week: 'Week',
-	month: 'Month'
+	month: 'Month',
+	quarter: 'Quarter',
+	all: 'All'
 };
 
 /**
