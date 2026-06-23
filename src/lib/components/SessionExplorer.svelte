@@ -269,14 +269,17 @@
 					{@const r = row.original}
 					{@const liveTxt = r.live ? ', live' : ''}
 					{@const unknownTxt = r.costUnknown ? ', cost partial' : ''}
+					{@const modelTxt = `${modelLabel(r.models[0] ?? 'unknown model')}${r.models.length > 1 ? ` and ${r.models.length - 1} more` : ''}`}
 					<li class="rowwrap" style={`transform:translateY(${vi.start}px);height:${ROW_H}px`}>
-						<!-- each row is a real <button>: the interactive control AT announces as actionable -->
+						<!-- each row is a real <button>: the interactive control AT announces as actionable.
+						     The label carries everything the visual cells show (which are aria-hidden to avoid
+						     a doubled reading): project, model mix, time range, cost, tokens, requests, flags. -->
 						<button
 							class="row"
 							type="button"
 							tabindex={vi.index === activeIndex ? 0 : -1}
 							data-row-index={vi.index}
-							aria-label={`${r.project}, ${money(r.cost)}, ${compactTokens(r.tokens)} tokens, ${r.requests} requests${liveTxt}${unknownTxt}. Open session detail.`}
+							aria-label={`${r.project}, ${modelTxt}, ${fmtTimeRange(r.session.firstTs, r.session.lastTs)}, ${money(r.cost)}, ${compactTokens(r.tokens)} tokens, ${r.requests} requests${liveTxt}${unknownTxt}. Open session detail.`}
 							onclick={() => onOpen(r.session)}
 							onkeydown={(e) => onRowKey(e, vi.index, r.session)}
 							onfocus={() => (activeIndex = vi.index)}

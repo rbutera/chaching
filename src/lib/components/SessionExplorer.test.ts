@@ -46,6 +46,31 @@ describe('SessionExplorer — render, union labels', () => {
 		expect(badges.length).toBe(1); // only the live row
 	});
 
+	it('each row button carries a complete accessible label (project, model, time, cost, tokens, requests)', () => {
+		const sessions = [
+			sess({
+				sessionId: 'a',
+				project: 'myproj',
+				cost: 3.5,
+				requests: 7,
+				tokens: toks(1_000_000),
+				models: ['claude-opus-4-8', 'claude-sonnet-4-5'],
+				firstTs: new Date('2026-06-18T08:00:00Z').getTime(),
+				lastTs: new Date('2026-06-18T10:00:00Z').getTime()
+			})
+		];
+		render(SessionExplorer, { sessions, onOpen: () => {}, now: NOW });
+		const btn = screen.getByRole('button', { name: /Open session detail/ });
+		const label = btn.getAttribute('aria-label')!;
+		expect(label).toContain('myproj');
+		expect(label).toContain('Opus 4.8'); // model mix
+		expect(label).toContain('and 1 more');
+		expect(label).toContain('$3.50');
+		expect(label).toContain('1.0M tokens');
+		expect(label).toContain('7 requests');
+		expect(label).toMatch(/Jun.*–/); // time range present
+	});
+
 	it('shows the cost-unknown flag when costUnknownRequests > 0, cost still rendered', () => {
 		const sessions = [sess({ sessionId: 'u', project: 'partialcost', cost: 2.5, costUnknownRequests: 1 })];
 		render(SessionExplorer, { sessions, onOpen: () => {}, now: NOW });
