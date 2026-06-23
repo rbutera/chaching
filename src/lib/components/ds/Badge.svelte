@@ -1,9 +1,10 @@
 <script lang="ts" module>
 	import type { Snippet } from 'svelte';
+	import type { HTMLAttributes } from 'svelte/elements';
 
 	export type BadgeTone = 'neutral' | 'accent' | 'good' | 'bad' | 'warn' | 'info';
 
-	export interface BadgeProps {
+	export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
 		/** Maps to the brand semantic ladders. good=savings, bad=burn. */
 		tone?: BadgeTone;
 		/** Fill instead of tint. */
@@ -28,7 +29,7 @@
 	// chaching Badge — compact uppercase-mono status/label chip. `tone` maps to a
 	// brand token; `solid` fills (else a color-mix tint); `dot` prefixes a
 	// decorative status dot. Content is rendered uppercase via CSS.
-	let { tone = 'neutral', solid = false, dot = false, children }: BadgeProps = $props();
+	let { tone = 'neutral', solid = false, dot = false, children, ...rest }: BadgeProps = $props();
 
 	const c = $derived(TONE_VARS[tone] ?? TONE_VARS.neutral);
 </script>
@@ -37,6 +38,7 @@
 	class="badge {tone}"
 	class:solid
 	style:--badge-c={c}
+	{...rest}
 >
 	{#if dot}<span class="dot" aria-hidden="true"></span>{/if}
 	{@render children?.()}

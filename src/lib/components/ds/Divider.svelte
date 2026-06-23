@@ -1,13 +1,14 @@
 <script lang="ts" module>
 	import type { Snippet } from 'svelte';
+	import type { HTMLAttributes } from 'svelte/elements';
 
 	export type DividerVariant = 'solid' | 'dashed' | 'dotted';
 
-	export interface DividerProps {
+	export interface DividerProps extends HTMLAttributes<HTMLDivElement> {
 		/** solid hairline · dashed receipt-cut · dotted coupon-split. */
 		variant?: DividerVariant;
-		/** Optional centered uppercase-mono label between two rules. */
-		label?: Snippet;
+		/** Optional centered uppercase-mono label between two rules (snippet or string). */
+		label?: Snippet | string;
 	}
 </script>
 
@@ -16,25 +17,22 @@
 	// hairline / dashed receipt-cut / dotted coupon-split. No label → a real
 	// `role="separator"`. With a label → two rules + a centered caps caption.
 	// Inherits the border color so it works on both ink and `.paper`.
-	let { variant = 'solid', label }: DividerProps = $props();
+	let { variant = 'solid', label, ...rest }: DividerProps = $props();
 </script>
 
 {#if label}
-	<div class="labeled">
+	<div class="labeled" {...rest}>
 		<span class="rule {variant}"></span>
-		<span class="caption">{@render label()}</span>
+		<span class="caption">
+			{#if typeof label === 'function'}{@render label()}{:else}{label}{/if}
+		</span>
 		<span class="rule {variant}"></span>
 	</div>
 {:else}
-	<div class="rule {variant} full" role="separator"></div>
+	<div class="rule {variant} full" role="separator" {...rest}></div>
 {/if}
 
 <style>
-	.rule {
-		border-top-style: solid;
-		border-top-width: 1px;
-		border-top-color: var(--border);
-	}
 	.rule.solid {
 		border-top: 1px solid var(--border);
 	}

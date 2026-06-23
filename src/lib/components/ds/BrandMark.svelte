@@ -1,5 +1,7 @@
 <script lang="ts" module>
-	export interface BrandMarkProps {
+	import type { HTMLAttributes } from 'svelte/elements';
+
+	export interface BrandMarkProps extends HTMLAttributes<HTMLSpanElement> {
 		/** Mark size in px (wordmark text scales from it). */
 		size?: number;
 		/** Render the full horizontal lockup (mark + "chaching"). */
@@ -19,7 +21,8 @@
 		size = 28,
 		wordmark = false,
 		title = 'chaching',
-		color = 'var(--accent)'
+		color = 'var(--accent)',
+		...rest
 	}: BrandMarkProps = $props();
 </script>
 
