@@ -12,6 +12,8 @@
 		currency?: string;
 		/** Override decimal places (default: 0 for abs >= 1000, else 2). */
 		decimals?: number;
+		/** Count up from 0 → amount on first paint (motion-gated). Off by default. */
+		animate?: boolean;
 	}
 </script>
 
@@ -19,22 +21,52 @@
 	// chaching MoneyFigure — a dollar amount set the chaching way: heavy tabular
 	// mono, tight tracking. `size` scales inline → giant register total; `tone`
 	// colors it; `sign` forces an explicit +/−. Negatives render U+2212.
+	import { countUp } from '$lib/client/motion';
+
 	let {
 		amount = 0,
 		size = 'lg',
 		tone = 'default',
 		sign = false,
 		currency = '$',
-		decimals
+		decimals,
+		animate = false
 	}: MoneyFigureProps = $props();
 
-	const abs = $derived(Math.abs(amount));
+	// Count-up on first paint when `animate` is set (stat-card figures). The util
+	// no-ops to the final value under prefers-reduced-motion (zero intermediate
+	// frames). After first paint, `shown` tracks `amount` directly so live updates
+	// land in place. `started` is a non-reactive closure flag (no self-invalidation).
+	// Initialise to 0 (animated path starts there); the effect sets the non-animated
+	// value immediately on first run, so a static figure never shows a stale 0.
+	let shown = $state(0);
+	let started = false;
+	$effect(() => {
+		const target = amount;
+		if (!animate) {
+			shown = target;
+			return;
+		}
+		if (!started) {
+			if (target === 0) {
+				shown = 0;
+				return;
+			}
+			started = true;
+			return countUp(0, target, (v) => (shown = v), { durMs: 600 });
+		}
+		shown = target;
+	});
+
+	const displayed = $derived(animate ? shown : amount);
+	const abs = $derived(Math.abs(displayed));
 	const dp = $derived(decimals != null ? decimals : abs >= 1000 ? 0 : 2);
 	const body = $derived(
 		abs.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp })
 	);
-	// U+2212 (minus sign) for negatives, never the hyphen.
-	const prefix = $derived(sign ? (amount < 0 ? '−' : '+') : amount < 0 ? '−' : '');
+	// U+2212 (minus sign) for negatives, never the hyphen. Tracks the displayed
+	// (possibly mid-count-up) value so the sign never flickers against the final.
+	const prefix = $derived(sign ? (displayed < 0 ? '−' : '+') : displayed < 0 ? '−' : '');
 </script>
 
 <span class="money {size} {tone}" data-testid="money-figure">
