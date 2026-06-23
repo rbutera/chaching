@@ -10,6 +10,16 @@ import type { Period, RollupSnapshot, SessionSummary } from '$lib/types';
 import type { ModelTotal, PeriodBucket, ProviderTotal, Totals } from '$lib/core/aggregate';
 import * as vm from '$lib/core/view-model';
 import type { DayCell } from '$lib/core/view-model';
+import {
+	cacheCostBreakdown,
+	type CacheCostBreakdownResult
+} from '$lib/core/pricing/cache-breakdown';
+import {
+	buildSubsidisation,
+	type ProviderSubsidisationConfig,
+	type SubsidisationRollup,
+	type SubsidisedProvider
+} from '$lib/core/subsidisation';
 
 const LS_KEY = 'chaching.ui.v1';
 
@@ -243,5 +253,28 @@ export class Dashboard {
 	/** Sessions intersecting the pinned day, filters applied. */
 	focusedSessions(snap: RollupSnapshot, day: string): SessionSummary[] {
 		return vm.focusedSessions(snap, day, this.state());
+	}
+
+	/**
+	 * Cache-cost breakdown for the CURRENT scope. This DOES follow the period/day
+	 * selector and filters (it is about the scoped burn) — the cache panel moves
+	 * with Day/Week/Month, unlike the subsidisation headline (design D5 cross).
+	 */
+	cacheBreakdown(snap: RollupSnapshot): CacheCostBreakdownResult {
+		return cacheCostBreakdown(this.scopedGrain(snap));
+	}
+
+	/**
+	 * Subsidisation roll-up. ALWAYS month-basis: the headline compares the current
+	 * calendar month-to-date burn against the full monthly fee and does NOT follow
+	 * the dashboard period selector (design D5). Derived from the full snapshot grain
+	 * + the per-provider subscription config the page fetched.
+	 */
+	subsidisation(
+		snap: RollupSnapshot,
+		config: Record<SubsidisedProvider, ProviderSubsidisationConfig>,
+		now: Date = new Date(snap.generatedAt || Date.now())
+	): SubsidisationRollup {
+		return buildSubsidisation(snap.dayModel, config, now);
 	}
 }

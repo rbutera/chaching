@@ -11,7 +11,11 @@
 	import Sparkline from '$lib/components/Sparkline.svelte';
 	import CalendarHeatmap from '$lib/components/CalendarHeatmap.svelte';
 	import DayNavigator from '$lib/components/DayNavigator.svelte';
+	import CachePanel from '$lib/components/CachePanel.svelte';
+	import SubsidisationCard from '$lib/components/SubsidisationCard.svelte';
 	import Wordmark from '$lib/brand/Wordmark.svelte';
+	import type { SubsidisedProvider } from '$lib/core/subsidisation';
+	import type { PublicchachingConfig } from '$lib/core/config';
 	import {
 		money,
 		compactTokens,
@@ -31,8 +35,24 @@
 	const feed = new FeedStore();
 	const dash = new Dashboard();
 
+	// The persisted public config (carries the per-provider subscription block). The
+	// subsidisation card + tier switcher are controlled off this local copy; a tier
+	// change POSTs to /api/config and merges the echoed config back in. Held separate
+	// from the feed snapshot so a live SSE delta and a tier write never reset each other.
+	let config = $state<PublicchachingConfig | null>(null);
+
+	async function loadPublicConfig() {
+		try {
+			const res = await fetch('/api/config');
+			if (res.ok) config = (await res.json()) as PublicchachingConfig;
+		} catch {
+			/* config stays null → cards fall back to defaults */
+		}
+	}
+
 	onMount(() => {
 		feed.start();
+		void loadPublicConfig();
 		return () => feed.stop();
 	});
 
@@ -101,21 +121,67 @@
 	// stacking order = models by cost (scoped)
 	let stackModels = $derived(modelTotals.map((m) => m.model));
 
-	// cache savings: what cache-read WOULD have cost at fresh-input rate, minus what it did
+	// Cache-cost breakdown for the current scope (follows the period selector). Every
+	// rate comes from resolvePrice via cacheCostBreakdown — no hardcoded per-family
+	// literals (the old inline-rate drift is gone). Drives the CachePanel + the
+	// "Cache savings" SummaryCard.
+	let cacheBreakdown = $derived(snap ? dash.cacheBreakdown(snap).combined : null);
 	let cacheSavings = $derived.by(() => {
-		if (modelTotals.length === 0) return { saved: 0, hitRate: 0 };
-		let saved = 0;
-		let cacheRead = 0;
-		let totalInputish = 0;
-		for (const m of modelTotals) {
-			const fam = /opus/i.test(m.model) ? 5e-6 : /sonnet/i.test(m.model) ? 3e-6 : /haiku/i.test(m.model) ? 1e-6 : 3e-6;
-			const readRate = /opus/i.test(m.model) ? 5e-7 : /sonnet/i.test(m.model) ? 3e-7 : /haiku/i.test(m.model) ? 1e-7 : 3e-7;
-			saved += m.tokens.cacheRead * (fam - readRate);
-			cacheRead += m.tokens.cacheRead;
-			totalInputish += m.tokens.cacheRead + m.tokens.cacheCreation + m.tokens.input;
-		}
-		return { saved, hitRate: totalInputish > 0 ? cacheRead / totalInputish : 0 };
+		const b = cacheBreakdown;
+		if (!b) return { saved: 0, hitRate: 0 };
+		const cacheRead = b.cacheReadTokens;
+		const totalInputish = scopedTotals.tokens.input + scopedTotals.tokens.cacheCreation + cacheRead;
+		return { saved: b.savedVsUncached, hitRate: totalInputish > 0 ? cacheRead / totalInputish : 0 };
 	});
+
+	// Subsidisation roll-up — ALWAYS month-basis (does NOT follow the period selector).
+	// Derived from the full snapshot grain + the per-provider subscription config.
+	let subsidyConfig = $derived(
+		config
+			? {
+					claude: {
+						enabled: config.providers.claude.enabled,
+						tier: config.providers.claude.subscription.tier,
+						monthlyUsd: config.providers.claude.subscription.monthlyUsd
+					},
+					codex: {
+						enabled: config.providers.codex.enabled,
+						tier: config.providers.codex.subscription.tier,
+						monthlyUsd: config.providers.codex.subscription.monthlyUsd
+					}
+				}
+			: null
+	);
+	let subsidy = $derived(snap && subsidyConfig ? dash.subsidisation(snap, subsidyConfig) : null);
+
+	// Commit a tier change for one provider: optimistically update the local config
+	// copy (so the switcher + card move immediately), then persist via /api/config and
+	// merge the echoed config back. A racing SSE delta touches the feed snapshot, not
+	// this config copy, so the two never reset each other (design D7 cross-element).
+	async function onTierChange(provider: SubsidisedProvider, tier: string, monthlyUsd: number) {
+		if (config) {
+			config = {
+				...config,
+				providers: {
+					...config.providers,
+					[provider]: {
+						...config.providers[provider],
+						subscription: { tier, monthlyUsd }
+					}
+				}
+			};
+		}
+		try {
+			const res = await fetch('/api/config', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ provider, subscription: { tier, monthlyUsd } })
+			});
+			if (res.ok) config = (await res.json()) as PublicchachingConfig;
+		} catch {
+			/* keep the optimistic local copy on failure */
+		}
+	}
 
 	let topModel = $derived(modelTotals[0] ?? null);
 	let totalTok = $derived(totalTokens(scopedTotals.tokens));
@@ -289,6 +355,16 @@
 					accent={topModel ? modelColor(topModel.model) : 'var(--m-other)'}
 					sub={topModel ? `${money(topModel.cost)} · ${compactTokens(totalTokens(topModel.tokens))}` : ''}
 				/>
+			</section>
+
+			<!-- CACHE COST + SUBSCRIPTION SUBSIDY -->
+			<section class="grid value-grid" aria-label="Cache cost and subscription subsidy">
+				{#if cacheBreakdown}
+					<CachePanel breakdown={cacheBreakdown} />
+				{/if}
+				{#if subsidy && subsidyConfig}
+					<SubsidisationCard rollup={subsidy} config={subsidyConfig} {onTierChange} />
+				{/if}
 			</section>
 
 			<!-- CALENDAR HEATMAP: primary time-nav surface -->
@@ -594,6 +670,10 @@
 	@media (min-width: 860px) {
 		.grid {
 			grid-template-columns: 2fr 1fr;
+		}
+		.value-grid {
+			grid-template-columns: 1fr 1fr;
+			align-items: start;
 		}
 	}
 	.panel {
