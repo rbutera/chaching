@@ -1,4 +1,21 @@
-/* chaching — "Register & Receipt" design tokens + base. A warm-ink dark
+// One-shot: regenerate src/app.css from the typed tokens (generated color block)
+// plus the hand-authored non-color layers (fonts, type, spacing, .paper scope).
+// Run via `npx tsx scripts/regen-appcss.ts`. Safe to re-run (idempotent).
+import { writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { tokens } from '../src/lib/brand/tokens.js';
+import { toCss } from '../src/lib/brand/generate.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const out = join(here, '..', 'src', 'app.css');
+
+const generated = toCss(tokens)
+	.split('\n')
+	.map((l) => (l.startsWith('/*') && !l.startsWith('\t') ? `\t${l}` : l))
+	.join('\n');
+
+const css = `/* chaching — "Register & Receipt" design tokens + base. A warm-ink dark
    register surface where brass gold reads as money, plus a thermal-paper cream
    world for receipts/print. Mono-forward type (JetBrains Mono + Space Grotesk),
    4px spacing, snappy "ka-chunk" motion. Self-hosted fonts (offline-first). */
@@ -85,97 +102,7 @@
 	   toCss(). Do not hand-edit between the markers — a unit test
 	   (src/lib/brand/generate.test.ts) fails if this block drifts from the
 	   tokens. Edit the tokens module and regenerate instead. */
-	/* BEGIN GENERATED brand tokens — do not hand-edit (src/lib/brand) */
-	/* ── Raw ramps (warm ink / paper-white / brass gold / cream) ─── */
-	--ink-950: #0e0d0b;
-	--ink-900: #131210;
-	--ink-850: #1a1814;
-	--ink-800: #221f1a;
-	--ink-750: #2b2722;
-	--ink-700: #36312a;
-	--ink-600: #4a443b;
-	--paper-50: #f4efe4;
-	--paper-200: #ccc4b4;
-	--paper-400: #9a9080;
-	--paper-600: #6f675a;
-	--gold-300: #f9c75a;
-	--gold-400: #f7bc42;
-	--gold-500: #eba92c;
-	--gold-600: #cc8f1f;
-	--gold-700: #9e6e14;
-	--cream-50: #f7f2e8;
-	--cream-100: #f0e9da;
-	--cream-200: #e4dac6;
-	--cream-300: #d3c6ac;
-	--cream-ink: #1c1913;
-
-	/* ── Raw categorical + status hues (data encoding, never gold) ── */
-	--green-500: #54cc85;
-	--orange-500: #f7913c;
-	--red-500: #f4736b;
-	--amber-500: #f6be3f;
-	--purple: #b98cfb;
-	--sky: #4cb8f0;
-	--lemon: #f4ce3a;
-	--mint: #54cc85;
-	--slate: #97a0b0;
-
-	/* ── Semantic surfaces (dark register, default) ─────────────── */
-	--bg: #0e0d0b;
-	--surface-1: #131210;
-	--surface-2: #1a1814;
-	--surface-3: #221f1a;
-	--surface-inset: #221f1a;
-	--border: #36312a;
-	--border-strong: #4a443b;
-	--border-faint: #2b2722;
-
-	/* ── Semantic text (legacy --fg* aliases preserved) ─────────── */
-	--text: #f4efe4;
-	--text-muted: #9a9080;
-	--text-dim: #6f675a;
-	--text-on-gold: #20170a;
-	--fg: #f4efe4;
-	--fg-muted: #9a9080;
-	--fg-dim: #6f675a;
-
-	/* ── Brand accent (brass gold) + aliases ─────────────────────── */
-	--accent: #eba92c;
-	--accent-bright: #f7bc42;
-	--accent-press: #cc8f1f;
-	--accent-soft: color-mix(in srgb, var(--gold-500) 14%, var(--surface-2));
-	--accent-line: color-mix(in srgb, var(--gold-500) 40%, var(--border));
-	--focus-ring: #f7bc42;
-
-	/* ── Status semantics ────────────────────────────────────────── */
-	--good: #54cc85;
-	--bad: #f4736b;
-	--warn: #f6be3f;
-	--info: #4cb8f0;
-
-	/* ── Spend escalation ladder (calm → warm → hot → alarm) ─────── */
-	--spend-calm: #54cc85;
-	--spend-warm: #eba92c;
-	--spend-hot: #f7913c;
-	--spend-alarm: #f4736b;
-
-	/* ── Cache-state encoding ────────────────────────────────────── */
-	--cache-hit: #54cc85;
-	--cache-miss: #6f675a;
-	--cache-write: #4cb8f0;
-
-	/* ── Model family palette — categorical, 3:1+ vs surfaces ─────── */
-	--m-opus: #b98cfb;
-	--m-sonnet: #4cb8f0;
-	--m-haiku: #f4ce3a;
-	--m-other: #97a0b0;
-
-	/* ── Provider palette ────────────────────────────────────────── */
-	--p-claude: #b98cfb;
-	--p-codex: #4cb8f0;
-	--p-opencode: #54cc85;
-	--p-cursor: #f6be3f;
-	/* END GENERATED brand tokens */
+${generated}
 
 	/* ── Typography ──────────────────────────────────────────────────────── */
 	--font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
@@ -430,3 +357,7 @@ samp {
 		scroll-behavior: auto !important;
 	}
 }
+`;
+
+writeFileSync(out, css);
+console.log('wrote', out, `(${css.length} bytes)`);
