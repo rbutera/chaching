@@ -45,6 +45,11 @@ function model(over: Partial<ReceiptModel> = {}): ReceiptModel {
 	};
 }
 
+/** Read width/height from a PNG buffer's IHDR (bytes 16..24). */
+function pngDimensions(png: Buffer): { width: number; height: number } {
+	return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
+}
+
 // satori font shaping is slow on cold start; give these a generous ceiling.
 describe('renderReceiptPng', () => {
 	it('writes a non-empty valid PNG (magic bytes)', async () => {
@@ -69,4 +74,38 @@ describe('renderReceiptPng', () => {
 		// the buffer must not embed the host name as a UTF-8 substring.
 		expect(png.includes(Buffer.from(SECRET_HOST, 'utf8'))).toBe(false);
 	}, 30_000);
+
+	it('renders at the design tape width (720px) with content-sized height', async () => {
+		const png = await renderReceiptPng(model());
+		const { width, height } = pngDimensions(png);
+		// Width is the design 360px × 2 scale; height auto-sizes to content > width.
+		expect(width).toBe(720);
+		expect(height).toBeGreaterThan(width);
+	}, 30_000);
+
+	it('empty-state receipt still renders a valid cream PNG', async () => {
+		const png = await renderReceiptPng(
+			model({ empty: true, lineItems: [], coupons: [], subtotals: [], totalBurn: 0 })
+		);
+		expect(png.length).toBeGreaterThan(1000);
+		expect(png[0]).toBe(0x89);
+		const { width } = pngDimensions(png);
+		expect(width).toBe(720);
+	}, 30_000);
+
+	it('redacted vs revealed produce different PNGs (the redaction block is rendered)', async () => {
+		const opts = {
+			hostname: SECRET_HOST,
+			username: 'someuser',
+			homedir: '/home/someuser',
+			env: {} as NodeJS.ProcessEnv
+		};
+		const redactedPng = await renderReceiptPng(redactReceipt(model(), opts));
+		const revealedPng = await renderReceiptPng(redactReceipt(model(), { ...opts, reveal: true }));
+		// The redaction swatch vs plain text changes the raster: the two differ.
+		expect(redactedPng.equals(revealedPng)).toBe(false);
+		// The revealed PNG MAY embed nothing readable (raster), but the redacted one
+		// must never embed the host substring (privacy guard, re-asserted here).
+		expect(redactedPng.includes(Buffer.from(SECRET_HOST, 'utf8'))).toBe(false);
+	}, 45_000);
 });

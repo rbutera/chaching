@@ -78,21 +78,25 @@ export function renderReceiptText(model: ReceiptModel, e: RenderTextEnv = {}): s
 		dim: (s: string) => (noColor ? s : dim(s, env))
 	};
 
-	// ── Header ────────────────────────────────────────────────────────────────
+	// ── Header (design wording: wordmark · period·range · redacted user·path) ───
 	lines.push('');
 	lines.push(C.accent(rule(noArt)));
-	// wordmark: strip the emoji when art is off
-	const wm = noArt ? 'chaching — AI token spend register' : model.wordmark;
+	// wordmark: the design title; strip any leading emoji when art is off.
+	const wm = noArt ? 'chaching — token spend register' : 'chaching — token spend register';
 	lines.push(centre(wm));
 	const rangeLine =
 		model.from && model.to
 			? model.from === model.to
 				? model.from
-				: `${model.from} → ${model.to}`
+				: `${model.from} -> ${model.to}` // ASCII arrow: pipe-safe, no tofu in dumb terminals
 			: model.periodLabel;
 	lines.push(centre(`${model.periodLabel}  ·  ${rangeLine}`));
-	if (model.providers && model.providers.length > 0) {
-		lines.push(centre(`providers: ${model.providers.join(', ')}`));
+	// user · path line — the wordmark carries "@ host" (already redacted upstream);
+	// surface it as the design's user·path sub. providers double as the "path" slot.
+	const hostPart = model.wordmark.includes('@') ? model.wordmark.split('@').pop()!.trim() : '';
+	const pathPart = model.providers && model.providers.length > 0 ? model.providers.join(', ') : '';
+	if (hostPart || pathPart) {
+		lines.push(centre([hostPart, pathPart].filter(Boolean).join('  ·  ')));
 	}
 	lines.push(C.accent(rule(noArt)));
 
@@ -127,17 +131,18 @@ export function renderReceiptText(model: ReceiptModel, e: RenderTextEnv = {}): s
 	// ── Coupons (cache reads as discounts) ──────────────────────────────────────
 	lines.push('');
 	lines.push(dashRule(noArt));
+	// design section label (lowercase), centred like the .sec-label.
+	lines.push(centre('coupons / cache discounts'));
 	if (model.coupons.length > 0) {
-		lines.push(noArt ? 'COUPONS / CACHE DISCOUNTS' : '✁ COUPONS — CACHE DISCOUNTS');
 		for (const c of model.coupons) {
 			lines.push(subRow(`${c.modelLabel} cache hit`, `-${money(c.saved)}`));
 			lines.push(
 				C.dim(subRow(`  ${compactTokens(c.cacheReadTokens)} reads @ cache rate`, ''))
 			);
 		}
-		lines.push(row('YOU SAVED', C.bold(`-${money(model.youSaved)}`)));
+		lines.push(row('you saved', C.bold(`-${money(model.youSaved)}`)));
 	} else {
-		lines.push(row('CACHE DISCOUNTS', money(0)));
+		lines.push(row('cache discounts', money(0)));
 		lines.push(C.dim('  no cache reads in this period'));
 	}
 
@@ -145,7 +150,7 @@ export function renderReceiptText(model: ReceiptModel, e: RenderTextEnv = {}): s
 	// Reads and writes are charged; show the billed cost explicitly alongside the
 	// savings above so the receipt never reads as "cache was free".
 	lines.push('');
-	lines.push(C.dim(noArt ? 'CACHE — BILLED' : '⌁ CACHE — BILLED, NOT FREE'));
+	lines.push(centre('cache — billed, not free'));
 	if (model.cacheCost.cacheReadTokens > 0) {
 		lines.push(subRow('cache reads (billed)', money(model.cacheCost.cacheReadCost)));
 		lines.push(C.dim(subRow(`  ${compactTokens(model.cacheCost.cacheReadTokens)} reads @ cache rate`, '')));
@@ -175,6 +180,8 @@ export function renderReceiptText(model: ReceiptModel, e: RenderTextEnv = {}): s
 	lines.push(C.accent(rule(noArt)));
 	lines.push(C.bold(C.accent(row('TOTAL BURN', money(model.totalBurn)))));
 	lines.push(C.dim(row(`${compactTokens(model.totalTokens)} tokens`, `${int(model.requests)} req`)));
+	// (the ANSI receipt keeps the bold uppercase TOTAL BURN as its emphasis idiom;
+	//  the design's lowercase 800-weight is a PNG-only typographic feature.)
 	if (model.costUnknownRequests > 0) {
 		lines.push(C.dim(`(${int(model.costUnknownRequests)} req with unknown pricing)`));
 	}

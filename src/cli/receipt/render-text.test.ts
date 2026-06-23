@@ -51,13 +51,14 @@ function fixtureModel(over: Partial<ReceiptModel> = {}): ReceiptModel {
 }
 
 describe('renderReceiptText', () => {
-	it('renders all sections', () => {
+	it('renders all sections in the design wording', () => {
 		const out = renderReceiptText(fixtureModel(), { noColor: true });
-		expect(out).toContain('chaching');
+		expect(out).toContain('chaching — token spend register');
 		expect(out).toContain('Opus 4.8');
 		expect(out).toContain('TOTAL BURN');
-		expect(out).toContain('YOU SAVED');
-		expect(out).toContain('COUPON');
+		expect(out).toContain('you saved');
+		expect(out).toContain('coupons / cache discounts');
+		expect(out).toContain('cache — billed, not free');
 		expect(out).toContain('subtotal Opus');
 		expect(out).toContain('REF');
 	});
@@ -71,12 +72,13 @@ describe('renderReceiptText', () => {
 	it('--no-art uses ASCII rules and drops decorative footer/emoji', () => {
 		const out = renderReceiptText(fixtureModel(), { noArt: true, noColor: true });
 		expect(out).not.toContain('💰');
-		expect(out).not.toContain('✁');
 		// footer flourish suppressed under no-art
 		expect(out).not.toContain('no refunds');
 		// numbers + structure intact
 		expect(out).toContain('TOTAL BURN');
 		expect(out).toContain('$12.50');
+		// section wording present even under no-art
+		expect(out).toContain('coupons / cache discounts');
 	});
 
 	it('empty-state receipt renders the init hint', () => {
@@ -88,8 +90,8 @@ describe('renderReceiptText', () => {
 
 	it('no-cache-reads case shows a zero discount line, not a coupon block', () => {
 		const out = renderReceiptText(fixtureModel({ coupons: [], youSaved: 0 }), { noColor: true });
-		expect(out).toContain('CACHE DISCOUNTS');
-		expect(out).not.toContain('YOU SAVED');
+		expect(out).toContain('cache discounts');
+		expect(out).not.toContain('you saved');
 	});
 
 	it('keeps a fixed thermal width (rules span RECEIPT_WIDTH)', () => {
