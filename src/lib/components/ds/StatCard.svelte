@@ -14,6 +14,8 @@
 		/** Render value as a MoneyFigure. */
 		money?: boolean;
 		moneyTone?: MoneyFigureTone;
+		/** Count the money figure up from 0 on first paint (motion-gated). */
+		animate?: boolean;
 	}
 </script>
 
@@ -27,7 +29,8 @@
 		sub,
 		accent = 'var(--accent)',
 		money = false,
-		moneyTone = 'default'
+		moneyTone = 'default',
+		animate = false
 	}: StatCardProps = $props();
 </script>
 
@@ -35,7 +38,7 @@
 	<span class="label">{label}</span>
 
 	{#if money}
-		<MoneyFigure amount={Number(value) || 0} size="md" tone={moneyTone} />
+		<MoneyFigure amount={Number(value) || 0} size="md" tone={moneyTone} {animate} />
 	{:else}
 		<span class="value">{value}</span>
 	{/if}

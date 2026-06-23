@@ -1,6 +1,16 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { tokens } from '../../lib/brand/tokens.js';
-import { spendLadderColor, bannerLine, color, gaugeBar, ACCENT, GOOD } from './theme.js';
+import {
+	spendLadderColor,
+	ladderColorFor,
+	bannerLine,
+	color,
+	gaugeBar,
+	ACCENT,
+	GOOD,
+	DAILY_FLOURISHES,
+	LIFETIME_FLOURISHES
+} from './theme.js';
 import { LOGO_FULL, LOGO_COMPACT, LOGO_FULL_MIN_COLS } from './banner.js';
 
 describe('spendLadderColor', () => {
@@ -24,6 +34,45 @@ describe('spendLadderColor', () => {
 		process.env.NO_COLOR = '1';
 		expect(spendLadderColor(250)).toBeUndefined();
 		expect(spendLadderColor(5)).toBeUndefined();
+	});
+});
+
+describe('ladderColorFor (generalized over any ladder)', () => {
+	afterEach(() => {
+		delete process.env.NO_COLOR;
+	});
+
+	it('maps the daily ladder: zero tier = calm, top tier = alarm', () => {
+		expect(ladderColorFor(0, DAILY_FLOURISHES)).toBe(tokens.spend.calm.hex);
+		// top daily tier (send help, >= $500) lands on alarm
+		expect(ladderColorFor(500, DAILY_FLOURISHES)).toBe(tokens.spend.alarm.hex);
+	});
+
+	it('maps the lifetime ladder: zero tier = calm, top tier = alarm', () => {
+		expect(ladderColorFor(0, LIFETIME_FLOURISHES)).toBe(tokens.spend.calm.hex);
+		expect(ladderColorFor(5000, LIFETIME_FLOURISHES)).toBe(tokens.spend.alarm.hex);
+	});
+
+	it('the hue steps in lockstep with the tier (monotonic non-decreasing)', () => {
+		// each higher daily threshold is at least as hot as the one below it
+		const amounts = [0, 20, 50, 100, 200, 500];
+		const ladder = [
+			tokens.spend.calm.hex,
+			tokens.spend.warm.hex,
+			tokens.spend.hot.hex,
+			tokens.spend.alarm.hex
+		];
+		let prevIdx = -1;
+		for (const a of amounts) {
+			const idx = ladder.indexOf(ladderColorFor(a, DAILY_FLOURISHES)!);
+			expect(idx).toBeGreaterThanOrEqual(prevIdx);
+			prevIdx = idx;
+		}
+	});
+
+	it('strips under NO_COLOR', () => {
+		process.env.NO_COLOR = '1';
+		expect(ladderColorFor(500, DAILY_FLOURISHES)).toBeUndefined();
 	});
 });
 

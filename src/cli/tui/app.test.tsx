@@ -423,3 +423,66 @@ describe('DashboardApp', () => {
 		}
 	});
 });
+
+// ── Wave 3: escalation/lifetime ladder on the register total + roll-up ──────────
+
+describe('DashboardApp — register-total escalation + lifetime ladder', () => {
+	// One heavy day so the scoped "day" total clears a daily tier, and the all-time
+	// lifetime total clears a lifetime tier.
+	function heavySnap(): RollupSnapshot {
+		const base = snapFrom([
+			dm('2026-06-19', 'codex', 'claude-opus-4-8', 120),
+			dm('2026-06-18', 'codex', 'claude-opus-4-8', 1200)
+		]);
+		// lifetime (all-time) total drives the LIFETIME ladder.
+		return { ...base, totals: { ...base.totals, cost: 1320 } };
+	}
+
+	it('renders the daily flourish on the register total (one shared ladder)', () => {
+		const { source } = makeSource(heavySnap());
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="day" now={() => 0} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		// scoped "day" total = $120 → daily tier "big day" (>= $100); colored via ladderColorFor
+		expect(frame).toContain('big day');
+		unmount();
+	});
+
+	it('renders the LIFETIME figure + its ladder remark', () => {
+		const { source } = makeSource(heavySnap());
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="day" now={() => 0} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain('LIFETIME');
+		// $1320 lifetime → "you live here now" (>= $1000)
+		expect(frame).toContain('you live here now');
+		unmount();
+	});
+
+	it('--no-art strips the register-total + lifetime flourishes (figures intact)', () => {
+		const { source } = makeSource(heavySnap());
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="day" noArt now={() => 0} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		expect(frame).not.toContain('big day');
+		expect(frame).not.toContain('you live here now');
+		// the figures + structural labels survive
+		expect(frame).toContain('TOTAL BURN');
+		expect(frame).toContain('LIFETIME');
+		unmount();
+	});
+
+	it('keypresses stay responsive while the total is present (q quits)', () => {
+		const { source } = makeSource(heavySnap());
+		const { lastFrame, stdin, unmount } = render(
+			<DashboardApp source={source} period="day" now={() => 0} dimensions={DIMS} />
+		);
+		// switching period still works (input not blocked by the roll-up interval)
+		stdin.write('w');
+		expect(lastFrame()).toContain('TOTAL BURN');
+		unmount();
+	});
+});

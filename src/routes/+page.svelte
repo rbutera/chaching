@@ -35,6 +35,18 @@
 	import { totalTokens, dayCoverageState } from '$lib/core/aggregate';
 	import type { PeriodBucket } from '$lib/core/aggregate';
 	import { coverageSub } from '$lib/core/coverage-marks';
+	// Shared voice (escalation ladder) + web motion (count-up, rate-limited tick).
+	import {
+		flourishFor,
+		formatFlourishText,
+		tierIndex,
+		crossedUp,
+		DAILY_FLOURISHES,
+		LIFETIME_FLOURISHES
+	} from '$lib/voice';
+	import { countUp, trailingThrottle } from '$lib/client/motion';
+	import { JoyController } from '$lib/client/joy';
+	import { webSuppressArt } from '$lib/client/suppress';
 
 	const feed = new FeedStore();
 	const dash = new Dashboard();
@@ -58,9 +70,14 @@
 	// immediately when reduced; the token base reset already nukes CSS transitions).
 	let reducedMotion = $state(false);
 
+	// Web "no-art" equivalent (design D9): suppress personality copy + extra motion
+	// when `?no-art` or the persisted setting is on, mirroring the CLI contract.
+	let suppressArt = $state(false);
+
 	onMount(() => {
 		feed.start();
 		void loadPublicConfig();
+		suppressArt = webSuppressArt();
 		const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
 		reducedMotion = mq.matches;
 		const onMq = (e: MediaQueryListEvent) => (reducedMotion = e.matches);
@@ -97,40 +114,43 @@
 	let heroCost = $derived(focusedTotals ? focusedTotals.cost : (hero?.current.cost ?? 0));
 	let heroLabel = $derived(focusedDay ? fmtDay(focusedDay) : (hero?.label ?? '—'));
 
-	// Hero count-up: animate from 0 → heroCost on first paint only (not on live deltas).
-	// JS-gated on reduced-motion (renders the final value immediately). Deltas update in
-	// place. `started` is a NON-reactive closure flag (a plain let, not $state): the effect
-	// must not read+write the same reactive value or it self-invalidates and cancels its own
-	// rAF before a single frame runs. The effect tracks only heroCost + reducedMotion.
+	// Hero count-up: animate from 0 → heroCost on first paint only. Live SSE deltas
+	// update via a RATE-LIMITED tick (trailing throttle, coalesce-to-latest) so a
+	// chatty feed never thrashes the figure. Both paths go through the shared
+	// `countUp` util, which no-ops to the final value under prefers-reduced-motion.
+	//
+	// `started` is a NON-reactive closure flag (a plain let, not $state): the effect
+	// must not read+write the same reactive value or it self-invalidates and cancels
+	// its own rAF before a single frame runs. The effect tracks only heroCost +
+	// reducedMotion.
 	let displayCost = $state(0);
 	let started = false;
+	// Trailing throttle for live deltas (~900ms window): one tick animation per
+	// window, always landing on the latest value. Recreated when reducedMotion flips.
+	let tickThrottle = $derived(
+		trailingThrottle<number>(reducedMotion ? 0 : 900, (target) => {
+			countUp(displayCost, target, (v) => (displayCost = v), { durMs: 350, reduced: reducedMotion });
+		})
+	);
 	$effect(() => {
 		const target = heroCost;
-		// Deltas / reduced-motion / already-animated: render in place, no animation.
-		if (started || reducedMotion) {
-			displayCost = target;
-			if (target > 0) started = true;
-			return;
+		// First non-trivial value: the one-shot count-up from 0 (or immediate set when reduced).
+		if (!started) {
+			if (target <= 0) {
+				displayCost = 0;
+				return;
+			}
+			started = true;
+			const cancel = countUp(0, target, (v) => (displayCost = v), {
+				durMs: 650,
+				reduced: reducedMotion
+			});
+			return cancel;
 		}
-		// Wait for the first non-trivial value before burning the one-shot.
-		if (target <= 0) {
-			displayCost = 0;
-			return;
-		}
-		started = true;
-		const start = performance.now();
-		const dur = 650;
-		let raf = 0;
-		const tick = (t: number) => {
-			const p = Math.min(1, (t - start) / dur);
-			const eased = 1 - Math.pow(1 - p, 3);
-			displayCost = target * eased;
-			if (p < 1) raf = requestAnimationFrame(tick);
-			else displayCost = target;
-		};
-		raf = requestAnimationFrame(tick);
-		return () => cancelAnimationFrame(raf);
+		// After first paint: live deltas land via the rate-limited tick.
+		tickThrottle.push(target);
 	});
+	$effect(() => () => tickThrottle.cancel());
 
 	// trend buckets (always full rolling window — the navigation surface)
 	let trend = $derived<PeriodBucket[]>(snap ? dash.trend(snap) : []);
@@ -240,25 +260,69 @@
 	let activeBlock = $derived(snap?.blocks.find((b) => b.isActive) ?? null);
 
 	// Escalation flourish — the affectionate daily ladder keyed off the scoped hero cost
-	// (design D6). Shown only in day / focused-day scope: a "🚨 on fire" against an
-	// all-time total is meaningless (resolves the design.md open question — scope-gate
-	// rather than per-period rescale). Emoji are the severity encoding (data, not decor).
-	const FLOURISH_LADDER: [number, string][] = [
-		[20, '💰 decent day'],
-		[50, '💸 treating yourself'],
-		[100, '💸💸 big day'],
-		[200, '🔥 account on fire'],
-		[500, '🚨 send help'],
-		[2000, '🚨🚨 write a blog post']
-	];
+	// (design D6), sourced from the SHARED voice module so web/TUI/receipt speak one
+	// ladder. Shown only in day / focused-day scope: a "🚨 on fire" against an all-time
+	// total is meaningless (resolves the design.md open question — scope-gate rather
+	// than per-period rescale). Emoji are the severity encoding (data, not decor).
 	let flourish = $derived.by(() => {
+		// Web suppression (D9): no personality copy when no-art is in effect.
+		if (suppressArt) return '';
 		// only meaningful at a single-day grain: a pinned day, or the rolling "day" period.
 		const dayScoped = focusedDay != null || dash.period === 'day';
 		if (!dayScoped) return '';
-		let out = '';
-		for (const [t, txt] of FLOURISH_LADDER) if (heroCost >= t) out = txt;
-		return out;
+		return formatFlourishText(flourishFor(heroCost, DAILY_FLOURISHES));
 	});
+
+	// Lifetime ladder, keyed off the all-time total (snapshot.totals.cost). Drives the
+	// lifetime milestone crossing (the confetti trigger) — same one-ladder source.
+	let lifetimeCost = $derived(snap?.totals.cost ?? 0);
+
+	// ── Opt-in joy (default OFF) — chime on escalation crossings, confetti on lifetime
+	// milestones. The controller is dynamically-imported on the joy path only; nothing
+	// eager loads, no AudioContext, until the user enables it. Page-Visibility-aware,
+	// persisted, rate-limited, reduced-motion-suppressed for the burst. See D8.
+	const joy = new JoyController();
+	let joyEnabled = $state(false);
+	let joyMuted = $state(false);
+	// Track last-seen tiers so a crossing fires AT MOST once, never retroactively.
+	let lastDailyTier = -1;
+	let lastLifetimeTier = -1;
+	$effect(() => {
+		// Sync persisted joy settings into local UI state once mounted.
+		joyEnabled = joy.enabled;
+		joyMuted = joy.muted;
+	});
+	$effect(() => {
+		const dailyTier = tierIndex(heroCost, DAILY_FLOURISHES);
+		const lifeTier = tierIndex(lifetimeCost, LIFETIME_FLOURISHES);
+		// Initialise the baseline on first observation (no retroactive fire).
+		if (lastDailyTier < 0) lastDailyTier = dailyTier;
+		if (lastLifetimeTier < 0) lastLifetimeTier = lifeTier;
+		// Web no-art (D9): joy is personality — never fire it when suppressed, even if
+		// a persisted enabled=true survives. Keep the tiers tracked so re-enabling
+		// doesn't retroactively fire a crossing that happened while suppressed.
+		if (suppressArt) {
+			lastDailyTier = dailyTier;
+			lastLifetimeTier = lifeTier;
+			return;
+		}
+		if (crossedUp(lastDailyTier, dailyTier)) {
+			joy.onEscalationCrossing(); // chime (gated internally: enabled+visible+unmuted)
+		}
+		if (crossedUp(lastLifetimeTier, lifeTier)) {
+			joy.onMilestoneCrossing({ reducedMotion }); // confetti (gated internally)
+		}
+		lastDailyTier = dailyTier;
+		lastLifetimeTier = lifeTier;
+	});
+	$effect(() => () => joy.dispose());
+
+	function toggleJoy() {
+		joyEnabled = joy.setEnabled(!joyEnabled);
+	}
+	function toggleMute() {
+		joyMuted = joy.setMuted(!joyMuted);
+	}
 
 	const isDayBucket = (b: PeriodBucket) => /^\d{4}-\d{2}-\d{2}$/.test(b.key);
 
@@ -324,16 +388,50 @@
 			<h1 class="brand-title"><BrandMark size={24} wordmark title="chaching" /></h1>
 			<p class="tagline">local AI token spend</p>
 		</div>
-		<div class="conn" title={`feed: ${feed.conn}`}>
-			<span class="dot" style={`background:${connDot}; box-shadow: 0 0 8px ${connDot}`}></span>
-			<span class="conn-txt">{feed.conn}</span>
+		<div class="topbar-right">
+			<!-- Opt-in joy (default OFF): a sound toggle + a mute. No AudioContext, no
+			     asset, no canvas-confetti loads until enabled and a crossing fires. The
+			     joy treat is itself personality, so the web no-art equivalent (D9)
+			     hides the controls entirely. -->
+			{#if !suppressArt}
+				<div class="joy-controls">
+					<button
+						type="button"
+						class="joy-toggle ka-chunk"
+						class:on={joyEnabled}
+						aria-pressed={joyEnabled}
+						title={joyEnabled ? 'cha-ching sound on' : 'cha-ching sound off'}
+						onclick={toggleJoy}
+					>
+						{joyEnabled ? '🔔 sound on' : '🔕 sound off'}
+					</button>
+					{#if joyEnabled}
+						<button
+							type="button"
+							class="joy-mute ka-chunk"
+							class:on={joyMuted}
+							aria-pressed={joyMuted}
+							title={joyMuted ? 'chime muted' : 'chime unmuted'}
+							onclick={toggleMute}
+						>
+							{joyMuted ? 'muted' : 'mute'}
+						</button>
+					{/if}
+				</div>
+			{/if}
+			<div class="conn" title={`feed: ${feed.conn}`}>
+				<span class="dot" style={`background:${connDot}; box-shadow: 0 0 8px ${connDot}`}></span>
+				<span class="conn-txt">{feed.conn}</span>
+			</div>
 		</div>
 	</header>
 
 	{#if !snap}
 		<div class="loading" aria-live="polite">
 			<div class="spinner" aria-hidden="true"></div>
-			<p>Counting your sins… cold-scanning Claude Code transcripts.</p>
+			<!-- Personality loading copy falls back to the plain functional label under
+			     the web no-art equivalent (D9). -->
+			<p>{suppressArt ? 'Cold-scanning Claude Code transcripts.' : 'Counting your sins… cold-scanning Claude Code transcripts.'}</p>
 			<p class="loading-sub">First load streams every session file once. This is the only slow part.</p>
 		</div>
 	{:else}
@@ -416,6 +514,7 @@
 					label="total spend"
 					value={scopedTotals.cost}
 					money
+					animate
 					moneyTone="gold"
 					accent="var(--accent)"
 					sub={coverageSub(scopedTotals.coverage, windowIncludesToday) ?? `${int(scopedTotals.requests)} requests`}
@@ -430,6 +529,7 @@
 					label="cache savings"
 					value={cacheSavings.saved}
 					money
+					animate
 					moneyTone="save"
 					accent="var(--good)"
 					sub={`${Math.round(cacheSavings.hitRate * 100)}% cache-read share`}
@@ -595,6 +695,68 @@
 		height: 8px;
 		border-radius: 50%;
 	}
+	.topbar-right {
+		display: inline-flex;
+		align-items: center;
+		gap: 1rem;
+	}
+	.joy-controls {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.joy-toggle,
+	.joy-mute {
+		font-family: var(--font-mono);
+		font-size: var(--text-2xs);
+		letter-spacing: var(--tracking-snug);
+		color: var(--text-muted);
+		background: var(--surface-2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-pill);
+		padding: 0.2rem 0.6rem;
+	}
+	.joy-toggle.on {
+		color: var(--text-on-gold);
+		background: var(--accent);
+		border-color: var(--accent);
+	}
+	.joy-mute.on {
+		color: var(--text);
+		border-color: var(--border-strong);
+	}
+
+	/* Register "ka-chunk" microinteraction — press scale .97 + darken to gold-600,
+	   hover lift + brighten to gold-400, 2px gold focus ring. CSS-only, on the
+	   --dur-fast/--dur motion tokens; gated by prefers-reduced-motion (the base
+	   reset kills the transition, and the transform only applies when motion is ok). */
+	.ka-chunk {
+		transform: translateY(0) scale(1);
+	}
+	.ka-chunk:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.ka-chunk {
+			transition:
+				transform var(--dur-fast) var(--ease-snap),
+				background var(--dur-fast) var(--ease-out),
+				border-color var(--dur-fast) var(--ease-out),
+				color var(--dur-fast) var(--ease-out),
+				box-shadow var(--dur) var(--ease-out);
+		}
+		.ka-chunk:hover:not(:disabled) {
+			transform: translateY(-1px);
+			border-color: var(--gold-400);
+			color: var(--gold-400);
+		}
+		.ka-chunk:active:not(:disabled) {
+			transform: scale(0.97);
+			background: var(--gold-600);
+			border-color: var(--gold-600);
+		}
+	}
 
 	/* LOADING — characterful cold-scan state. */
 	.loading {
@@ -635,6 +797,27 @@
 		gap: 1.5rem;
 		padding: 1.1rem 0 1.4rem;
 		flex-wrap: wrap;
+	}
+	/* Receipt "print-in" — the register surface reveals like thermal paper feeding
+	   out: a quick clip + slide from the top. Motion-gated: the base reset already
+	   neutralises the animation under prefers-reduced-motion, and we additionally
+	   only declare it under no-preference so it shows the final state immediately. */
+	@media (prefers-reduced-motion: no-preference) {
+		.hero {
+			animation: print-in var(--dur-slow) var(--ease-out) both;
+		}
+		@keyframes print-in {
+			from {
+				opacity: 0;
+				transform: translateY(-8px);
+				clip-path: inset(0 0 100% 0);
+			}
+			to {
+				opacity: 1;
+				transform: translateY(0);
+				clip-path: inset(0 0 0 0);
+			}
+		}
 	}
 	.hero-label {
 		margin: 0 0 0.4rem;

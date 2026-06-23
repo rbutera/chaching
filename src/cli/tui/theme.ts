@@ -16,7 +16,9 @@ import {
 	noColor as _noColor,
 	noArt as _noArt,
 	flourishFor as _flourishFor,
+	tierIndex as _tierIndex,
 	BLOCK_FLOURISHES as _BLOCK_FLOURISHES,
+	type SpendFlourish,
 } from '../theme/personality.js';
 import { LOGO_FULL, LOGO_COMPACT, LOGO_FULL_MIN_COLS } from './banner.js';
 
@@ -34,6 +36,9 @@ export {
 	wordmark,
 	flourishFor,
 	formatFlourish,
+	formatFlourishText,
+	tierIndex,
+	crossedUp,
 	BLOCK_FLOURISHES,
 	DAILY_FLOURISHES,
 	LIFETIME_FLOURISHES,
@@ -112,11 +117,24 @@ const SPEND_LADDER = [ANSI.spend.calm, ANSI.spend.warm, ANSI.spend.hot, ANSI.spe
  * one below it.
  */
 export function spendLadderColor(cost: number): string | undefined {
-	const tier = _flourishFor(cost, _BLOCK_FLOURISHES);
-	const idx = _BLOCK_FLOURISHES.indexOf(tier); // 0 = calm (no flourish) … last = alarm
-	const lastIdx = _BLOCK_FLOURISHES.length - 1;
-	// Map the flourish-tier index (0..lastIdx) onto the 4-hue ladder, clamped.
-	const hueIdx = lastIdx > 0 ? Math.min(SPEND_LADDER.length - 1, Math.round((idx / lastIdx) * (SPEND_LADDER.length - 1))) : 0;
+	return ladderColorFor(cost, _BLOCK_FLOURISHES);
+}
+
+/**
+ * Color any flourish along the spend-escalation ladder (calm → warm → hot →
+ * alarm) for an ARBITRARY tier list — block, daily, or lifetime — sourced entirely
+ * from the shared token ANSI map. The tier is derived from the SAME ladder the
+ * flourish copy uses (via `flourishFor`/`tierIndex`), so the color steps in
+ * lockstep with the emoji/remark and can never drift. Returns undefined under
+ * NO_COLOR (routed through `color()`), so it strips cleanly to plain text.
+ */
+export function ladderColorFor(amount: number, tiers: SpendFlourish[]): string | undefined {
+	const idx = _tierIndex(amount, tiers); // 0 = calm (no flourish) … last = alarm
+	const lastIdx = tiers.length - 1;
+	const hueIdx =
+		lastIdx > 0
+			? Math.min(SPEND_LADDER.length - 1, Math.round((idx / lastIdx) * (SPEND_LADDER.length - 1)))
+			: 0;
 	return color(SPEND_LADDER[hueIdx].hex);
 }
 

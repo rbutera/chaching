@@ -22,8 +22,12 @@ import {
 	providerColorName,
 	sparkline,
 	spendLadderColor,
+	ladderColorFor,
 	flourishFor,
+	formatFlourishText,
 	BLOCK_FLOURISHES,
+	DAILY_FLOURISHES,
+	LIFETIME_FLOURISHES,
 } from './theme.js';
 
 /**
@@ -37,15 +41,34 @@ import {
 export function SummaryCards({
 	totals,
 	topModel,
-	savings
+	savings,
+	lifetimeCost,
+	displayCost,
+	noArt = false
 }: {
 	totals: Totals;
 	topModel: ModelTotal | null;
 	/** read-only cache savings (saved-vs-uncached) for the scope, or 0/undefined when absent */
 	savings?: number;
+	/** all-time lifetime spend (snapshot.totals.cost) — drives the lifetime ladder */
+	lifetimeCost?: number;
+	/** the (possibly mid-roll-up) figure to SHOW for the register total; defaults to the real total */
+	displayCost?: number;
+	/** suppress the escalation flourishes (delight off) */
+	noArt?: boolean;
 }) {
 	const toks = totalTokens(totals.tokens);
 	const showSaved = typeof savings === 'number' && savings > 0;
+	const shownCost = displayCost ?? totals.cost;
+	// Escalation flourish on the register total (the affectionate daily ladder),
+	// voiced from the shared module + colored along the spend ladder. Keyed to the
+	// REAL total (tier is a function of the settled amount, not the mid-roll-up
+	// frame). `--no-art` strips it; the zero tier renders nothing.
+	const dailyTier = flourishFor(totals.cost, DAILY_FLOURISHES);
+	const dailyFlourish = !noArt ? formatFlourishText(dailyTier) : '';
+	// Lifetime ladder figure — only when there's a lifetime total worth a remark.
+	const lifeTier = lifetimeCost != null ? flourishFor(lifetimeCost, LIFETIME_FLOURISHES) : null;
+	const lifeFlourish = !noArt && lifeTier ? formatFlourishText(lifeTier) : '';
 	return (
 		<Box flexWrap="wrap" gap={4}>
 			{/* register total */}
@@ -53,11 +76,28 @@ export function SummaryCards({
 				<Text>
 					<Text color={color(DIM)}>$</Text>
 					<Text color={color(ACCENT)} bold>
-						{money(totals.cost).replace(/^\$/, '')}
+						{money(shownCost).replace(/^\$/, '')}
 					</Text>
+					{dailyFlourish ? (
+						<Text color={ladderColorFor(totals.cost, DAILY_FLOURISHES)}>{`  ${dailyFlourish}`}</Text>
+					) : null}
 				</Text>
 				<Text color={color(DIM)}>TOTAL BURN</Text>
 			</Box>
+
+			{/* lifetime — the long-haul ladder (only when present + non-zero tier) */}
+			{lifetimeCost != null ? (
+				<Box flexDirection="column">
+					<Text>
+						<Text color={color(DIM)}>$</Text>
+						<Text bold>{money(lifetimeCost).replace(/^\$/, '')}</Text>
+						{lifeFlourish ? (
+							<Text color={ladderColorFor(lifetimeCost, LIFETIME_FLOURISHES)}>{`  ${lifeFlourish}`}</Text>
+						) : null}
+					</Text>
+					<Text color={color(DIM)}>LIFETIME</Text>
+				</Box>
+			) : null}
 
 			{/* tokens */}
 			<Box flexDirection="column">

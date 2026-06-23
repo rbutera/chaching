@@ -1,33 +1,71 @@
 /**
- * chaching personality module — ASCII art, copy, flourishes.
+ * chaching personality module — the CLI-side voice + ASCII art surface.
  *
- * ONE source of truth for all decorative content.
- * Everything here is suppressible via --no-art / CHACHING_NO_ART.
- * --json output NEVER touches this module.
- * NO_COLOR strips ANSI but does not affect content.
+ * As of chaching-ds-delight the voiced-copy banks, the deterministic selector,
+ * the casing helper, the suppression predicates, and the escalation ladders all
+ * live in the framework-agnostic `src/lib/voice/` module so the web app, the Ink
+ * TUI, and the receipt renderers speak ONE voice. This file is now the CLI-side
+ * wiring layer: it KEEPS the ANSI colorizers (terminal-only), the banner/wordmark
+ * art, and `process.env`-defaulted convenience wrappers, and RE-EXPORTS the voice
+ * banks + helpers so every existing import site keeps working unchanged.
  *
- * Design intent: gallows humor about burning AI money, dev-savvy, affectionate.
- * The name is a double pun: cha-ching 💰 (cash-register sound) + caching
- * (cache reads/writes are a core token-cost concept). Both vibes welcome.
+ * Everything decorative is suppressible via --no-art / CHACHING_NO_ART.
+ * --json output NEVER touches this module. NO_COLOR strips ANSI but not content.
  */
 
 import { tokens } from '../../lib/brand/tokens.js';
 import { toAnsiMap } from '../../lib/brand/generate.js';
+import {
+	noArt as voiceNoArt,
+	noColor as voiceNoColor,
+	pick as voicePick,
+	type SpendFlourish,
+} from '../../lib/voice/index.js';
+import {
+	SCANNING_LINES,
+	EMPTY_LINES,
+	ERROR_LINES,
+	RECEIPT_FOOTERS,
+} from '../../lib/voice/copy.js';
 
-// ── Suppression helpers ────────────────────────────────────────────────────────
+// ── Re-export the shared voice surface (one source of truth) ───────────────────
+// Banks, ladders, selector primitives, and casing — re-exported so existing CLI
+// import sites (`from '../theme/personality.js'`) keep resolving exactly as before.
+export {
+	SCANNING_LINES,
+	EMPTY_LINES,
+	ERROR_LINES,
+	RECEIPT_FOOTERS,
+} from '../../lib/voice/copy.js';
+export {
+	BLOCK_FLOURISHES,
+	DAILY_FLOURISHES,
+	LIFETIME_FLOURISHES,
+	flourishFor,
+	tierIndex,
+	crossedUp,
+	formatFlourishText,
+	type SpendFlourish,
+} from '../../lib/voice/escalation.js';
+export { caps } from '../../lib/voice/casing.js';
+export { pick, pickForBucket } from '../../lib/voice/select.js';
+
+// ── Suppression helpers (process.env-defaulted CLI convenience) ─────────────────
+// The voice predicates are framework-free (explicit env). The CLI keeps the
+// historical signatures that default to `process.env`, so existing callers that
+// rely on the default keep working.
 
 /** True if art should be omitted entirely. */
 export function noArt(argv: string[] = [], env: NodeJS.ProcessEnv = process.env): boolean {
-	if (env.CHACHING_NO_ART !== undefined && env.CHACHING_NO_ART !== '') return true;
-	return argv.includes('--no-art');
+	return voiceNoArt(argv, env as Record<string, string | undefined>);
 }
 
 /** True if color output should be stripped (https://no-color.org). */
 export function noColor(env: NodeJS.ProcessEnv = process.env): boolean {
-	return env.NO_COLOR !== undefined && env.NO_COLOR !== '';
+	return voiceNoColor(env as Record<string, string | undefined>);
 }
 
-// ── ANSI color helpers (no new deps; degrades under NO_COLOR) ─────────────────
+// ── ANSI color helpers (no new deps; degrades under NO_COLOR) — TUI-specific ────
 
 function ansi(code: string, text: string, env = process.env): string {
 	if (noColor(env)) return text;
@@ -165,151 +203,34 @@ export function wordmark(opts: {
 	return noColor(env) ? WORDMARK : accent(WORDMARK, env);
 }
 
-// ── Rotating copy ──────────────────────────────────────────────────────────────
+// ── Rotating copy (legacy index-based wrappers, kept for CLI call sites) ────────
+// The new per-bucket API lives in src/lib/voice/select.ts; these preserve the
+// historical positional-index signature the TUI + existing tests use.
 
-/**
- * Lines shown while the cold scan runs.
- * Tone: gallows humor, slightly resigned, genuinely funny to a dev who knows.
- */
-export const SCANNING_LINES = [
-	'counting your sins…',
-	'tallying the damage…',
-	'auditing the carnage…',
-	'summing the burn rate…',
-	'itemising the splurge…',
-	'calculating your runway…',
-	'adding up the cache misses…',
-	'reconciling your token ledger…',
-] as const;
-
-/**
- * Empty-state copy. Friendly, nudges toward `chaching init`, not alarming.
- */
-export const EMPTY_LINES = [
-	'no receipts yet. agents are free until they aren\'t.',
-	'nothing to report — either you\'re efficient or you haven\'t started.',
-	'the register is silent. run `chaching init` to start listening.',
-	'clean slate. won\'t last.',
-	'no spend data found. try `chaching init` to connect your providers.',
-] as const;
-
-/**
- * Error copy — short, pragmatic, slightly wry.
- */
-export const ERROR_LINES = [
-	'something went wrong (not a billing error, for once).',
-	'failed to load spend data. check your config with `chaching init`.',
-	'the register jammed. see above for details.',
-	'couldn\'t load data — probably config, probably fixable.',
-] as const;
-
-/**
- * Return a deterministic item from an array (by index mod length).
- * Index defaults to the current minute so it "rotates" without being random.
- */
-export function pick<T>(items: readonly T[], index?: number): T {
-	const i = index ?? Math.floor(Date.now() / 60_000);
-	return items[i % items.length];
-}
-
-/** Current scanning line (rotates per minute). */
+/** Current scanning line (rotates per minute by default; pass an index in tests). */
 export function scanningLine(index?: number): string {
-	return pick(SCANNING_LINES, index);
-}
-
-/**
- * Receipt footer flourishes — the wry "thank you for shopping" line at the
- * bottom of a thermal receipt. Same gallows-humor register as the rest.
- */
-export const RECEIPT_FOOTERS = [
-	'thank you for burning with us 💸',
-	'no refunds. the tokens are gone.',
-	'keep this receipt for your accountant (lol)',
-	"cha-ching! that's the sound of your runway",
-	'cached and confused since day one',
-	'come back soon — the agents missed you',
-	'every cache hit is a tiny act of mercy',
-] as const;
-
-/** Current receipt footer line (rotates per minute). */
-export function receiptFooter(index?: number): string {
-	return pick(RECEIPT_FOOTERS, index);
+	return voicePick(SCANNING_LINES, index);
 }
 
 /** Current empty-state line (rotates per minute). */
 export function emptyLine(index?: number): string {
-	return pick(EMPTY_LINES, index);
+	return voicePick(EMPTY_LINES, index);
 }
 
 /** Current error line (rotates per minute). */
 export function errorLine(index?: number): string {
-	return pick(ERROR_LINES, index);
+	return voicePick(ERROR_LINES, index);
 }
 
-// ── Big-spend flourishes ───────────────────────────────────────────────────────
-
-/**
- * Spend flourishes for the 5h-block and daily total.
- *
- * Thresholds are calibrated for real personal-use numbers:
- *   5h block:  typical mild session ~$5–$15; active $50–$150+
- *   daily:     light day ~$10; heavy ~$100; wild day $200+
- *   lifetime:  first notable milestone ~$100; "send help" level ~$1 000+
- *
- * Each tier gets an escalating reaction: emoji density + copy sharpness go up.
- */
-
-export interface SpendFlourish {
-	/** The threshold this entry represents (inclusive lower bound). */
-	threshold: number;
-	/** Emoji prefix (empty string = no emoji at this tier). */
-	emoji: string;
-	/** Short one-liner. Keep it under 60 chars so it fits inline. */
-	remark: string;
-}
-
-/** Flourishes keyed by context. */
-export const BLOCK_FLOURISHES: SpendFlourish[] = [
-	{ threshold: 0,   emoji: '',    remark: '' },
-	{ threshold: 10,  emoji: '💸',  remark: 'warming up' },
-	{ threshold: 30,  emoji: '💸💸', remark: 'getting spicy' },
-	{ threshold: 75,  emoji: '🔥',  remark: 'full send' },
-	{ threshold: 120, emoji: '🔥🔥', remark: 'please take a break' },
-	{ threshold: 200, emoji: '🚨',  remark: 'the register is on fire' },
-];
-
-export const DAILY_FLOURISHES: SpendFlourish[] = [
-	{ threshold: 0,   emoji: '',    remark: '' },
-	{ threshold: 20,  emoji: '💰',  remark: 'decent day' },
-	{ threshold: 50,  emoji: '💸',  remark: 'treating yourself' },
-	{ threshold: 100, emoji: '💸💸', remark: 'big day' },
-	{ threshold: 200, emoji: '🔥',  remark: 'account on fire' },
-	{ threshold: 500, emoji: '🚨🚨', remark: 'send help' },
-];
-
-export const LIFETIME_FLOURISHES: SpendFlourish[] = [
-	{ threshold: 0,    emoji: '',    remark: '' },
-	{ threshold: 100,  emoji: '💰',  remark: 'you\'ve committed' },
-	{ threshold: 500,  emoji: '💸',  remark: 'well into it now' },
-	{ threshold: 1000, emoji: '🔥',  remark: 'you live here now' },
-	{ threshold: 5000, emoji: '🚨',  remark: 'write a blog post' },
-];
-
-/**
- * Pick the appropriate flourish for a spend amount against a tier list.
- * Returns the highest threshold tier that the amount meets or exceeds.
- */
-export function flourishFor(amount: number, tiers: SpendFlourish[]): SpendFlourish {
-	let result = tiers[0];
-	for (const tier of tiers) {
-		if (amount >= tier.threshold) result = tier;
-	}
-	return result;
+/** Current receipt footer line (rotates per minute). */
+export function receiptFooter(index?: number): string {
+	return voicePick(RECEIPT_FOOTERS, index);
 }
 
 /**
  * Format a flourish for inline display, e.g. "💸💸 full send".
  * Returns empty string for the zero tier (no decoration below first threshold).
+ * Applies the dim ANSI wrap unless NO_COLOR (TUI-specific colorization).
  */
 export function formatFlourish(f: SpendFlourish, env = process.env): string {
 	if (!f.emoji && !f.remark) return '';

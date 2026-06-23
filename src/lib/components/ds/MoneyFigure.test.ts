@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/svelte';
 import MoneyFigure from './MoneyFigure.svelte';
 
@@ -54,4 +54,27 @@ describe('MoneyFigure', () => {
 		const { container } = render(MoneyFigure, { props: { amount: 5 } });
 		expect(container.querySelector('.money')).not.toBeNull();
 	});
+
+	it('non-animated renders the final value immediately (no count-up)', () => {
+		const { container } = render(MoneyFigure, { props: { amount: 1234.56 } });
+		expect(text(container as HTMLElement)).toBe('$1,235');
+	});
+
+	it('row 9: animate + reduced-motion sets the final value immediately (no tween)', () => {
+		// Force prefers-reduced-motion: reduce → countUp must jump straight to target.
+		vi.stubGlobal('matchMedia', (q: string) => ({
+			matches: /reduce/.test(q),
+			media: q,
+			addEventListener() {},
+			removeEventListener() {}
+		}));
+		const { container } = render(MoneyFigure, { props: { amount: 4242, animate: true } });
+		expect(text(container as HTMLElement)).toBe('$4,242');
+		vi.unstubAllGlobals();
+	});
+
+	// NB: the count-up tween itself (intermediate frames + landing exactly on target)
+	// is covered deterministically with an injected rAF in src/lib/client/motion.test.ts;
+	// asserting it here against jsdom's wall-clock rAF is flaky, so we only assert the
+	// reduced-motion immediate-set contract at the component level (above).
 });
