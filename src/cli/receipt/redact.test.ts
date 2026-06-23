@@ -56,15 +56,18 @@ function adversarialModel(): ReceiptModel {
 	};
 }
 
+// Opt-in: redaction now requires `redact: true`. These injectable identity opts
+// are shared by every scrub test (each opts IN explicitly).
 const redactOpts = {
+	redact: true,
 	username: SECRET_USER,
 	hostname: SECRET_HOST,
 	homedir: `/home/${SECRET_USER}`,
 	env: {} as NodeJS.ProcessEnv
 };
 
-describe('redactReceipt — privacy by default', () => {
-	it('default (no reveal) scrubs username, hostname, abs path, project from all text', () => {
+describe('redactReceipt — opt-in scrubbing', () => {
+	it('redact=true scrubs username, hostname, abs path, project from all text', () => {
 		const redacted = redactReceipt(adversarialModel(), redactOpts);
 		const text = renderReceiptText(redacted, { noColor: true });
 		expect(text).not.toContain(SECRET_USER);
@@ -75,22 +78,34 @@ describe('redactReceipt — privacy by default', () => {
 		expect(redacted.footer).toContain(PLACEHOLDER);
 	});
 
-	it('reveal=true is a no-op (real values present)', () => {
+	it('default (no redact) is a no-op — real values present', () => {
+		const shown = redactReceipt(adversarialModel(), {
+			username: SECRET_USER,
+			hostname: SECRET_HOST,
+			homedir: `/home/${SECRET_USER}`,
+			env: {} as NodeJS.ProcessEnv
+		});
+		const text = renderReceiptText(shown, { noColor: true });
+		expect(text).toContain(SECRET_HOST);
+		expect(text).toContain(SECRET_USER);
+	});
+
+	it('deprecated reveal=true still forces a no-op (real values present)', () => {
 		const revealed = redactReceipt(adversarialModel(), { ...redactOpts, reveal: true });
 		const text = renderReceiptText(revealed, { noColor: true });
 		expect(text).toContain(SECRET_HOST);
 		expect(text).toContain(SECRET_USER);
 	});
 
-	it('redacted output differs from revealed exactly on the secret tokens', () => {
+	it('redacted output differs from shown exactly on the secret tokens', () => {
 		const redacted = redactReceipt(adversarialModel(), redactOpts);
-		const revealed = redactReceipt(adversarialModel(), { ...redactOpts, reveal: true });
-		expect(redacted.wordmark).not.toBe(revealed.wordmark);
-		expect(redacted.footer).not.toBe(revealed.footer);
-		expect(redacted.ref).not.toBe(revealed.ref);
+		const shown = redactReceipt(adversarialModel(), { ...redactOpts, redact: false });
+		expect(redacted.wordmark).not.toBe(shown.wordmark);
+		expect(redacted.footer).not.toBe(shown.footer);
+		expect(redacted.ref).not.toBe(shown.ref);
 		// non-secret fields are untouched
-		expect(redacted.totalBurn).toBe(revealed.totalBurn);
-		expect(redacted.from).toBe(revealed.from);
+		expect(redacted.totalBurn).toBe(shown.totalBurn);
+		expect(redacted.from).toBe(shown.from);
 	});
 
 	it('does not mutate the input model', () => {

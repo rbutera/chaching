@@ -1,10 +1,11 @@
-// redactReceipt — privacy-by-default scrub over the ReceiptModel.
+// redactReceipt — OPT-IN scrub over the ReceiptModel.
 //
-// Runs BEFORE both the text and PNG render. Default-on: shareable output is safe
-// even if the user forgets. `--reveal` / `--no-redact` is the ONLY way to include
-// the real values. Scrubs: usernames ($USER / os.userInfo().username / home-dir
-// path segment), hostname (os.hostname()), absolute file paths (→ basename or a
-// placeholder), and project names (DayModelAgg/SessionSummary project fields).
+// Runs BEFORE both the text and PNG render. Redaction is OPT-IN: by default the
+// receipt shows the user's own real details (it's their local data). Passing
+// `redact: true` (CLI `--redact`, web `?redact=1`) scrubs: usernames ($USER /
+// os.userInfo().username / home-dir path segment), hostname (os.hostname()),
+// absolute file paths (→ basename or a placeholder), and project names
+// (DayModelAgg/SessionSummary project fields) into redaction blocks before sharing.
 //
 // What is NOT redacted: provider ids (claude/codex/…), model ids, money, tokens,
 // dates — none are PII and the receipt is meaningless without them.
@@ -15,7 +16,9 @@ import type { ReceiptModel } from './model.js';
 const PLACEHOLDER = '‹redacted›';
 
 export interface RedactOptions {
-	/** true → no-op (reveal everything). */
+	/** true → scrub PII into redaction blocks. Default false (show real details). */
+	redact?: boolean;
+	/** @deprecated kept as a no-op alias — "revealed" is now the default. */
 	reveal?: boolean;
 	/** injectable env for testing (defaults to process.env). */
 	env?: NodeJS.ProcessEnv;
@@ -116,7 +119,8 @@ function redactText(text: string, secrets: string[]): string {
 
 /**
  * Redact the receipt model. Pure: returns a NEW model; never mutates the input.
- * No-op when `reveal` is true.
+ * OPT-IN: a no-op UNLESS `redact` is true (the default shows real details). The
+ * legacy `reveal` flag is accepted as a deprecated no-op alias.
  *
  * Note: the current ReceiptModel surface carries no usernames/hostnames/paths/
  * project names in its rendered fields (line items are provider+model+money+
@@ -126,7 +130,9 @@ function redactText(text: string, secrets: string[]): string {
  * injects adversarial values into the free-text fields and asserts they're gone.
  */
 export function redactReceipt(model: ReceiptModel, opts: RedactOptions = {}): ReceiptModel {
-	if (opts.reveal) return model;
+	// Opt-in: only scrub when redaction is explicitly requested. (The deprecated
+	// `reveal` alias still forces a no-op for any old caller that passes it.)
+	if (!opts.redact || opts.reveal) return model;
 	const secrets = secretsFor(opts);
 
 	return {

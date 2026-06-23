@@ -62,8 +62,9 @@ describe('renderReceiptPng', () => {
 		expect(png[3]).toBe(0x47); // G
 	}, 30_000);
 
-	it('redacted-by-default PNG bytes do not contain the fixture machine name', async () => {
+	it('redacted (--redact) PNG bytes do not contain the fixture machine name', async () => {
 		const redacted = redactReceipt(model(), {
+			redact: true,
 			hostname: SECRET_HOST,
 			username: 'someuser',
 			homedir: '/home/someuser',
@@ -93,18 +94,18 @@ describe('renderReceiptPng', () => {
 		expect(width).toBe(720);
 	}, 30_000);
 
-	it('redacted vs revealed produce different PNGs (the redaction block is rendered)', async () => {
+	it('redacted (--redact) vs shown produce different PNGs (the redaction block is rendered)', async () => {
 		const opts = {
 			hostname: SECRET_HOST,
 			username: 'someuser',
 			homedir: '/home/someuser',
 			env: {} as NodeJS.ProcessEnv
 		};
-		const redactedPng = await renderReceiptPng(redactReceipt(model(), opts));
-		const revealedPng = await renderReceiptPng(redactReceipt(model(), { ...opts, reveal: true }));
+		const redactedPng = await renderReceiptPng(redactReceipt(model(), { ...opts, redact: true }));
+		const shownPng = await renderReceiptPng(redactReceipt(model(), opts)); // default: shown
 		// The redaction swatch vs plain text changes the raster: the two differ.
-		expect(redactedPng.equals(revealedPng)).toBe(false);
-		// The revealed PNG MAY embed nothing readable (raster), but the redacted one
+		expect(redactedPng.equals(shownPng)).toBe(false);
+		// The shown PNG MAY embed nothing readable (raster), but the redacted one
 		// must never embed the host substring (privacy guard, re-asserted here).
 		expect(redactedPng.includes(Buffer.from(SECRET_HOST, 'utf8'))).toBe(false);
 	}, 45_000);
