@@ -5,7 +5,12 @@ import { pctDelta } from '../format';
 import {
 	addDaysISO,
 	bucketDayRange,
+	byDay,
+	clampDay,
 	defaultViewState,
+	focusedModels,
+	focusedSessions,
+	focusedTotals,
 	heroTotals,
 	models,
 	periodWindow,
@@ -14,6 +19,8 @@ import {
 	trend,
 	type ViewState
 } from './view-model';
+import { sumGrain } from './aggregate';
+import type { SessionSummary } from '../types';
 
 function toks(input: number, output = 0, cacheCreation = 0, cacheRead = 0): TokenCounts {
 	return { input, output, cacheCreation, cacheRead };
@@ -449,5 +456,143 @@ describe('shared view-model — cross-element (provider filter + period together
 	it('providers() returns the full provider set over the scoped grain', () => {
 		const list = providers(snap, defaultViewState('week'));
 		expect(list.map((p) => p.provider).sort()).toEqual(['codex', 'opencode']);
+	});
+});
+
+describe('byDay — one cell per banked calendar day', () => {
+	it('emits one cell per day in [earliest, latest] inclusive, gaps zero-filled', () => {
+		// 06-15 spend, 06-16 gap (no rows), 06-18 spend. Range 06-15..06-18 = 4 days.
+		const grain = [
+			dm('2026-06-15', 'codex', 'claude-opus-4-8', 8),
+			dm('2026-06-18', 'codex', 'claude-opus-4-8', 5)
+		];
+		const snap = snapFrom(grain);
+		const cells = byDay(snap);
+		expect(cells.map((c) => c.day)).toEqual(['2026-06-15', '2026-06-16', '2026-06-17', '2026-06-18']);
+		// per-day cost matches sumGrain over [day, day]
+		for (const c of cells) {
+			expect(c.cost).toBe(sumGrain(snap.dayModel, { from: c.day, to: c.day }).cost);
+		}
+		// gap days are zero with hasData=false
+		const gap = cells.find((c) => c.day === '2026-06-16')!;
+		expect(gap.cost).toBe(0);
+		expect(gap.hasData).toBe(false);
+	});
+
+	it('marks an interior gap day missing and present days from the coverage map', () => {
+		const grain = [
+			dm('2026-06-15', 'codex', 'claude-opus-4-8', 8),
+			dm('2026-06-18', 'codex', 'claude-opus-4-8', 5)
+		];
+		const snap = snapFrom(grain);
+		const cells = byDay(snap);
+		// 06-16/06-17 are in-range but absent from the coverage map -> missing
+		expect(cells.find((c) => c.day === '2026-06-16')!.coverage).toBe('missing');
+		// 06-15 is a past spend day -> frozen; 06-18 is latest -> partial (per snapFrom)
+		expect(cells.find((c) => c.day === '2026-06-15')!.coverage).toBe('frozen');
+		expect(cells.find((c) => c.day === '2026-06-18')!.coverage).toBe('partial');
+	});
+
+	it('returns [] for an empty snapshot (no earliestDay)', () => {
+		const snap = snapFrom([]);
+		expect(byDay(snap)).toEqual([]);
+	});
+
+	it('is a single pass: total of cells equals total spend', () => {
+		const grain = [
+			dm('2026-06-15', 'codex', 'claude-opus-4-8', 8),
+			dm('2026-06-15', 'opencode', 'claude-sonnet-4-5', 2),
+			dm('2026-06-18', 'codex', 'claude-opus-4-8', 5)
+		];
+		const snap = snapFrom(grain);
+		const total = byDay(snap).reduce((a, c) => a + c.cost, 0);
+		expect(total).toBe(15);
+	});
+});
+
+describe('focusedDay scoping', () => {
+	const grain = [
+		dm('2026-06-15', 'codex', 'claude-opus-4-8', 8),
+		dm('2026-06-15', 'opencode', 'claude-sonnet-4-5', 2),
+		dm('2026-06-18', 'codex', 'claude-opus-4-8', 5)
+	];
+	const snap = snapFrom(grain);
+	const st = defaultViewState('week');
+
+	it('focusedTotals(X).cost === sumGrain over [X, X]', () => {
+		const x = '2026-06-15';
+		expect(focusedTotals(snap, x, st).cost).toBe(sumGrain(snap.dayModel, { from: x, to: x }).cost);
+		expect(focusedTotals(snap, x, st).cost).toBe(10);
+	});
+
+	it('differs across days with different spend', () => {
+		expect(focusedTotals(snap, '2026-06-15', st).cost).not.toBe(focusedTotals(snap, '2026-06-18', st).cost);
+	});
+
+	it('composes with a provider filter (not either-or)', () => {
+		const filtered = focusedTotals(snap, '2026-06-15', withFilter(st, ['codex']));
+		expect(filtered.cost).toBe(8); // codex-only on 06-15
+		expect(filtered.cost).not.toBe(focusedTotals(snap, '2026-06-15', st).cost);
+	});
+
+	it('focusedModels for a day applies the provider filter', () => {
+		const all = focusedModels(snap, '2026-06-15', st);
+		expect(all.reduce((a, m) => a + m.cost, 0)).toBe(10);
+		const codexOnly = focusedModels(snap, '2026-06-15', withFilter(st, ['codex']));
+		expect(codexOnly.reduce((a, m) => a + m.cost, 0)).toBe(8);
+	});
+});
+
+describe('focusedSessions — intersect the pinned day', () => {
+	function sess(id: string, firstDay: string, lastDay: string, provider = 'codex', models = ['claude-opus-4-8']): SessionSummary {
+		return {
+			sessionId: id,
+			provider,
+			project: 'p',
+			firstTs: new Date(firstDay + 'T08:00:00Z').getTime(),
+			lastTs: new Date(lastDay + 'T20:00:00Z').getTime(),
+			tokens: toks(0),
+			requests: 1,
+			cost: 1,
+			costUnknownRequests: 0,
+			models
+		};
+	}
+	const snap = snapFrom([dm('2026-06-15', 'codex', 'claude-opus-4-8', 8), dm('2026-06-18', 'codex', 'claude-opus-4-8', 5)]);
+	const st = defaultViewState('week');
+
+	it('keeps only sessions overlapping the day window', () => {
+		const sessions = [sess('a', '2026-06-15', '2026-06-15'), sess('b', '2026-06-16', '2026-06-17'), sess('c', '2026-06-14', '2026-06-15')];
+		const s2 = { ...snap, sessions };
+		const hit = focusedSessions(s2, '2026-06-15', st).map((s) => s.sessionId).sort();
+		expect(hit).toEqual(['a', 'c']); // b is 06-16..06-17, no overlap with 06-15
+	});
+
+	it('composes the provider filter with the day window', () => {
+		const sessions = [sess('a', '2026-06-15', '2026-06-15', 'codex'), sess('b', '2026-06-15', '2026-06-15', 'opencode')];
+		const s2 = { ...snap, sessions };
+		const hit = focusedSessions(s2, '2026-06-15', withFilter(st, ['codex'])).map((s) => s.sessionId);
+		expect(hit).toEqual(['a']);
+	});
+});
+
+describe('clampDay — bounds + step', () => {
+	const snap = snapFrom([dm('2026-06-15', 'codex', 'claude-opus-4-8', 8), dm('2026-06-18', 'codex', 'claude-opus-4-8', 5)]);
+
+	it('clamps an out-of-range day into [earliest, latest]', () => {
+		expect(clampDay(snap, '2026-06-10')).toBe('2026-06-15');
+		expect(clampDay(snap, '2026-06-30')).toBe('2026-06-18');
+		expect(clampDay(snap, '2026-06-16')).toBe('2026-06-16');
+	});
+
+	it('returns null when there is no data range', () => {
+		expect(clampDay(snapFrom([]), '2026-06-16')).toBeNull();
+	});
+
+	it('stepping via addDaysISO+clamp is a no-op at the bounds', () => {
+		// at earliest, stepping -1 then clamping stays at earliest
+		expect(clampDay(snap, addDaysISO('2026-06-15', -1))).toBe('2026-06-15');
+		// at latest, stepping +1 then clamping stays at latest
+		expect(clampDay(snap, addDaysISO('2026-06-18', 1))).toBe('2026-06-18');
 	});
 });

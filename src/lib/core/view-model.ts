@@ -22,6 +22,21 @@ import {
 	type Totals
 } from './aggregate';
 
+/**
+ * One calendar day in the banked range, for the calendar heatmap (design D1). `coverage`
+ * is the day's typed provenance state from the snapshot coverage map (defaulting to
+ * `missing` for a gap day inside the range — the same range-relative rule the rest of the
+ * view-model uses). Hand-rolled, framework-free so the future Ink TUI can reuse it.
+ */
+export interface DayCell {
+	day: string;
+	cost: number;
+	requests: number;
+	/** true when the day had any spend rows in scope (distinguishes a real $0 from a gap) */
+	hasData: boolean;
+	coverage: DayCoverage;
+}
+
 /** Add (or subtract) whole days to a YYYY-MM-DD string, in UTC. */
 export function addDaysISO(day: string, delta: number): string {
 	const d = new Date(day + 'T00:00:00Z');
@@ -365,4 +380,91 @@ export function scopedSessions(snap: RollupSnapshot, state: ViewState): SessionS
 	const providerFilter = asFilter(state.providerFilter);
 	if (providerFilter) sessions = sessions.filter((s) => providerFilter.has(s.provider));
 	return sessions;
+}
+
+// ---------------------------------------------------------------------------
+// Day-grain heatmap + focused-day (zoomed-in) derivations — design D1, D6.
+// Additive: these never touch the rolling-window math above; they re-aggregate
+// the same flat grain to one cell per calendar day and scope the panels to a
+// single pinned day. Shared + framework-free so the future TUI can reuse them.
+// ---------------------------------------------------------------------------
+
+/**
+ * One `DayCell` per calendar day in `[earliestDay, latestDay]` inclusive (design D1).
+ *
+ * Single pass: aggregate the flat grain to day grain once via `aggregateByPeriod(_, 'day')`,
+ * index by day, then walk every calendar day from earliest to latest filling gaps with a
+ * zero cell. The model/provider filters are ignored here on purpose — the heatmap is a
+ * full-history navigation surface (cost-shaded over ALL spend), not a filtered view. Each
+ * cell's `coverage` is read from the snapshot map, defaulting to `missing` for a gap day
+ * (the same range-relative rule as the trend). Empty when there's no data.
+ */
+export function byDay(snap: RollupSnapshot): DayCell[] {
+	const from = snap.earliestDay;
+	const to = snap.latestDay;
+	if (from == null || to == null) return [];
+	const present = new Map(aggregateByPeriod(snap.dayModel, 'day').map((b) => [b.key, b]));
+	const out: DayCell[] = [];
+	for (let day = from; day <= to; day = addDaysISO(day, 1)) {
+		const b = present.get(day);
+		out.push({
+			day,
+			cost: b?.cost ?? 0,
+			requests: b?.requests ?? 0,
+			hasData: b != null,
+			coverage: dayCoverageState(day, snap.coverage)
+		});
+	}
+	return out;
+}
+
+/**
+ * Totals for a single pinned day, scoped to the active model/provider filters (design D6).
+ * Equivalent to `sumGrain` over the one-day window `[day, day]` — the same helper the hero
+ * and cards use — so the focused numbers are identically derived, just over a tighter window.
+ */
+export function focusedTotals(snap: RollupSnapshot, day: string, state: ViewState): Totals {
+	return sumGrain(snap.dayModel, {
+		from: day,
+		to: day,
+		models: asFilter(state.modelFilter),
+		providers: asFilter(state.providerFilter),
+		coverage: { map: snap.coverage, days: [day] }
+	});
+}
+
+/** Per-model totals for a single pinned day (drives the donut), provider filter applied. */
+export function focusedModels(snap: RollupSnapshot, day: string, state: ViewState): ModelTotal[] {
+	const providers = asFilter(state.providerFilter);
+	let grain = filterDays(snap.dayModel, day, day);
+	if (providers) grain = grain.filter((dm) => providers.has(dm.provider));
+	return aggregateByModel(grain);
+}
+
+/**
+ * Sessions whose activity intersects the pinned day (design D6). A session intersects day
+ * `D` when its [firstTs, lastTs] span overlaps D's UTC calendar window. The model/provider
+ * filters compose exactly as in `scopedSessions`.
+ */
+export function focusedSessions(snap: RollupSnapshot, day: string, state: ViewState): SessionSummary[] {
+	const dayStart = new Date(day + 'T00:00:00Z').getTime();
+	const dayEnd = dayStart + 86400000; // exclusive
+	const modelFilter = asFilter(state.modelFilter);
+	const providerFilter = asFilter(state.providerFilter);
+	return snap.sessions.filter((s) => {
+		if (s.firstTs >= dayEnd || s.lastTs < dayStart) return false;
+		if (modelFilter && !s.models.some((m) => modelFilter.has(m))) return false;
+		if (providerFilter && !providerFilter.has(s.provider)) return false;
+		return true;
+	});
+}
+
+/** Clamp a day into `[earliestDay, latestDay]`; returns null when there's no data range. */
+export function clampDay(snap: RollupSnapshot, day: string): string | null {
+	const lo = snap.earliestDay;
+	const hi = snap.latestDay;
+	if (lo == null || hi == null) return null;
+	if (day < lo) return lo;
+	if (day > hi) return hi;
+	return day;
 }

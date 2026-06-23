@@ -9,6 +9,8 @@
 	import SessionList from '$lib/components/SessionList.svelte';
 	import DetailSheet from '$lib/components/DetailSheet.svelte';
 	import Sparkline from '$lib/components/Sparkline.svelte';
+	import CalendarHeatmap from '$lib/components/CalendarHeatmap.svelte';
+	import DayNavigator from '$lib/components/DayNavigator.svelte';
 	import Wordmark from '$lib/brand/Wordmark.svelte';
 	import {
 		money,
@@ -22,7 +24,7 @@
 		fmtPeriodKey,
 		int
 	} from '$lib/format';
-	import { totalTokens } from '$lib/core/aggregate';
+	import { totalTokens, dayCoverageState } from '$lib/core/aggregate';
 	import type { PeriodBucket } from '$lib/core/aggregate';
 	import { coverageSub } from '$lib/core/coverage-marks';
 
@@ -40,28 +42,59 @@
 	// tell a "so far today" partial bar from a PAST day a gated scan left partial.
 	let todayUTC = $derived(new Date(snap?.generatedAt ?? Date.now()).toISOString().slice(0, 10));
 
-	// hero
-	let hero = $derived(snap ? dash.heroTotals(snap) : null);
-	// suppress the period delta when there's no prior baseline (prior window
-	// predates our earliest data) vs a real $0 prior.
-	let heroDelta = $derived(
-		hero ? pctDelta(hero.current.cost, hero.prior.cost, hero.priorHasBaseline) : null
-	);
+	// The zoomed-in pin (null = rolling-period mode). When set, the hero/cards/donut/session
+	// list scope to this single day; the heatmap + trend stay full-range and highlight it.
+	let focusedDay = $derived(dash.focusedDay);
 
-	// trend buckets
+	// Clamp/clear a persisted out-of-range pin once the snapshot (and its data range) lands.
+	$effect(() => {
+		if (snap) dash.reconcileFocusedDay(snap);
+	});
+
+	// hero — focused-day totals when pinned, else the rolling-period totals + delta.
+	let hero = $derived(snap ? dash.heroTotals(snap) : null);
+	let focusedTotals = $derived(snap && focusedDay ? dash.focusedTotals(snap, focusedDay) : null);
+	// suppress the period delta when there's no prior baseline (prior window
+	// predates our earliest data) vs a real $0 prior. No delta in focused mode (single day).
+	let heroDelta = $derived(
+		!focusedDay && hero ? pctDelta(hero.current.cost, hero.prior.cost, hero.priorHasBaseline) : null
+	);
+	let heroCost = $derived(focusedTotals ? focusedTotals.cost : (hero?.current.cost ?? 0));
+	let heroLabel = $derived(focusedDay ? fmtDay(focusedDay) : (hero?.label ?? '—'));
+
+	// trend buckets (always full rolling window — the navigation surface)
 	let trend = $derived<PeriodBucket[]>(snap ? dash.trend(snap) : []);
 	let heroSpark = $derived(trend.map((b) => b.cost));
 
-	// scoped models / totals
-	let modelTotals = $derived(snap ? dash.models(snap) : []);
+	// calendar heatmap series: one cell per banked day (full range), cost-shaded + coverage.
+	let dayCells = $derived(snap ? dash.byDay(snap) : []);
+	// Wire the real coverage state from the snapshot map (the sibling change landed) rather
+	// than the heatmap's all-frozen default.
+	function coverageFor(day: string): import('$lib/types').DayCoverage {
+		return snap ? dayCoverageState(day, snap.coverage) : 'frozen';
+	}
+
+	// scoped models / totals — pinned-day-scoped when focused, else period-scoped.
+	let modelTotals = $derived(
+		snap ? (focusedDay ? dash.focusedModels(snap, focusedDay) : dash.models(snap)) : []
+	);
 	let providerTotals = $derived(snap ? dash.providers(snap) : []);
 	let scopedTotals = $derived(
-		snap ? dash.scopedTotals(snap) : { tokens: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 }, cost: 0, requests: 0, costUnknownRequests: 0, coverage: { states: {}, worst: 'frozen' as const } }
+		snap
+			? focusedDay
+				? dash.focusedTotals(snap, focusedDay)
+				: dash.scopedTotals(snap)
+			: { tokens: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 }, cost: 0, requests: 0, costUnknownRequests: 0, coverage: { states: {}, worst: 'frozen' as const } }
 	);
-	let scopedSessions = $derived(snap ? dash.scopedSessions(snap) : []);
+	let scopedSessions = $derived(
+		snap ? (focusedDay ? dash.focusedSessions(snap, focusedDay) : dash.scopedSessions(snap)) : []
+	);
 
-	// whether the scoped window's partial day is TODAY (live tail) vs a past gated-partial day
-	let windowIncludesToday = $derived(!!snap && snap.coverage[todayUTC] === 'partial');
+	// whether the scoped window's partial day is TODAY (live tail) vs a past gated-partial day.
+	// In focused mode this is "is the pinned day today".
+	let windowIncludesToday = $derived(
+		!!snap && (focusedDay ? focusedDay === todayUTC : snap.coverage[todayUTC] === 'partial')
+	);
 
 	// stacking order = models by cost (scoped)
 	let stackModels = $derived(modelTotals.map((m) => m.model));
@@ -88,13 +121,36 @@
 	// 5h cap-proximity active block
 	let activeBlock = $derived(snap?.blocks.find((b) => b.isActive) ?? null);
 
+	const isDayBucket = (b: PeriodBucket) => /^\d{4}-\d{2}-\d{2}$/.test(b.key);
+
 	function onTrendPick(b: PeriodBucket) {
-		// A bar may be a single day OR a coarse week/month bucket (long spans);
-		// drill the days the bar aggregated (its bucket range, clamped to the
-		// active window), not just its first day.
 		if (!snap) return;
+		// A single-DAY bar pins the focused day (the new primary path, single source of truth).
+		// A coarse week/month bar (long-span trend) keeps the existing bucket-range drill —
+		// focusedDay is single-day only, so a week bar opens the DetailSheet, not a pin.
+		if (isDayBucket(b)) {
+			dash.setFocusedDay(snap, b.key);
+			return;
+		}
 		const range = dash.bucketDayRange(snap, b);
 		dash.openPeriodDrill({ from: range.from, to: range.to, periodKey: b.key, label: fmtPeriodKey(b.key) });
+	}
+
+	// Page-level Arrow Left/Right steps the focused day, but ONLY when a day is pinned, focus
+	// is not in a text field, and the heatmap grid (which owns its own roving arrows) isn't
+	// the focused element — so the page handler never fights the grid or a date input.
+	function onPageKey(e: KeyboardEvent) {
+		if (!snap || !dash.focusedDay) return;
+		if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+		const el = document.activeElement as HTMLElement | null;
+		if (el) {
+			const tag = el.tagName;
+			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable) return;
+			// the heatmap grid cells own arrow nav; let them handle it
+			if (el.closest('[data-heatmap-grid]')) return;
+		}
+		e.preventDefault();
+		dash.stepFocusedDay(snap, e.key === 'ArrowRight' ? 1 : -1);
 	}
 
 	let unknownNote = $derived(snap && snap.unknownPriceModels.length > 0 ? snap.unknownPriceModels.join(', ') : null);
@@ -120,6 +176,8 @@
 	);
 </script>
 
+<svelte:window onkeydown={onPageKey} />
+
 <div class="page">
 	<header class="topbar">
 		<div class="brand">
@@ -144,12 +202,13 @@
 			<section class="hero-sec" aria-label="Current period spend">
 				<div class="hero-left">
 				<p class="hero-label">
-					Spend · {hero?.label ?? '—'}
+					Spend · {heroLabel}
+						{#if focusedDay}<span class="scope">· pinned day</span>{/if}
 					{#if dash.providerFilter.size > 0}<span class="scope">· {[...dash.providerFilter].map(providerLabel).join(', ')}</span>{/if}
 					{#if dash.modelFilter.size > 0}<span class="scope">· {[...dash.modelFilter].map(modelLabel).join(', ')}</span>{/if}
 				</p>
 					<div class="hero-row">
-						<span class="hero-num num">{money(hero?.current.cost ?? 0)}</span>
+						<span class="hero-num num">{money(heroCost)}</span>
 						{#if heroDelta}
 							<span class="hero-delta {heroDelta.dir}">
 								{heroDelta.text}
@@ -167,7 +226,19 @@
 
 			<!-- STICKY CONTROLS -->
 			<div class="controls">
-				<PeriodSwitcher value={dash.period} onChange={(p) => dash.setPeriod(p)} />
+				<div class="period-wrap" class:overridden={focusedDay != null}>
+						<PeriodSwitcher value={dash.period} onChange={(p) => dash.setPeriod(p)} />
+						{#if focusedDay != null}<span class="override-note">overridden by focused day</span>{/if}
+					</div>
+					<DayNavigator
+						{focusedDay}
+						earliest={snap.earliestDay}
+						latest={snap.latestDay}
+						onStep={(d) => dash.stepFocusedDay(snap, d)}
+						onJump={(day) => dash.setFocusedDay(snap, day)}
+						onClear={() => dash.clearFocusedDay()}
+						onEnter={() => snap.latestDay && dash.setFocusedDay(snap, snap.latestDay)}
+					/>
 				{#if providerTotals.length > 1}
 					<div class="provider-filter" aria-label="Provider filter">
 						{#each providerTotals as p (p.provider)}
@@ -218,7 +289,19 @@
 				/>
 			</section>
 
-			<!-- MAIN GRID: trend + breakdown -->
+			<!-- CALENDAR HEATMAP: primary time-nav surface -->
+				<section class="heatmap-sec" aria-label="Daily spend calendar">
+					<div class="panel">
+						<CalendarHeatmap
+							cells={dayCells}
+							{focusedDay}
+							coverage={coverageFor}
+							onPick={(day) => dash.setFocusedDay(snap, day)}
+						/>
+					</div>
+				</section>
+
+				<!-- MAIN GRID: trend + breakdown -->
 			<section class="grid">
 				<div class="panel trend-panel">
 					{#if trend.length > 0}
@@ -430,6 +513,23 @@
 		padding: 0.5rem 0;
 		background: linear-gradient(var(--bg) 75%, transparent);
 		flex-wrap: wrap;
+	}
+	.period-wrap {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.period-wrap.overridden {
+		opacity: 0.7;
+	}
+	.override-note {
+		font-size: 0.68rem;
+		color: var(--fg-dim);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+	.heatmap-sec {
+		margin-bottom: 1rem;
 	}
 	.clear-filter {
 		background: var(--surface-2);
