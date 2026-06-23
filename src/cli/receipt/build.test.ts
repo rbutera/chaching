@@ -126,3 +126,62 @@ describe('buildReceipt — sections + invariants', () => {
 		expect(codexOnly.totalBurn).toBeCloseTo(1.5, 10);
 	});
 });
+
+describe('buildReceipt — billed cache cost + subsidisation footer', () => {
+	const snap = snapFrom(grain);
+	const subscription = {
+		claude: { enabled: true, tier: 'corporate', monthlyUsd: 99 },
+		codex: { enabled: true, tier: 'plus', monthlyUsd: 20 }
+	};
+
+	it('always exposes the billed cache-cost breakdown (reads + writes), from resolvePrice', () => {
+		const m = buildReceipt(snap, { now: FIXED_NOW });
+		const opus = resolvePrice('claude-opus-4-8')!;
+		// only opus carries cache reads (2M) in the fixture; unknown model excluded from cost
+		expect(m.cacheCost.cacheReadTokens).toBe(2_005_000); // opus 2M + unknown 5k tokens counted
+		expect(m.cacheCost.cacheReadCost).toBeCloseTo(2_000_000 * opus.cache_read_input_token_cost, 8);
+		expect(m.cacheCost.savedVsUncached).toBeCloseTo(
+			2_000_000 * (opus.input_cost_per_token - opus.cache_read_input_token_cost),
+			8
+		);
+		// TOTAL BURN is untouched by the breakdown
+		expect(m.totalBurn).toBeCloseTo(sumGrain(grain).cost, 10);
+	});
+
+	it('no subscription → no subsidisation footer', () => {
+		const m = buildReceipt(snap, { now: FIXED_NOW });
+		expect(m.subsidisation).toBeNull();
+	});
+
+	it('--period month shows the month-basis subsidisation with a multiple', () => {
+		const m = buildReceipt(snap, { now: FIXED_NOW, period: 'month', subscription });
+		expect(m.subsidisation).not.toBeNull();
+		expect(m.subsidisation!.monthBasis).toBe(true);
+		expect(m.subsidisation!.monthlyUsd).toBe(119); // 99 + 20, both enabled
+		expect(m.subsidisation!.multiple).not.toBeNull();
+		// month-to-date burn = claude+codex June burn; multiple = burn / 119
+		expect(m.subsidisation!.multiple!).toBeCloseTo(
+			m.subsidisation!.apiEquivalentUsd / 119,
+			6
+		);
+	});
+
+	it('default (all-time) receipt uses the current-month headline (monthBasis)', () => {
+		const m = buildReceipt(snap, { now: FIXED_NOW, subscription });
+		expect(m.subsidisation!.monthBasis).toBe(true);
+	});
+
+	it('--period week omits the monthly multiple (period mismatch)', () => {
+		const m = buildReceipt(snap, { now: FIXED_NOW, period: 'week', subscription });
+		expect(m.subsidisation).not.toBeNull();
+		expect(m.subsidisation!.monthBasis).toBe(false);
+		expect(m.subsidisation!.multiple).toBeNull();
+		expect(m.subsidisation!.periodLabel).toBe('this week');
+	});
+
+	it('TOTAL BURN is unchanged whether or not a subscription is supplied', () => {
+		const without = buildReceipt(snap, { now: FIXED_NOW });
+		const withSub = buildReceipt(snap, { now: FIXED_NOW, period: 'month', subscription });
+		expect(withSub.totalBurn).toBeCloseTo(without.totalBurn, 12);
+	});
+});

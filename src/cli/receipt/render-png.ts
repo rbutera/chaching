@@ -160,6 +160,12 @@ function receiptElement(model: ReceiptModel): RenderNode {
 		children.push(pngRow('CACHE DISCOUNTS', money(0), { color: DIM }));
 	}
 
+	// Cache is BILLED — explicit billed read/write cost (the "cache isn't free" reframe).
+	children.push(dashRuleNode());
+	children.push(h('div', { style: { display: 'flex', fontSize: '18px', color: ACCENT, marginBottom: '6px' }, children: '⌁ CACHE — BILLED, NOT FREE' }));
+	children.push(pngRow('  cache reads (billed)', money(model.cacheCost.cacheReadCost), { color: MUTED }));
+	children.push(pngRow('  cache writes (billed)', money(model.cacheCost.cacheWriteCost), { color: MUTED }));
+
 	// Subtotals
 	if (model.subtotals.length > 0) {
 		children.push(dashRuleNode());
@@ -182,6 +188,26 @@ function receiptElement(model: ReceiptModel): RenderNode {
 		children.push(h('div', { style: { display: 'flex', fontSize: '14px', color: DIM, marginTop: '4px' }, children: `(${int(model.costUnknownRequests)} req with unknown pricing)` }));
 	}
 	children.push(ruleNode());
+
+	// Subsidisation footer (flat-fee value framing).
+	if (model.subsidisation) {
+		const s = model.subsidisation;
+		children.push(h('div', { style: { display: 'flex', fontSize: '18px', color: ACCENT, marginTop: '8px', marginBottom: '6px' }, children: '✦ SUBSCRIPTION SUBSIDY' }));
+		if (s.monthBasis) {
+			const mult = s.multiple == null ? '∞ — all of it' : `${s.multiple >= 100 ? Math.round(s.multiple) : s.multiple.toFixed(1)}×`;
+			children.push(pngRow(`${s.periodLabel} multiple`, mult, { bold: true, color: ACCENT, size: 24 }));
+			children.push(pngRow(`${money(s.apiEquivalentUsd)} value`, `for ${money(s.monthlyUsd)} fee`, { color: DIM, size: 16 }));
+			children.push(
+				s.netSubsidyUsd >= 0
+					? pngRow('net subsidy', `+${money(s.netSubsidyUsd)}`, { color: GOOD })
+					: pngRow('under-using your plan', money(s.netSubsidyUsd), { color: DIM })
+			);
+		} else {
+			children.push(pngRow(`${s.periodLabel} value`, money(s.apiEquivalentUsd), { color: MUTED }));
+			children.push(pngRow('flat monthly fee', money(s.monthlyUsd), { color: DIM, size: 16 }));
+		}
+		children.push(ruleNode());
+	}
 
 	if (model.footer) {
 		children.push(centre(model.footer, { size: 16, color: DIM }));

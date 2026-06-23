@@ -34,6 +34,8 @@ function fixtureModel(over: Partial<ReceiptModel> = {}): ReceiptModel {
 			}
 		],
 		youSaved: 9,
+		cacheCost: { cacheReadTokens: 1000, cacheReadCost: 0.5, cacheWriteTokens: 200, cacheWriteCost: 0.25, savedVsUncached: 4 },
+		subsidisation: null,
 		subtotals: [{ family: 'opus', cost: 12.5, requests: 100 }],
 		totalBurn: 12.5,
 		totalTokens: 3_500_000,

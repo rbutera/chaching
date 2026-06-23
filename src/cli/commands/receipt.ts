@@ -56,11 +56,27 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 	// Footer copy comes from personality (never under --json, never under --no-art).
 	const footer = noArt || flags.json ? '' : receiptFooter();
 
+	// Pass the per-provider subscription config so the receipt can render the
+	// subsidisation footer. Built additively from the (already loaded) config.
+	const subscription = {
+		claude: {
+			enabled: cfg.providers.claude.enabled,
+			tier: cfg.providers.claude.subscription.tier,
+			monthlyUsd: cfg.providers.claude.subscription.monthlyUsd
+		},
+		codex: {
+			enabled: cfg.providers.codex.enabled,
+			tier: cfg.providers.codex.subscription.tier,
+			monthlyUsd: cfg.providers.codex.subscription.monthlyUsd
+		}
+	};
+
 	const model = buildReceipt(snapshot, {
 		period: flags.period,
 		providers: flags.providers,
 		noArt: noArt || !!flags.json,
-		footer
+		footer,
+		subscription
 	});
 
 	// Redaction runs BEFORE every render path (text / json / png). Default-on.

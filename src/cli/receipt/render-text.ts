@@ -141,6 +141,25 @@ export function renderReceiptText(model: ReceiptModel, e: RenderTextEnv = {}): s
 		lines.push(C.dim('  no cache reads in this period'));
 	}
 
+	// ── Cache is BILLED (the "cache isn't free" reframe) ────────────────────────
+	// Reads and writes are charged; show the billed cost explicitly alongside the
+	// savings above so the receipt never reads as "cache was free".
+	lines.push('');
+	lines.push(C.dim(noArt ? 'CACHE — BILLED' : '⌁ CACHE — BILLED, NOT FREE'));
+	if (model.cacheCost.cacheReadTokens > 0) {
+		lines.push(subRow('cache reads (billed)', money(model.cacheCost.cacheReadCost)));
+		lines.push(C.dim(subRow(`  ${compactTokens(model.cacheCost.cacheReadTokens)} reads @ cache rate`, '')));
+	} else {
+		lines.push(subRow('cache reads (billed)', money(0)));
+		lines.push(C.dim('  no cache reads in this period'));
+	}
+	if (model.cacheCost.cacheWriteTokens > 0) {
+		lines.push(subRow('cache writes (billed)', money(model.cacheCost.cacheWriteCost)));
+		lines.push(C.dim(subRow(`  ${compactTokens(model.cacheCost.cacheWriteTokens)} writes @ create rate`, '')));
+	} else {
+		lines.push(subRow('cache writes (billed)', money(0)));
+	}
+
 	// ── Subtotals ───────────────────────────────────────────────────────────────
 	if (model.subtotals.length > 0) {
 		lines.push('');
@@ -160,6 +179,34 @@ export function renderReceiptText(model: ReceiptModel, e: RenderTextEnv = {}): s
 		lines.push(C.dim(`(${int(model.costUnknownRequests)} req with unknown pricing)`));
 	}
 	lines.push(C.accent(rule(noArt)));
+
+	// ── Subsidisation footer (flat-fee value framing) ───────────────────────────
+	if (model.subsidisation) {
+		const s = model.subsidisation;
+		lines.push('');
+		lines.push(C.dim(noArt ? 'SUBSCRIPTION SUBSIDY' : '✦ SUBSCRIPTION SUBSIDY'));
+		if (s.monthBasis) {
+			const mult =
+				s.multiple == null
+					? '∞ — all of it'
+					: `${s.multiple >= 100 ? Math.round(s.multiple) : s.multiple.toFixed(1)}×`;
+			lines.push(C.accent(C.bold(row(`${s.periodLabel} multiple`, mult))));
+			lines.push(
+				C.dim(row(`${money(s.apiEquivalentUsd)} value`, `for ${money(s.monthlyUsd)} fee`))
+			);
+			if (s.netSubsidyUsd >= 0) {
+				lines.push(row('net subsidy', `+${money(s.netSubsidyUsd)}`));
+			} else {
+				lines.push(C.dim(row('under-using your plan', money(s.netSubsidyUsd))));
+			}
+		} else {
+			// Period mismatch (week/day): show the period burn vs fee, no monthly multiple.
+			lines.push(row(`${s.periodLabel} value`, money(s.apiEquivalentUsd)));
+			lines.push(C.dim(row('flat monthly fee', money(s.monthlyUsd))));
+			lines.push(C.dim('  (set --period month for the subsidy multiple)'));
+		}
+		lines.push(C.accent(rule(noArt)));
+	}
 
 	// ── Footer flourish + barcode ───────────────────────────────────────────────
 	if (!noArt && model.footer) {

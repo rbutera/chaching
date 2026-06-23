@@ -41,6 +41,8 @@ function adversarialModel(): ReceiptModel {
 			}
 		],
 		youSaved: 1,
+		cacheCost: { cacheReadTokens: 0, cacheReadCost: 0, cacheWriteTokens: 0, cacheWriteCost: 0, savedVsUncached: 0 },
+		subsidisation: null,
 		subtotals: [{ family: 'opus', cost: 1, requests: 1 }],
 		totalBurn: 1,
 		totalTokens: 3,

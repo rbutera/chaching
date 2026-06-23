@@ -36,6 +36,38 @@ export interface ReceiptCoupon {
 	saved: number;
 }
 
+/**
+ * The billed cache-cost breakdown — what cache reads and writes actually COST,
+ * alongside the narrative savings. Makes it unmistakable that cache is charged,
+ * not free. Every figure derives from `resolvePrice` (no hardcoded rates).
+ */
+export interface ReceiptCacheCost {
+	cacheReadTokens: number;
+	/** Σ cacheRead × cache-read rate — the BILLED read cost */
+	cacheReadCost: number;
+	cacheWriteTokens: number;
+	/** Σ cacheCreation × cache-write rate — the BILLED write cost */
+	cacheWriteCost: number;
+	/** what reads would have cost uncached, less what they billed (the savings) */
+	savedVsUncached: number;
+}
+
+/** The optional subsidisation footer — flat-fee value framing for one slice. */
+export interface ReceiptSubsidisation {
+	/** the period label this subsidisation line is computed over (e.g. "this month") */
+	periodLabel: string;
+	/** true when the basis is a full calendar month (so the multiple-vs-fee is meaningful) */
+	monthBasis: boolean;
+	/** combined flat monthly fee across enabled subsidised providers */
+	monthlyUsd: number;
+	/** API-equivalent burn compared against the fee (month-to-date when monthBasis) */
+	apiEquivalentUsd: number;
+	/** apiEquivalentUsd − monthlyUsd */
+	netSubsidyUsd: number;
+	/** apiEquivalentUsd / monthlyUsd, or null for a $0 (Free) fee → "∞ — all of it" */
+	multiple: number | null;
+}
+
 /** A per-family subtotal block. */
 export interface ReceiptSubtotal {
 	family: 'opus' | 'sonnet' | 'haiku' | 'other';
@@ -63,6 +95,10 @@ export interface ReceiptModel {
 	coupons: ReceiptCoupon[];
 	/** Σ coupon.saved */
 	youSaved: number;
+	/** billed cache-read + cache-write cost (the "cache is not free" line items) */
+	cacheCost: ReceiptCacheCost;
+	/** optional subsidisation footer (present only when a subscription is supplied) */
+	subsidisation: ReceiptSubsidisation | null;
 	/** per-family subtotals */
 	subtotals: ReceiptSubtotal[];
 
