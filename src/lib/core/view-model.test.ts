@@ -23,15 +23,29 @@ function dm(day: string, provider: string, model: string, cost: number, requests
 	return { day, provider, model, tokens: toks(cost * 1000), requests, cost, costUnknownRequests: 0 };
 }
 
-/** Build a snapshot from a flat grain; latest/earliest derived from days present. */
+/**
+ * Build a snapshot from a flat grain; latest/earliest derived from days present.
+ * Synthesizes a realistic coverage map (the freeze model these fixtures stand in for):
+ * the latest day is the live tail (`partial`); every earlier day with spend is `frozen`,
+ * a $0 earlier day is `zero`. This makes the honest-baseline tests read the same typed
+ * coverage source the runtime uses (post-glow-up #2), instead of an empty map.
+ */
 function snapFrom(grain: DayModelAgg[]): RollupSnapshot {
 	const days = grain.map((g) => g.day).sort();
 	const totalCost = grain.reduce((a, g) => a + g.cost, 0);
 	const totalReq = grain.reduce((a, g) => a + g.requests, 0);
+	const latest = days[days.length - 1] ?? null;
+	const spendByDay = new Map<string, number>();
+	for (const g of grain) spendByDay.set(g.day, (spendByDay.get(g.day) ?? 0) + g.cost);
+	const coverage: Record<string, 'frozen' | 'partial' | 'zero'> = {};
+	for (const day of new Set(days)) {
+		if (day === latest) coverage[day] = 'partial';
+		else coverage[day] = (spendByDay.get(day) ?? 0) > 0 ? 'frozen' : 'zero';
+	}
 	return {
 		generatedAt: 0,
 		earliestDay: days[0] ?? null,
-		latestDay: days[days.length - 1] ?? null,
+		latestDay: latest,
 		totals: { tokens: toks(0), requests: totalReq, cost: totalCost, costUnknownRequests: 0 },
 		dayModel: grain,
 		sessions: [],
@@ -40,7 +54,8 @@ function snapFrom(grain: DayModelAgg[]): RollupSnapshot {
 		providers: [...new Set(grain.map((g) => g.provider))],
 		unknownPriceModels: [],
 		stats: { filesScanned: 0, recordsCounted: 0, linesSkipped: 0, duplicatesSkipped: 0 },
-		cutoverTs: null
+		cutoverTs: null,
+		coverage
 	};
 }
 
@@ -293,7 +308,8 @@ describe('shared view-model — bucketDayRange (coarse-bar drill range)', () => 
 			requests: 0,
 			cost: 0,
 			costUnknownRequests: 0,
-			byModel: new Map()
+			byModel: new Map(),
+			coverage: { states: {}, worst: 'frozen' }
 		};
 		expect(bucketDayRange(b)).toEqual({ from: '2026-06-19', to: '2026-06-19' });
 	});
@@ -307,7 +323,8 @@ describe('shared view-model — bucketDayRange (coarse-bar drill range)', () => 
 			requests: 0,
 			cost: 0,
 			costUnknownRequests: 0,
-			byModel: new Map()
+			byModel: new Map(),
+			coverage: { states: {}, worst: 'frozen' }
 		};
 		expect(bucketDayRange(b)).toEqual({ from: '2026-06-15', to: '2026-06-21' });
 	});
@@ -320,7 +337,8 @@ describe('shared view-model — bucketDayRange (coarse-bar drill range)', () => 
 			requests: 0,
 			cost: 0,
 			costUnknownRequests: 0,
-			byModel: new Map()
+			byModel: new Map(),
+			coverage: { states: {}, worst: 'frozen' }
 		};
 		expect(bucketDayRange(b)).toEqual({ from: '2026-02-01', to: '2026-02-28' });
 	});
@@ -336,7 +354,8 @@ describe('shared view-model — bucketDayRange (coarse-bar drill range)', () => 
 			requests: 0,
 			cost: 0,
 			costUnknownRequests: 0,
-			byModel: new Map()
+			byModel: new Map(),
+			coverage: { states: {}, worst: 'frozen' }
 		};
 		expect(bucketDayRange(b, { from: '2026-06-18', to: '2026-06-20' })).toEqual({
 			from: '2026-06-18',

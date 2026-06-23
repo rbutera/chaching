@@ -7,11 +7,12 @@
 // the web and TUI can never drift. The Svelte class and the React root are both
 // thin shells that hold state and call into here.
 
-import type { Period, RollupSnapshot, SessionSummary } from '../types';
+import type { DayCoverage, Period, RollupSnapshot, SessionSummary } from '../types';
 import {
 	aggregateByModel,
 	aggregateByProvider,
 	aggregateByPeriod,
+	dayCoverageState,
 	filterDays,
 	sumGrain,
 	type BucketGrain,
@@ -33,8 +34,21 @@ export function zeroTotals(): Totals {
 		tokens: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 },
 		cost: 0,
 		requests: 0,
-		costUnknownRequests: 0
+		costUnknownRequests: 0,
+		coverage: { states: {}, worst: 'frozen' }
 	};
+}
+
+/**
+ * Every inclusive calendar day in [from, to] (UTC). This is the single place range-relative
+ * `missing` is materialized: the aggregation fold looks up each of these days in the
+ * snapshot coverage map and defaults absent days to `missing` (design D5).
+ */
+export function enumerateDays(from: string, to: string): string[] {
+	const out: string[] = [];
+	if (to < from) return out;
+	for (let day = from; day <= to; day = addDaysISO(day, 1)) out.push(day);
+	return out;
 }
 
 /** The minimal UI selection both faces own. Sets may be empty (= "all"). */
@@ -94,7 +108,14 @@ export function trend(snap: RollupSnapshot, state: ViewState): PeriodBucket[] {
 	const w = periodWindow(snap, state);
 	const windowed = filterDays(snap.dayModel, w.from, w.to);
 	const grain = trendGrain(w.from, w.to);
-	const present = aggregateByPeriod(windowed, grain, asFilter(state.modelFilter), asFilter(state.providerFilter));
+	const coverageFold = { map: snap.coverage, days: enumerateDays(w.from, w.to) };
+	const present = aggregateByPeriod(
+		windowed,
+		grain,
+		asFilter(state.modelFilter),
+		asFilter(state.providerFilter),
+		coverageFold
+	);
 	if (grain !== 'day') {
 		// Coarse grain: aggregateByPeriod already collapses sparse weeks/months and
 		// drops empty ones. A few absent buckets in a long span don't hurt
@@ -113,7 +134,10 @@ export function trend(snap: RollupSnapshot, state: ViewState): PeriodBucket[] {
 				requests: 0,
 				cost: 0,
 				costUnknownRequests: 0,
-				byModel: new Map()
+				byModel: new Map(),
+				// no spend rows for this day -> its coverage is whatever the map says, else
+				// `missing`. This is what lets the chart tell a frozen $0 apart from a gap.
+				coverage: { states: { [dayCoverageState(day, snap.coverage)]: 1 }, worst: dayCoverageState(day, snap.coverage) }
 			}
 		);
 	}
@@ -285,18 +309,34 @@ export function heroTotals(
 	const modelFilter = asFilter(state.modelFilter);
 	const providerFilter = asFilter(state.providerFilter);
 	const w = periodWindow(snap, state);
-	const current = sumGrain(snap.dayModel, { from: w.from, to: w.to, models: modelFilter, providers: providerFilter });
+	const current = sumGrain(snap.dayModel, {
+		from: w.from,
+		to: w.to,
+		models: modelFilter,
+		providers: providerFilter,
+		coverage: { map: snap.coverage, days: enumerateDays(w.from, w.to) }
+	});
 	const prior = sumGrain(snap.dayModel, {
 		from: w.priorFrom,
 		to: w.priorTo,
 		models: modelFilter,
-		providers: providerFilter
+		providers: providerFilter,
+		coverage: { map: snap.coverage, days: enumerateDays(w.priorFrom, w.priorTo) }
 	});
-	const { earliestDay, latestDay } = snap;
-	const priorWindowFullyWithinData =
-		earliestDay != null && latestDay != null && w.priorFrom >= earliestDay && w.priorTo <= latestDay;
-	const priorHasBaseline = priorWindowFullyWithinData && prior.cost > 0;
+	// Honest baseline, now reading the ONE typed coverage source (design D5): the prior
+	// window is a valid comparison only when EVERY day in it is authoritative (`frozen` or
+	// `zero`) AND the prior cost is non-zero. A `partial`/`missing` prior day suppresses the
+	// delta. This is strictly more honest than the old `earliestDay`/`latestDay` bounds
+	// check and stays identical for the existing all-frozen-past fixtures.
+	const priorHasBaseline = priorIsAuthoritative(prior.coverage.states) && prior.cost > 0;
 	return { current, prior, label: w.label, priorHasBaseline };
+}
+
+/** True when a window's coverage states are entirely authoritative (only frozen / zero). */
+function priorIsAuthoritative(states: Partial<Record<DayCoverage, number>>): boolean {
+	const total = (states.frozen ?? 0) + (states.zero ?? 0) + (states.partial ?? 0) + (states.missing ?? 0);
+	if (total === 0) return false; // an empty / data-less prior window is no baseline
+	return (states.partial ?? 0) === 0 && (states.missing ?? 0) === 0;
 }
 
 /**
@@ -308,7 +348,13 @@ export function scopedTotals(snap: RollupSnapshot, state: ViewState): Totals {
 	const modelFilter = asFilter(state.modelFilter);
 	const providerFilter = asFilter(state.providerFilter);
 	const w = periodWindow(snap, state);
-	return sumGrain(snap.dayModel, { from: w.from, to: w.to, models: modelFilter, providers: providerFilter });
+	return sumGrain(snap.dayModel, {
+		from: w.from,
+		to: w.to,
+		models: modelFilter,
+		providers: providerFilter,
+		coverage: { map: snap.coverage, days: enumerateDays(w.from, w.to) }
+	});
 }
 
 /** Sessions in scope (model filter applied via model mix, provider filter applied directly). */
