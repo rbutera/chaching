@@ -99,22 +99,25 @@
 
 	// Hero count-up: animate from 0 → heroCost on first paint only (not on live deltas).
 	// JS-gated on reduced-motion (renders the final value immediately). Deltas update in
-	// place — once `countDone` is set, displayCost tracks heroCost without re-animating.
+	// place. `started` is a NON-reactive closure flag (a plain let, not $state): the effect
+	// must not read+write the same reactive value or it self-invalidates and cancels its own
+	// rAF before a single frame runs. The effect tracks only heroCost + reducedMotion.
 	let displayCost = $state(0);
-	let countDone = $state(false);
+	let started = false;
 	$effect(() => {
 		const target = heroCost;
-		if (countDone || reducedMotion) {
+		// Deltas / reduced-motion / already-animated: render in place, no animation.
+		if (started || reducedMotion) {
 			displayCost = target;
-			countDone = true;
+			if (target > 0) started = true;
 			return;
 		}
-		// only run once, on the first non-trivial value
+		// Wait for the first non-trivial value before burning the one-shot.
 		if (target <= 0) {
 			displayCost = 0;
 			return;
 		}
-		countDone = true;
+		started = true;
 		const start = performance.now();
 		const dur = 650;
 		let raf = 0;
@@ -411,7 +414,9 @@
 			<section class="stat-grid" aria-label="Summary">
 				<StatCard
 					label="total spend"
-					value={money(scopedTotals.cost)}
+					value={scopedTotals.cost}
+					money
+					moneyTone="gold"
 					accent="var(--accent)"
 					sub={coverageSub(scopedTotals.coverage, windowIncludesToday) ?? `${int(scopedTotals.requests)} requests`}
 				/>
@@ -423,7 +428,9 @@
 				/>
 				<StatCard
 					label="cache savings"
-					value={money(cacheSavings.saved)}
+					value={cacheSavings.saved}
+					money
+					moneyTone="save"
 					accent="var(--good)"
 					sub={`${Math.round(cacheSavings.hitRate * 100)}% cache-read share`}
 				/>
@@ -616,7 +623,7 @@
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.spinner {
-			animation-duration: 2s;
+			animation: none;
 		}
 	}
 

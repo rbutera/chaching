@@ -267,8 +267,10 @@ describe('dashboard route — preservation contract P1–P18', () => {
 		const { container } = render(Page);
 		await flush();
 		expect(container.querySelector('.value-grid')).toBeTruthy();
-		// the value band holds the cache panel + subsidisation card
-		expect(container.querySelectorAll('.value-grid > *').length).toBeGreaterThanOrEqual(1);
+		// the SubsidisationCard itself survived (heading + at least one tier control),
+		// not just *something* in the value band.
+		expect(container.querySelector('#subsidy-heading')).toBeTruthy();
+		expect(container.querySelectorAll('.value-grid select, .value-grid button, .value-grid input').length).toBeGreaterThan(0);
 	});
 
 	it('P2 + hero: renders the brass register total figure', async () => {
@@ -301,5 +303,26 @@ describe('dashboard route — motion (reduced-motion contract)', () => {
 		// total spend for the "all" default scope = 84+12+60+8+40 = 204 → "$204"
 		const hero = container.querySelector('.hero')!;
 		expect(hero.textContent ?? '').toMatch(/\$20[0-9]/);
+	});
+
+	it('actually runs the count-up rAF loop when motion is allowed (guards the self-cancelling-effect bug)', async () => {
+		// motion allowed by the default beforeEach matchMedia stub (matches:false).
+		const rafCalls: FrameRequestCallback[] = [];
+		vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+			rafCalls.push(cb);
+			return rafCalls.length;
+		});
+		vi.stubGlobal('cancelAnimationFrame', vi.fn());
+		snapshotToEmit = richSnap();
+		const { container } = render(Page);
+		await flush();
+		// The count-up must have scheduled at least one frame (the self-cancelling
+		// effect bug cancels the rAF before any frame, so this would be 0).
+		expect(rafCalls.length).toBeGreaterThan(0);
+		// Drive the eased frames to completion and confirm the final value lands.
+		let t = 0;
+		while (rafCalls.length) rafCalls.shift()!((t += 1000));
+		await tick();
+		expect((container.querySelector('.hero')?.textContent ?? '')).toMatch(/\$20[0-9]/);
 	});
 });
