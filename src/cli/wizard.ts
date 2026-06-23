@@ -3,9 +3,10 @@
  * Wave 3 implementation: provider multiselect + env-first secrets + atomic 0600 config write.
  */
 
-import { intro, multiselect, password, outro, isCancel, cancel, log } from '@clack/prompts';
+import { intro, multiselect, password, outro, isCancel, cancel, log, note } from '@clack/prompts';
 import { loadConfig, saveConfig, clearConfigCache, type chachingConfig } from '../lib/core/config.js';
-import { noArt, wordmark } from './theme/personality.js';
+import { noArt, accent } from './theme/personality.js';
+import { bannerLine } from './tui/theme.js';
 
 // ── Provider registry ──────────────────────────────────────────────────────────
 
@@ -131,9 +132,11 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 	// This handles subprocess tests, CI, and piped stdin gracefully.
 	if (!process.stdin.isTTY) {
 		// Silently write the default config and return — no interactive prompts.
+		// Match the interactive default: enable everything EXCEPT Cursor (which is
+		// off in the default config and needs an admin token to do anything useful).
 		const base = await loadConfig();
 		const updated = applySelectionToConfig(base, {
-			enabled: [...KNOWN_PROVIDERS],
+			enabled: KNOWN_PROVIDERS.filter((p) => p !== 'cursor'),
 			secrets: {}
 		});
 		clearConfigCache();
@@ -141,18 +144,40 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 		return updated;
 	}
 
-	// Show branded intro unless art is suppressed. Wizard doesn't receive argv,
-	// but the env flag (CHACHING_NO_ART) is the reliable signal here.
+	// ── Branded, paced first-run intro ─────────────────────────────────────────
+	// A warm welcome before the provider checklist. The register banner sets the
+	// tone, then a couple of light, clear lines explain what we're about to do.
+	// All of it is suppressed under --no-art / CHACHING_NO_ART (the wizard doesn't
+	// receive argv, but the env flag is the reliable signal here). NO_COLOR strips
+	// the brass paint but keeps the words.
 	const isNoArt = noArt([], process.env);
-	const introLabel = isNoArt
-		? 'chaching — first-run setup'
-		: (wordmark({ noArt: false }) ?? 'chaching') + ' — first-run setup';
-	intro(introLabel);
+
+	if (!isNoArt) {
+		const banner = bannerLine(false, process.stdout.columns ?? 80);
+		if (banner) {
+			// Paint the register wordmark in brass (accent() degrades under NO_COLOR).
+			process.stdout.write('\n' + accent(banner) + '\n\n');
+		}
+	}
+
+	intro(isNoArt ? 'chaching — first-run setup' : 'Welcome to Chaching!');
+
+	if (!isNoArt) {
+		note(
+			"Let's help you keep track of your token usage.\n" +
+				'First, which coding harnesses would you like Chaching to track?',
+			'getting set up'
+		);
+	}
 
 	// Load whatever base config exists (or the default).
 	const base = await loadConfig();
 
 	// ── Step 1: provider multiselect ──────────────────────────────────────────
+	// Claude / Codex / OpenCode are pre-ticked; Cursor is UNTICKED by default
+	// (it needs an admin API token and is off in the default config). Ticking
+	// Cursor here is what triggers the token prompt below — never otherwise.
+	const DEFAULT_TICKED: KnownProvider[] = KNOWN_PROVIDERS.filter((p) => p !== 'cursor');
 
 	const selection = await multiselect<KnownProvider>({
 		message: 'Which providers would you like to enable?',
@@ -161,8 +186,7 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 			label: PROVIDER_META[p].label,
 			hint: PROVIDER_META[p].hint
 		})),
-		// All providers pre-ticked by default per spec requirement.
-		initialValues: [...KNOWN_PROVIDERS],
+		initialValues: DEFAULT_TICKED,
 		required: false
 	});
 

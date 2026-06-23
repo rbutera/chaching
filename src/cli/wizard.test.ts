@@ -24,6 +24,7 @@ vi.mock('@clack/prompts', () => ({
 	isCancel: vi.fn(() => false),
 	multiselect: vi.fn(),
 	password: vi.fn(),
+	note: vi.fn(),
 	log: { info: vi.fn() }
 }));
 
@@ -231,6 +232,42 @@ describe('runWizard (mocked prompts — TTY bypassed via isTTY stub)', () => {
 		expect(vi.mocked(clack.log.info)).toHaveBeenCalledWith(
 			expect.stringContaining('CURSOR_ADMIN_API_TOKEN')
 		);
+	});
+
+	it('default flow: branded intro + note, Cursor UNTICKED, no token prompt', async () => {
+		// Art on: ensure the env doesn't suppress it (the wizard reads process.env).
+		const origNoArt = process.env.CHACHING_NO_ART;
+		delete process.env.CHACHING_NO_ART;
+		// Simulate accepting the pre-ticked defaults (Cursor not among them).
+		vi.mocked(clack.multiselect).mockResolvedValue(['claude', 'codex', 'opencode']);
+
+		const { runWizard } = await import('./wizard.js');
+		const result = await runWizard({ env: {} });
+
+		// Warm branded intro + note copy fired (art on by default in this env).
+		expect(vi.mocked(clack.intro)).toHaveBeenCalledWith('Welcome to Chaching!');
+		expect(vi.mocked(clack.note)).toHaveBeenCalledWith(
+			expect.stringContaining('keep track of your token usage'),
+			expect.anything()
+		);
+
+		// Multiselect offered Cursor UNTICKED by default (initialValues excludes it).
+		const msArg = vi.mocked(clack.multiselect).mock.calls[0]![0] as {
+			initialValues: string[];
+		};
+		expect(msArg.initialValues).toEqual(['claude', 'codex', 'opencode']);
+		expect(msArg.initialValues).not.toContain('cursor');
+
+		// Cursor not ticked → NO admin token prompt in the default flow.
+		expect(vi.mocked(clack.password)).not.toHaveBeenCalled();
+		expect(result).not.toBeNull();
+		expect(result!.providers.cursor.enabled).toBe(false);
+		expect(result!.providers.claude.enabled).toBe(true);
+		expect(result!.providers.codex.enabled).toBe(true);
+		expect(result!.providers.opencode.enabled).toBe(true);
+
+		if (origNoArt === undefined) delete process.env.CHACHING_NO_ART;
+		else process.env.CHACHING_NO_ART = origNoArt;
 	});
 
 	it('deselect cursor: cursor disabled, others enabled, no secret prompt', async () => {
