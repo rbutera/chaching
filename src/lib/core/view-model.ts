@@ -73,10 +73,17 @@ export interface ViewState {
 	modelFilter: Set<string>;
 	/** empty = all providers */
 	providerFilter: Set<string>;
+	/**
+	 * The pinned single-day focus (`YYYY-MM-DD`), or null for rolling-period mode (default). When
+	 * set, `scopedSessions` narrows its window to this one day instead of the rolling period
+	 * window — keeping the session list/explorer aligned with the pinned hero/cards (sibling
+	 * `chaching-day-nav`). Optional so existing callers/fixtures need no change.
+	 */
+	focusedDay?: string | null;
 }
 
 export function defaultViewState(period: Period = 'week'): ViewState {
-	return { period, modelFilter: new Set(), providerFilter: new Set() };
+	return { period, modelFilter: new Set(), providerFilter: new Set(), focusedDay: null };
 }
 
 /** A filter set, normalized to null when empty (the aggregate helpers treat null = all). */
@@ -372,14 +379,74 @@ export function scopedTotals(snap: RollupSnapshot, state: ViewState): Totals {
 	});
 }
 
-/** Sessions in scope (model filter applied via model mix, provider filter applied directly). */
+/** UTC `YYYY-MM-DD` day of an epoch-ms timestamp (matches the engine's `isoDayUTC`). */
+export function dayOf(ts: number): string {
+	return new Date(ts).toISOString().slice(0, 10);
+}
+
+/**
+ * Does a session's activity overlap the inclusive day window `[from, to]`? Overlap, not
+ * containment (design D3): in-window iff the session's first-activity day is on/before `to`
+ * AND its last-activity day is on/after `from`. We compare by UTC day strings (not raw ms) so
+ * the rule lines up with how days are frozen/aggregated — a session is "on" every UTC day it
+ * touched. A session that started 23:50 yesterday and ran past midnight into the window counts
+ * (its `lastTs` day >= `from`); one wholly before `from` or wholly after `to` does not. The
+ * honest consequence is that a midnight-straddling session legitimately appears in BOTH adjacent
+ * windows whose ranges its activity overlaps.
+ */
+export function inWindow(session: SessionSummary, from: string, to: string): boolean {
+	return dayOf(session.firstTs) <= to && dayOf(session.lastTs) >= from;
+}
+
+/**
+ * Sessions in scope. Date-windows the session index by the active period window
+ * (`periodWindow`) via the overlap rule (`inWindow`, design D3) — the missing piece that made
+ * "Recent sessions" identical across Day/Week/Month — then applies the model + provider filters
+ * (all three AND-compose). A pinned `focusedDay` (sibling `chaching-day-nav`) narrows the window
+ * to that single day so the explorer/list scopes to the pin, matching the rest of the dashboard.
+ */
 export function scopedSessions(snap: RollupSnapshot, state: ViewState): SessionSummary[] {
+	const w = periodWindow(snap, state);
+	const from = state.focusedDay ?? w.from;
+	const to = state.focusedDay ?? w.to;
 	const modelFilter = asFilter(state.modelFilter);
-	let sessions = snap.sessions;
-	if (modelFilter) sessions = sessions.filter((s) => s.models.some((m) => modelFilter.has(m)));
 	const providerFilter = asFilter(state.providerFilter);
-	if (providerFilter) sessions = sessions.filter((s) => providerFilter.has(s.provider));
-	return sessions;
+	return snap.sessions.filter((s) => {
+		if (!inWindow(s, from, to)) return false;
+		if (modelFilter && !s.models.some((m) => modelFilter.has(m))) return false;
+		if (providerFilter && !providerFilter.has(s.provider)) return false;
+		return true;
+	});
+}
+
+/**
+ * All banked sessions (frozen ∪ live), with only the model + provider filters applied — no date
+ * window. The session explorer's default "which sessions" selector (design D2): its whole point
+ * is cross-day, so it does NOT period-scope. Pure + framework-free so the explorer stays a thin
+ * shell and the TUI can reuse it.
+ */
+export function allSessions(snap: RollupSnapshot, state: ViewState): SessionSummary[] {
+	const modelFilter = asFilter(state.modelFilter);
+	const providerFilter = asFilter(state.providerFilter);
+	if (!modelFilter && !providerFilter) return snap.sessions;
+	return snap.sessions.filter((s) => {
+		if (modelFilter && !s.models.some((m) => modelFilter.has(m))) return false;
+		if (providerFilter && !providerFilter.has(s.provider)) return false;
+		return true;
+	});
+}
+
+/** UTC `YYYY-MM-DD` for "now" (the live-tail day). Injectable for deterministic tests. */
+export function todayUTC(now: number = Date.now()): string {
+	return new Date(now).toISOString().slice(0, 10);
+}
+
+/**
+ * Is a session live (still accumulating today) vs frozen (sealed in history)? Live iff its last
+ * activity day is today (design D4) — derived, never stored, so no new field on `SessionSummary`.
+ */
+export function isLive(session: SessionSummary, now: number = Date.now()): boolean {
+	return dayOf(session.lastTs) === todayUTC(now);
 }
 
 // ---------------------------------------------------------------------------

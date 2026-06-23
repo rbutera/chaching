@@ -4,18 +4,24 @@ import type { PeriodBucket } from './aggregate';
 import { pctDelta } from '../format';
 import {
 	addDaysISO,
+	allSessions,
 	bucketDayRange,
 	byDay,
 	clampDay,
 	defaultViewState,
+	dayOf,
 	focusedModels,
 	focusedSessions,
 	focusedTotals,
 	heroTotals,
+	inWindow,
+	isLive,
 	models,
 	periodWindow,
 	providers,
+	scopedSessions,
 	scopedTotals,
+	todayUTC,
 	trend,
 	type ViewState
 } from './view-model';
@@ -594,5 +600,185 @@ describe('clampDay — bounds + step', () => {
 		expect(clampDay(snap, addDaysISO('2026-06-15', -1))).toBe('2026-06-15');
 		// at latest, stepping +1 then clamping stays at latest
 		expect(clampDay(snap, addDaysISO('2026-06-18', 1))).toBe('2026-06-18');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// chaching-session-browser: scopedSessions date-windowing (the bug fix) + the
+// explorer's pure selectors (allSessions / isLive / inWindow).
+// ---------------------------------------------------------------------------
+
+/** A session spanning [firstDay 08:00, lastDay 20:00] UTC unless `firstTs`/`lastTs` overridden. */
+function sess(
+	id: string,
+	firstDay: string,
+	lastDay: string,
+	opts: { provider?: string; models?: string[]; firstTs?: number; lastTs?: number } = {}
+): SessionSummary {
+	return {
+		sessionId: id,
+		provider: opts.provider ?? 'codex',
+		project: 'p',
+		firstTs: opts.firstTs ?? new Date(firstDay + 'T08:00:00Z').getTime(),
+		lastTs: opts.lastTs ?? new Date(lastDay + 'T20:00:00Z').getTime(),
+		tokens: toks(0),
+		requests: 1,
+		cost: 1,
+		costUnknownRequests: 0,
+		models: opts.models ?? ['claude-opus-4-8']
+	};
+}
+
+describe('inWindow / dayOf — day-string overlap rule (design D3)', () => {
+	it('dayOf returns the UTC YYYY-MM-DD of a timestamp', () => {
+		// 23:50 UTC stays on its own day; 00:10 the next day is the next day (no TZ drift)
+		expect(dayOf(new Date('2026-06-18T23:50:00Z').getTime())).toBe('2026-06-18');
+		expect(dayOf(new Date('2026-06-19T00:10:00Z').getTime())).toBe('2026-06-19');
+	});
+
+	it('wholly-inside is included; wholly-before / wholly-after are excluded (boundary)', () => {
+		const inside = sess('in', '2026-06-15', '2026-06-15');
+		expect(inWindow(inside, '2026-06-13', '2026-06-19')).toBe(true);
+		// exactly one day before `from`
+		const before = sess('b', '2026-06-12', '2026-06-12');
+		expect(inWindow(before, '2026-06-13', '2026-06-19')).toBe(false);
+		// exactly one day after `to`
+		const after = sess('a', '2026-06-20', '2026-06-20');
+		expect(inWindow(after, '2026-06-13', '2026-06-19')).toBe(false);
+		// touching the exact edges is included (inclusive window)
+		expect(inWindow(sess('lo', '2026-06-13', '2026-06-13'), '2026-06-13', '2026-06-19')).toBe(true);
+		expect(inWindow(sess('hi', '2026-06-19', '2026-06-19'), '2026-06-13', '2026-06-19')).toBe(true);
+	});
+
+	it('a midnight-straddling session overlaps BOTH adjacent windows', () => {
+		// started 23:50 on 06-18, ran to 00:30 on 06-19 — touches both days.
+		const straddle = sess('s', '', '', {
+			firstTs: new Date('2026-06-18T23:50:00Z').getTime(),
+			lastTs: new Date('2026-06-19T00:30:00Z').getTime()
+		});
+		// a window ending 06-18 includes it (lastTs day 06-19 >= from 06-12, firstTs day 06-18 <= to 06-18)
+		expect(inWindow(straddle, '2026-06-12', '2026-06-18')).toBe(true);
+		// a window starting 06-19 also includes it (firstTs day 06-18 <= to 06-25, lastTs day 06-19 >= from 06-19)
+		expect(inWindow(straddle, '2026-06-19', '2026-06-25')).toBe(true);
+	});
+});
+
+describe('scopedSessions — date-windowing regression (the bug)', () => {
+	// 40 sessions, one per day, $1 each, descending from 2026-06-19. The latest day
+	// anchors every rolling window so day/week/month all end on 06-19 but start earlier.
+	const grain: DayModelAgg[] = [];
+	const sessions: SessionSummary[] = [];
+	for (let i = 0; i < 40; i++) {
+		const d = new Date(Date.UTC(2026, 5, 19));
+		d.setUTCDate(d.getUTCDate() - i);
+		const day = d.toISOString().slice(0, 10);
+		grain.push(dm(day, 'codex', 'claude-opus-4-8', 1));
+		sessions.push(sess(`s-${day}`, day, day));
+	}
+	const snap = { ...snapFrom(grain), sessions };
+
+	it('REGRESSION: scopedSessions for Day vs Week vs Month over the SAME snapshot DIFFER', () => {
+		// Pre-fix scopedSessions returned the unwindowed list, so all three were identical
+		// (length 40). This is the assertion that fails against the old code and locks the fix.
+		const day = scopedSessions(snap, defaultViewState('day'));
+		const week = scopedSessions(snap, defaultViewState('week'));
+		const month = scopedSessions(snap, defaultViewState('month'));
+		expect(day.length).toBe(1); // 06-19 only
+		expect(week.length).toBe(7); // 06-13 .. 06-19
+		expect(month.length).toBe(30); // 06-... last 30 days
+		expect(day.length).not.toBe(week.length);
+		expect(week.length).not.toBe(month.length);
+	});
+
+	it('windowed set matches the period window boundaries', () => {
+		const w = periodWindow(snap, defaultViewState('week'));
+		const ids = scopedSessions(snap, defaultViewState('week')).map((s) => dayOf(s.firstTs));
+		for (const day of ids) {
+			expect(day >= w.from && day <= w.to).toBe(true);
+		}
+	});
+});
+
+describe('scopedSessions — overlap, focusedDay, and filter composition', () => {
+	const snap = snapFrom([
+		dm('2026-06-13', 'codex', 'claude-opus-4-8', 1),
+		dm('2026-06-19', 'codex', 'claude-opus-4-8', 1)
+	]);
+
+	it('a midnight-straddle session appears in both adjacent period windows', () => {
+		// straddles 06-18 23:50 → 06-19 00:30. Week window = 06-13..06-19 (includes it);
+		// a day window on 06-18 (built via a snapshot whose latest is 06-18) also includes it.
+		const straddle = sess('s', '', '', {
+			firstTs: new Date('2026-06-18T23:50:00Z').getTime(),
+			lastTs: new Date('2026-06-19T00:30:00Z').getTime()
+		});
+		const weekSnap = { ...snap, sessions: [straddle] };
+		expect(scopedSessions(weekSnap, defaultViewState('week')).map((s) => s.sessionId)).toEqual(['s']);
+		// a snapshot whose latest day is 06-18 → day window [06-18,06-18] still catches the straddle
+		const snap18 = { ...snapFrom([dm('2026-06-18', 'codex', 'claude-opus-4-8', 1)]), sessions: [straddle] };
+		expect(scopedSessions(snap18, defaultViewState('day')).map((s) => s.sessionId)).toEqual(['s']);
+	});
+
+	it('focusedDay narrows the window to that single day', () => {
+		const sessions = [sess('a', '2026-06-13', '2026-06-13'), sess('b', '2026-06-19', '2026-06-19')];
+		const s2 = { ...snap, sessions };
+		// week view alone would include both
+		expect(scopedSessions(s2, defaultViewState('week')).length).toBe(2);
+		// pinned to 06-13 → only the 06-13 session
+		const pinned: ViewState = { ...defaultViewState('week'), focusedDay: '2026-06-13' };
+		expect(scopedSessions(s2, pinned).map((s) => s.sessionId)).toEqual(['a']);
+	});
+
+	it('model + provider filters AND-compose with the window', () => {
+		const sessions = [
+			sess('keep', '2026-06-19', '2026-06-19', { provider: 'codex', models: ['claude-opus-4-8'] }),
+			sess('wrongProvider', '2026-06-19', '2026-06-19', { provider: 'opencode', models: ['claude-opus-4-8'] }),
+			sess('wrongModel', '2026-06-19', '2026-06-19', { provider: 'codex', models: ['claude-sonnet-4-5'] }),
+			sess('outOfWindow', '2026-06-01', '2026-06-01', { provider: 'codex', models: ['claude-opus-4-8'] })
+		];
+		const s2 = { ...snap, sessions };
+		const state: ViewState = {
+			...defaultViewState('week'),
+			modelFilter: new Set(['claude-opus-4-8']),
+			providerFilter: new Set(['codex'])
+		};
+		expect(scopedSessions(s2, state).map((s) => s.sessionId)).toEqual(['keep']);
+	});
+});
+
+describe('allSessions / isLive — explorer selectors', () => {
+	const sessions = [
+		sess('a', '2026-06-13', '2026-06-13', { provider: 'codex', models: ['claude-opus-4-8'] }),
+		sess('b', '2026-06-19', '2026-06-19', { provider: 'opencode', models: ['claude-sonnet-4-5'] }),
+		sess('c', '2026-06-01', '2026-06-01', { provider: 'codex', models: ['claude-haiku-4-5'] })
+	];
+	const snap = { ...snapFrom([dm('2026-06-19', 'codex', 'claude-opus-4-8', 1)]), sessions };
+
+	it('allSessions returns the full frozen ∪ live union (no date window) by default', () => {
+		expect(allSessions(snap, defaultViewState('month')).length).toBe(3);
+		// even a Day view returns ALL sessions (the explorer is cross-day by design)
+		expect(allSessions(snap, defaultViewState('day')).length).toBe(3);
+	});
+
+	it('allSessions applies model + provider filters but not the window', () => {
+		const codex = allSessions(snap, { ...defaultViewState('day'), providerFilter: new Set(['codex']) });
+		expect(codex.map((s) => s.sessionId).sort()).toEqual(['a', 'c']);
+		const opus = allSessions(snap, { ...defaultViewState('day'), modelFilter: new Set(['claude-opus-4-8']) });
+		expect(opus.map((s) => s.sessionId)).toEqual(['a']);
+	});
+
+	it('isLive is true for a today-lastTs session, false for a past day (boundary)', () => {
+		const now = new Date('2026-06-19T12:00:00Z').getTime();
+		expect(todayUTC(now)).toBe('2026-06-19');
+		// last activity at 20:00 on 06-19 (same UTC day as `now`) → live
+		expect(isLive(sess('live', '2026-06-19', '2026-06-19'), now)).toBe(true);
+		// last activity 06-18 → frozen, even one day before
+		expect(isLive(sess('frozen', '2026-06-18', '2026-06-18'), now)).toBe(false);
+		// a session that ran into 06-19 00:01 is live relative to a 06-19 now
+		const justInto = sess('x', '', '', {
+			firstTs: new Date('2026-06-18T23:50:00Z').getTime(),
+			lastTs: new Date('2026-06-19T00:01:00Z').getTime()
+		});
+		expect(isLive(justInto, now)).toBe(true);
 	});
 });

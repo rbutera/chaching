@@ -81,7 +81,12 @@ export class Dashboard {
 
 	/** Snapshot the current selection into the shared, framework-free view-state. */
 	private state(): vm.ViewState {
-		return { period: this.period, modelFilter: this.modelFilter, providerFilter: this.providerFilter };
+		return {
+			period: this.period,
+			modelFilter: this.modelFilter,
+			providerFilter: this.providerFilter,
+			focusedDay: this.focusedDay
+		};
 	}
 
 	setPeriod(p: Period): void {
@@ -210,9 +215,14 @@ export class Dashboard {
 		return vm.scopedTotals(snap, this.state());
 	}
 
-	/** Sessions in scope (model filter applied via model mix, provider filter applied). */
+	/** Sessions in scope (period-windowed; model + provider filters applied). */
 	scopedSessions(snap: RollupSnapshot): SessionSummary[] {
 		return vm.scopedSessions(snap, this.state());
+	}
+
+	/** All banked sessions (frozen ∪ live), model + provider filters applied, no date window. */
+	allSessions(snap: RollupSnapshot): SessionSummary[] {
+		return vm.allSessions(snap, this.state());
 	}
 
 	/** One cell per calendar day in the banked range (the calendar heatmap series). */
