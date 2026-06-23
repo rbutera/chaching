@@ -1,141 +1,175 @@
 <p align="center">
-  <img src="static/logo.svg" alt="chaching" width="320" />
+  <img src="static/logo.svg" alt="chaching" width="340" />
 </p>
 
-<p align="center"><strong>local AI token spend</strong></p>
+<p align="center"><strong><em>cha-ching.</em> it counts the cache hits too.</strong></p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/chaching"><img alt="npm version" src="https://img.shields.io/npm/v/chaching?color=e0a52f&label=npm" /></a>
   <img alt="node engine" src="https://img.shields.io/badge/node-%3E%3D24.16-e0a52f" />
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-PolyForm--Noncommercial--1.0.0-blue" /></a>
+  <img alt="cloud" src="https://img.shields.io/badge/cloud-none-2ea043" />
+  <img alt="telemetry" src="https://img.shields.io/badge/telemetry-zero-2ea043" />
 </p>
 
 <p align="center">
-  <img src="static/og.png" alt="chaching social card — local AI token spend dashboard" width="640" />
+  <img src="static/og.png" alt="chaching social card — local AI token spend dashboard" width="660" />
 </p>
 
-*cha-ching. it counts the cache hits too.*
+A local cash register for the money your coding agents are quietly setting on fire.
 
-Local, multi-provider AI token spend monitor for Claude Code, Codex, OpenCode, and Cursor. Reads your machine's own artifacts — no cloud, no account, no tracking.
+chaching watches what Claude Code, Codex, OpenCode, and Cursor actually spend, reads it straight off your own machine, and rings it up: a live terminal dashboard, a browsable web view, a one-shot summary, and a shareable receipt. No cloud. No account. No telemetry. The only thing it phones is your conscience.
+
+The name is two jokes wearing one coat: **cha-ching**, the sound of your balance leaving, and **caching**, the token-cache mechanics that quietly save you a fortune. chaching tallies both, so you see the damage *and* the discount.
 
 <!-- TODO (follow-up): animated TUI asciinema cast of the live dashboard. -->
 
 ---
 
-## Install
+## Quick start
 
 ```sh
-# zero-install try
+# zero-install, runs on your own data, deletes itself after
 npx chaching
 
-# or with pnpm
+# pnpm / bun work too
 pnpm dlx chaching
+bunx chaching
 
-# or install globally
+# install it for real (recommended if you want history to accrue — see below)
 npm i -g chaching
 chaching
 ```
 
-**Node >= 24.16 is required.** The OpenCode provider reads a local SQLite database via Node's built-in `node:sqlite` module, which shipped in Node 24.16. If you only use Claude Code / Codex / Cursor, any recent Node LTS will work once that module is shimmed — but 24.16 is the safe pick.
+That's it. No signup, no API key (unless you want Cursor), no config file to write. First run drops you in a setup wizard, then opens the dashboard reading whatever AI tools you already use.
+
+> **Node >= 24.16 is required**, and it's not negotiable. chaching stores history in a local SQLite database via Node's built-in `node:sqlite`, which landed in 24.16. Older Node will refuse to start. `node --version` to check; `nvm install 24` if you're behind.
 
 ---
 
-## Commands
+## What you get
 
-### `chaching` — always-on TUI dashboard
+| Command | What it does |
+|---|---|
+| `chaching` | Always-on **TUI dashboard** — live, updates as your agents spend. |
+| `chaching stats` | **One-shot summary** to stdout, then exits. Pipe-friendly. |
+| `chaching receipt` | Your spend as a **branded thermal receipt**. Shareable. Mildly threatening. |
+| `chaching serve` | The **web dashboard** — calendar heatmap, day-by-day browsing, session drill-down. |
+| `chaching init` | Re-run the setup wizard. |
+| `chaching provider …` | Enable / disable / add a provider without the wizard. |
 
-The default mode. Runs an interactive terminal dashboard that stays open and updates live as your AI tools write new records.
+Global flags: `--version`, `--help`, `--no-art` (kills the ASCII banner and the jokes, for when you're not in the mood or you're piping to something that is). `NO_COLOR` and `CHACHING_NO_ART` are both honoured.
+
+---
+
+## The commands, in detail
+
+### `chaching` — the live register
+
+The default. An interactive terminal dashboard that stays open and ticks up as your tools write new records.
 
 ```
-  💰 chaching                                       week ▾
+  ◆ chaching                                        all ▾
 
-  $487.20             1.84B tokens          top: Opus 4.8
-  this week           in · out · cache       $214.90
+  $9,633              13.49B tokens         top: Opus 4.8
+  TOTAL BURN          in · out · cache        $9,324
 
-  trend (week)  ▁▂▃▂▄▅▆▇█▇▅▄▂▃    peak $92.10
+  trend (by week)  ▁▂▃▂▄▅▆▇█▇▅▄▂▃     peak $2,140
 
   By provider                   By model
-  ● Claude Code   $452.10        Opus 4.8     $214.90
-  ● Codex          $23.40        Sonnet 4.6    $78.40
-  ● OpenCode       $11.70        Haiku 4.5     $12.05
+  ● Claude Code   $9,458         Opus 4.8     $9,324
+  ● Codex           $164         Sonnet 4.6      $95
+  ● OpenCode         $10         Haiku 4.5       $10
 
   5h block  ███████████░░░░░░░░░  $18.40 · 2h50m in · 2h10m left
 
-  [d/w/m] period   [1-9] toggle provider   [0] clear   [q] quit
+  [d w m Q a] period   [1-9] toggle provider   [0] clear   [q] quit
 ```
 
-*(Numbers above are illustrative.)*
+*(Numbers illustrative. Your real ones are worse.)*
 
-Keys: `d` / `w` / `m` switch the period (or `←` / `→` to step through it), number keys `1`-`9` toggle individual providers in the filter, `0` clears the filter, `q` / `Ctrl-C` quits cleanly. Add `--no-art` (or set `CHACHING_NO_ART`) to suppress the banner.
+Keys: `d` `w` `m` `Q` `a` switch the window (day / week / month / quarter / all-time), `←` `→` step through it, `1`-`9` toggle providers, `0` clears the filter, `q` or `Ctrl-C` quits clean.
 
-### `chaching stats` — one-shot print
+### `chaching stats` — one-shot, pipe-safe
 
-Prints totals, per-provider and per-model breakdown, and the earliest covered date, then exits.
+Totals, per-provider and per-model breakdown, earliest covered date, then exits. Detects a non-TTY and falls back to plain text, so it's safe in scripts, CI logs, and `| pbcopy`.
 
 ```sh
-chaching stats                        # all-time totals (default)
-chaching stats --period day           # just today
-chaching stats --period week          # this week
-chaching stats --period month         # this month
-chaching stats --provider claude      # single-provider filter
-chaching stats --json                 # machine-readable JSON snapshot
+chaching stats                  # all-time (default)
+chaching stats --period week    # day | week | month | quarter | all
+chaching stats --provider claude
+chaching stats --json           # machine-readable snapshot
 ```
 
-Sample output:
+### `chaching receipt` — proof of purchase
 
-```
-  chaching — spend summary
-  data since: 2026-05-20
+The fun one. Renders a period's spend as a thermal-printer receipt: line items per model, cache reads itemised as **coupons** (the caching pun, made structural), a `TOTAL BURN`, a wry footer, and a barcode that means nothing.
 
-  Total cost:    $487.20
-  Total tokens:  1.84B
-    Input:       7.1M
-    Output:      3.4M
-    Cache read:  1.79B
-    Cache write: 38.2M
-  Requests:      6,204
-
-  By provider:
-    Claude Code           $452.10   1.74B tokens  5,486 req
-    Codex                  $23.40   71.0M tokens    498 req
-    OpenCode               $11.70   28.4M tokens    220 req
-
-  By model (top 8):
-    Opus 4.8              $214.90   1.10B tokens  3,902 req
-    Sonnet 4.6             $78.40   430.2M tokens 1,205 req
-    Haiku 4.5              $12.05    88.1M tokens   379 req
+```sh
+chaching receipt                         # this is going to sting
+chaching receipt --period month
+chaching receipt --png ~/burn.png        # export a shareable image
+chaching receipt --json
 ```
 
-*(Numbers above are illustrative.)*
+```
+------------------------------------------
+    chaching — AI token spend register
+  all time  ·  2026-04-20 → 2026-06-22
+------------------------------------------
+CLAUDE CODE
+  Opus 4.8                          $9,141
+  Sonnet 4.6                          $95
+. . . . . . . . . . . . . . . . . . . . .
+COUPONS / CACHE DISCOUNTS
+  Opus 4.8 cache hit              -$56,035
+YOU SAVED                         -$58,414
+------------------------------------------
+TOTAL BURN                          $9,633
+------------------------------------------
+        REF F993F9 · 2026-06-22
+```
 
-### `chaching serve` — web dashboard
+**Privacy is the default.** Receipts redact your username, machine name, and file paths before they ever hit the terminal or the PNG, so you can post one without doxxing yourself. Add `--reveal` if you actually want the raw details (you usually don't).
 
-Starts the SvelteKit web app on port 5178. Same data, browser UI with uPlot trend charts, donut breakdown, and a detail sheet.
+### `chaching serve` — the web dashboard
+
+The browser view, for when a wall of terminal text isn't enough self-flagellation. Starts on port 5178.
 
 ```sh
 chaching serve
 # → http://0.0.0.0:5178
 ```
 
-### `chaching init` — setup wizard
+What's in there:
 
-First-run wizard. Runs automatically the first time you invoke `chaching` with no config file. Re-run it any time to reconfigure.
+- **Calendar heatmap** over every day you've ever banked, shaded by spend. Click a cell (or arrow through days) to pin the whole dashboard to that day.
+- **Session browser** — sortable, searchable, drill into any individual session to see what that one expensive afternoon actually cost.
+- **Coverage-aware everything** — a dip reads as "today's not done yet," a gap reads as "no logs that far back," never a lying "$0". Comparisons only show when there's a real prior window to compare against, so you'll never see a deranged "+563% vs prior $0".
 
-```sh
-chaching init
-```
-
-Presents a checklist of providers (all enabled by default), prompts for any required secrets (Cursor admin token), writes `~/.config/chaching/config.json` at mode `0600`.
-
-### `chaching provider add|enable|disable`
-
-Flip individual providers without going through the full wizard.
+### `chaching init` / `chaching provider …`
 
 ```sh
+chaching init                     # re-run the wizard any time
 chaching provider enable cursor
 chaching provider disable codex
 chaching provider add opencode
 ```
+
+The wizard shows a checklist of providers (all on by default), asks for any secret it needs (just Cursor's admin token), and writes `~/.config/chaching/config.json` at mode `0600`.
+
+---
+
+## History: it remembers longer than the logs do
+
+Here's the part most spend tools get wrong. Claude Code prunes its logs after ~30 days. Most dashboards therefore can only ever show you 30 days, because the source data evaporates.
+
+chaching keeps a local **history database** (`~/.local/share/chaching/history.db`) and uses a *freeze-past-days* model: every time it runs, it permanently snapshots each completed past day before the raw logs can prune it. So your history compounds. Run it for two months and you can browse two months, long after Claude Code forgot.
+
+Two consequences worth knowing:
+
+- **It only banks days it actually sees.** Installing today can't recover history that's already been pruned. It starts hoarding from now. The sooner it's running, the deeper your records go.
+- **It accrues on every run, regardless of how you run it.** `npx` writes the same DB a global install does (it lives in your data dir, not in the package). The reason to install globally or leave `chaching serve` running is purely so it runs *often* and never misses a day. That's the difference between "a snapshot" and "a ledger."
 
 ---
 
@@ -143,12 +177,12 @@ chaching provider add opencode
 
 | Provider | What it reads | Notes |
 |---|---|---|
-| **Claude Code** | `~/.claude/projects/**/*.jsonl` and `~/.config/claude/projects/**/*.jsonl` | De-duplicated by `message.id:requestId`. 30-day log retention. |
-| **Codex** | `~/.codex/sessions/**` (JSONL) | Uses `last_token_usage`, not cumulative totals, so repeated turn snapshots don't inflate spend. |
-| **OpenCode** | `~/.local/share/opencode/opencode.db` (SQLite) | Read via `node:sqlite`. Requires Node >= 24.16. |
-| **Cursor** | Cursor Admin API (`POST api.cursor.com/teams/filtered-usage-events`) | Requires an admin API token. Set `CURSOR_ADMIN_API_TOKEN` in your environment or provide it during `chaching init`. `chargedCents` is treated as authoritative cost. |
+| **Claude Code** | `~/.claude/projects/**/*.jsonl` and `~/.config/claude/projects/**/*.jsonl` | De-duplicated by `message.id:requestId`. ~30-day log retention (history DB outlives it). |
+| **Codex** | `~/.codex/sessions/**` (JSONL) | Uses `last_token_usage`, not cumulative totals, so repeated turn snapshots don't double-count. |
+| **OpenCode** | `~/.local/share/opencode/opencode.db` (SQLite) | Read via `node:sqlite`. |
+| **Cursor** | Cursor Admin API (`POST api.cursor.com/teams/filtered-usage-events`) | Needs an admin token (`CURSOR_ADMIN_API_TOKEN` or via `chaching init`). `chargedCents` is treated as authoritative. |
 
-All providers are read-only on local files. Cursor is the only one that makes a network call.
+Everything local is read-only. **Cursor is the only provider that makes a network call**, and only if you turn it on.
 
 ---
 
@@ -160,14 +194,13 @@ Config lives at the XDG path:
 ${XDG_CONFIG_HOME:-$HOME/.config}/chaching/config.json
 ```
 
-If the file is missing, chaching enables Claude Code, Codex, and OpenCode with sensible defaults. Cursor is off until you supply a token.
-
-See [CONFIG.md](CONFIG.md) for the full schema. A ready-to-edit example is in [`config.example.json`](config.example.json).
+Missing file = sensible defaults (Claude Code, Codex, OpenCode on; Cursor off until you give it a token). Full schema in [CONFIG.md](CONFIG.md); a ready-to-edit example in [`config.example.json`](config.example.json).
 
 ```json
 {
   "cutoverTs": null,
   "server": { "host": "0.0.0.0", "port": 5178 },
+  "history": { "enabled": true, "dbPath": "~/.local/share/chaching/history.db" },
   "providers": {
     "claude": { "enabled": true, "roots": ["~/.claude", "~/.config/claude"] },
     "codex": { "enabled": true, "root": "~/.codex/sessions" },
@@ -177,42 +210,77 @@ See [CONFIG.md](CONFIG.md) for the full schema. A ready-to-edit example is in [`
 }
 ```
 
-### Expose over your network with Tailscale
+### Put it on your phone with Tailscale
 
 ```sh
+chaching serve &
 tailscale serve --bg 5178
-# open the printed https://<machine>.<tailnet>.ts.net/ on your phone or another machine
-# stop sharing:
-tailscale serve --https=443 off
+# open the printed https://<machine>.<tailnet>.ts.net/ anywhere on your tailnet
+tailscale serve --https=443 off   # stop sharing
 ```
 
 ---
 
 ## Cost and honesty
 
-**These are estimates, not invoices.** Provider token counts are best-effort; rounding and sampling happen at the source.
+**These are estimates, not invoices.** Provider token counts are best-effort; rounding and sampling happen at the source. chaching would rather tell you "I don't know" than quietly lie with a $0.
 
-- **Claude cost** = sum over input / output / cache-creation / cache-read tokens times per-token price. Price resolution: hand-maintained overrides for new models, vendored LiteLLM snapshot (`static/pricing/litellm-prices.json`), family fallback, or "unknown" (never silently $0).
-- **Reasoning tokens** fold into `output_tokens` in the Claude logs. No separate per-reasoning breakdown.
-- **Work vs personal** attribution is not in any local log file. The optional cutover timestamp in the footer (persisted to config) is a user-set approximation.
-- **Cursor** attribution is per-user/service-account from the Admin API. Local project or session breakdown is not available.
-- **30-day window**: Claude Code prunes logs older than ~30 days. The UI shows the earliest covered date.
+- **Claude / Codex cost** = tokens (input / output / cache-creation / cache-read) times per-token price. Prices resolve in order: hand-maintained overrides, a vendored LiteLLM snapshot (`static/pricing/litellm-prices.json`), family fallback, then "unknown" (flagged, never silently zero).
+- **OpenCode and Cursor** report their own cost; chaching trusts them rather than re-pricing.
+- **Reasoning tokens** fold into `output_tokens` in the Claude logs. No separate breakdown.
+- **Work vs personal** isn't in any log. The optional cutover timestamp is a user-set approximation, nothing more.
+- **Coverage is explicit.** Frozen days are authoritative, today is marked partial, gaps are marked missing. The UI never dresses up "incomplete" as "you spent less."
+
+---
+
+## FAQ
+
+**Does it send my data anywhere?**
+No. It reads local files and a local SQLite DB. Nothing leaves your machine. The single exception is the Cursor provider, which calls Cursor's own Admin API, and only if you explicitly enable it. No analytics, no telemetry, no "anonymous usage stats," no phoning home.
+
+**What's with the name?**
+*cha-ching* (the register sound of money leaving) plus *caching* (the token cache that saves you money). It counts both. The whole product is the pun, taken seriously.
+
+**Will it judge me?**
+A little. As your spend climbs it escalates from 💸 to 🔥 to 🚨 "the register is on fire." It's affectionate. Run with `--no-art` if you want the numbers without the commentary.
+
+**Why does it need such a new Node?**
+`node:sqlite`, Node's built-in SQLite, shipped in 24.16. The history database and the OpenCode provider both use it. No native addons, no `node-gyp`, no build step. That's the trade: modern Node, zero compilation.
+
+**Can I see more than the last 30 days?**
+Yes, that's the whole point of the history DB. Claude Code prunes its logs at ~30 days; chaching freezes each day into local SQLite before that happens, so your view keeps growing the longer it runs. See [History](#history-it-remembers-longer-than-the-logs-do).
+
+**Is `npx` enough, or do I need to install it?**
+`npx chaching` is a fully working install and writes the same history DB. Installing globally (or leaving `serve` running) just means it runs regularly and never misses a day, which is what makes the history deep. Functionally identical, otherwise.
+
+**Can I share a receipt without leaking my username and file paths?**
+Yes. Redaction is on by default for both the terminal output and the PNG. `--reveal` opts back in to the raw details.
+
+**Why is today's number lower than yesterday's?**
+Probably because today isn't over. chaching marks the current day as partial rather than pretending your spend collapsed. If a past day reads $0, that's a real quiet day; if it's a gap, the UI says "missing," not "$0."
+
+**It says I burned $9,633 this month. Am I going to be okay?**
+Financially, unclear. Emotionally, chaching is here for you. Try `chaching receipt` and frame it.
+
+**Can my team use it / can I use it at work?**
+The code is [PolyForm Noncommercial](LICENSE): free for noncommercial use with attribution. Commercial use needs a quick conversation. Try `npx chaching` first.
+
+**Something's wrong / a model shows "unknown" price.**
+Refresh the price map (below), or add an exact-id override in `src/lib/core/pricing/overrides.ts`. Bugs and missing models: [open an issue](https://github.com/rbutera/chaching/issues).
 
 ---
 
 ## How it works
 
-On first connect, chaching runs a cold scan: reads all enabled providers once through to EOF, parses and de-duplicates records, and builds an in-memory rollup keyed by `(day, provider, model)`. Claude Code files are then tailed with `fs.watch` plus an mtime-poll fallback so new spend appears within a few seconds.
+On first connect, chaching runs a cold scan: reads every enabled provider once to EOF, parses, de-duplicates, and builds an in-memory rollup keyed by `(day, provider, model)`, seeded from the frozen history DB so it already knows about days the raw logs have long since pruned. Claude Code files are then tailed (`fs.watch` plus an mtime-poll fallback) so new spend shows up within seconds.
 
-The web app and TUI share the same in-process engine. `chaching stats` uses a one-shot path (cold scan, no watchers, then exit). The SvelteKit server (`chaching serve`) keeps the singleton warm for the lifetime of the process.
-
-SSE (`GET /api/feed`) delivers a snapshot on connect and deltas as they arrive. The web client pauses when the tab is hidden (Page Visibility API), which is the main idle-CPU win for a dashboard running on a second monitor.
+The web app and the TUI share one in-process engine. `chaching stats` and `chaching receipt` use a one-shot path (cold scan, no watchers, exit). `chaching serve` keeps the engine warm and streams snapshots and deltas over SSE (`GET /api/feed`); the web client pauses when the tab is hidden, which is the main idle-CPU win for a dashboard parked on a second monitor.
 
 ---
 
 ## Refresh the price map
 
-The vendored snapshot is `static/pricing/litellm-prices.json` (Claude + OpenAI/Codex entries — the two providers whose cost chaching computes; OpenCode and Cursor report their own cost). To pull a fresh copy:
+The vendored snapshot is `static/pricing/litellm-prices.json` (Claude + OpenAI/Codex, the two providers whose cost chaching computes). To pull a fresh copy:
 
 ```sh
 curl -s https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json \
@@ -229,7 +297,7 @@ curl -s https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_
 > static/pricing/litellm-prices.json
 ```
 
-For a model that isn't in LiteLLM yet, add an exact-id row to `src/lib/core/pricing/overrides.ts` — it takes precedence over the snapshot.
+For a model LiteLLM doesn't have yet, add an exact-id row to `src/lib/core/pricing/overrides.ts` — it wins over the snapshot.
 
 ---
 
@@ -238,14 +306,9 @@ For a model that isn't in LiteLLM yet, add an exact-id row to `src/lib/core/pric
 ```sh
 npm install
 npm run build              # SvelteKit build + CLI bundle
-npm run start              # runs the CLI (bare = TUI dashboard)
-npm run start -- serve     # or boot the web server on :5178
-```
-
-`npm run start` is just `node bin/chaching.js`, so it takes the same subcommands as the published binary. Dev mode for the web app (hot reload, :5178):
-
-```sh
-npm run dev
+npm run start             # run the CLI (bare = TUI)
+npm run start -- serve    # or boot the web server on :5178
+npm run dev               # web dev server, hot reload, :5178
 ```
 
 | command | what |
@@ -261,4 +324,6 @@ npm run dev
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE) — free for noncommercial use with attribution. If you want to use it commercially, get in touch.
+[PolyForm Noncommercial 1.0.0](LICENSE) — free for noncommercial use with attribution. Want it commercially? Get in touch.
+
+<p align="center"><sub>built by <a href="https://github.com/rbutera">@rbutera</a> · <em>it counts the cache hits too</em></sub></p>
