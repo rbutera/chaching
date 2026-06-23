@@ -16,7 +16,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..', '..');
 const read = (rel: string) => readFileSync(join(root, rel), 'utf8');
 
-const BRASS = '#e0a52f';
+const BRASS = '#eba92c';
 
 describe('honest copy', () => {
 	const page = read('src/routes/+page.svelte');
@@ -60,7 +60,8 @@ describe('brand accent is brass', () => {
 	it('static/icon.svg (favicon source) is brass, not the old stock gold', () => {
 		const icon = read('static/icon.svg');
 		expect(icon).toContain(BRASS);
-		expect(icon).not.toContain('#e8b54a');
+		expect(icon).not.toContain('#e8b54a'); // the original stock gold
+		expect(icon).not.toContain('#e0a52f'); // the superseded v1.6.0 brass
 		expect(icon).not.toContain('svelte-logo');
 	});
 });

@@ -173,9 +173,9 @@ describe('wordmark()', () => {
 // ── accent() (register-gold) ────────────────────────────────────────────────────
 
 describe('accent()', () => {
-	it('wraps text in a 24-bit truecolor escape for brass #e0a52f', () => {
+	it('wraps text in a 24-bit truecolor escape for brass #eba92c', () => {
 		const out = accent('x', {} as NodeJS.ProcessEnv);
-		expect(out).toBe('\x1b[38;2;224;165;47mx\x1b[0m');
+		expect(out).toBe('\x1b[38;2;235;169;44mx\x1b[0m');
 	});
 
 	it('falls back to the curated 16-color SGR (yellow) on the basic tier', () => {

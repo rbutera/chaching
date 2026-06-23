@@ -46,19 +46,69 @@ describe('toCss', () => {
 			'--surface-1',
 			'--surface-2',
 			'--surface-3',
+			'--surface-inset',
 			'--border',
 			'--border-strong',
+			'--border-faint',
+			// raw ramps
+			'--ink-950',
+			'--ink-600',
+			'--paper-50',
+			'--paper-600',
+			'--gold-300',
+			'--gold-500',
+			'--gold-700',
+			'--cream-50',
+			'--cream-ink',
+			// raw hues
+			'--green-500',
+			'--orange-500',
+			'--red-500',
+			'--amber-500',
+			'--purple',
+			'--sky',
+			'--lemon',
+			'--mint',
+			'--slate',
+			// semantic text (legacy + new names)
+			'--text',
+			'--text-muted',
+			'--text-dim',
+			'--text-on-gold',
 			'--fg',
 			'--fg-muted',
 			'--fg-dim',
+			// accent + aliases
 			'--accent',
+			'--accent-bright',
+			'--accent-press',
+			'--accent-soft',
+			'--accent-line',
+			'--focus-ring',
+			// status
 			'--good',
 			'--bad',
 			'--warn',
+			'--info',
+			// spend ladder
+			'--spend-calm',
+			'--spend-warm',
+			'--spend-hot',
+			'--spend-alarm',
+			// cache
+			'--cache-hit',
+			'--cache-miss',
+			'--cache-write',
+			// model families
 			'--m-opus',
 			'--m-sonnet',
 			'--m-haiku',
-			'--m-other'
+			'--m-other',
+			// providers
+			'--p-claude',
+			'--p-codex',
+			'--p-opencode',
+			'--p-cursor'
 		]) {
 			expect(css).toContain(`${name}: `);
 		}
@@ -66,8 +116,8 @@ describe('toCss', () => {
 
 	it('emits the brass accent and keeps haiku lemon', () => {
 		const css = toCss(tokens);
-		expect(css).toContain('--accent: #e0a52f;');
-		expect(css).toContain('--m-haiku: #facc15;');
+		expect(css).toContain('--accent: #eba92c;');
+		expect(css).toContain('--m-haiku: #f4ce3a;');
 	});
 });
 
@@ -75,9 +125,9 @@ describe('toAnsiMap', () => {
 	const map = toAnsiMap(tokens);
 
 	it('resolves accent to the brass gold token', () => {
-		expect(map.accent.hex).toBe('#e0a52f');
+		expect(map.accent.hex).toBe('#eba92c');
 		expect(map.accent.basic).toBe('yellow');
-		expect(map.accent.ansi256).toBe(styles.hexToAnsi256('#e0a52f'));
+		expect(map.accent.ansi256).toBe(styles.hexToAnsi256('#eba92c'));
 	});
 
 	it('resolves model families to their distinct tokens', () => {
