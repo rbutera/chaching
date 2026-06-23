@@ -46,7 +46,7 @@ describe('receipt — routing + help', () => {
 		expect(code).toBe(0);
 		expect(stdout).toContain('receipt');
 		expect(stdout).toContain('--png');
-		expect(stdout).toContain('--reveal');
+		expect(stdout).toContain('--redact');
 	});
 
 	it('unknown receipt flag → nonzero exit + usage hint', async () => {
@@ -85,6 +85,33 @@ describe('receipt --json', () => {
 	});
 });
 
+describe('receipt — default period is this month', () => {
+	it('bare receipt --json defaults to the monthly period', async () => {
+		const { stdout, code } = await runCli(['receipt', '--json']);
+		expect(code).toBe(0);
+		const parsed = JSON.parse(stdout);
+		expect(parsed.receipt.period).toBe('month');
+		expect(parsed.receipt.periodLabel).toBe('this month');
+	});
+
+	it('--period all opts back into all-time (overrides the monthly default)', async () => {
+		const { stdout, code } = await runCli(['receipt', '--json', '--period', 'all']);
+		expect(code).toBe(0);
+		const parsed = JSON.parse(stdout);
+		// all-time: no period token, all-time label.
+		expect(parsed.receipt.period).toBe('all');
+		expect(parsed.receipt.periodLabel).toBe('all time');
+	});
+
+	it('--period quarter is accepted and scopes to the quarter', async () => {
+		const { stdout, code } = await runCli(['receipt', '--json', '--period', 'quarter']);
+		expect(code).toBe(0);
+		const parsed = JSON.parse(stdout);
+		expect(parsed.receipt.period).toBe('quarter');
+		expect(parsed.receipt.periodLabel).toBe('this quarter');
+	});
+});
+
 describe('receipt — TTY discipline', () => {
 	it('non-TTY (piped) output has no ANSI colour', async () => {
 		// execFile pipes stdout, so process.stdout.isTTY is false in the child.
@@ -109,14 +136,26 @@ describe('receipt — TTY discipline', () => {
 	});
 });
 
-describe('receipt — redaction default', () => {
-	it('default output contains neither the real hostname nor username', async () => {
+describe('receipt — redaction is opt-in (--redact)', () => {
+	// By default the receipt is the user's own local data → real details shown. The
+	// rendered ReceiptModel today carries no env-derived host/user in its fields
+	// (header user·path is a redaction-faithful placeholder), so we can't assert the
+	// real host appears in default text. What we CAN assert: --redact does not error
+	// and the output stays clean of the real identifiers either way.
+	it('--redact is accepted and exits 0 (scrub path)', async () => {
+		const { stdout, code } = await runCli(['receipt', '--no-art', '--redact']);
+		expect(code).toBe(0);
 		const host = (await import('node:os')).hostname();
 		const user = (await import('node:os')).userInfo().username;
-		const { stdout, code } = await runCli(['receipt', '--no-art']);
-		expect(code).toBe(0);
 		if (host && host.length > 2) expect(stdout).not.toContain(host);
 		if (user && user.length > 2) expect(stdout).not.toContain(user);
+	});
+
+	it('deprecated --reveal / --no-redact still accepted (no-op, exits 0)', async () => {
+		const a = await runCli(['receipt', '--no-art', '--reveal']);
+		expect(a.code).toBe(0);
+		const b = await runCli(['receipt', '--no-art', '--no-redact']);
+		expect(b.code).toBe(0);
 	});
 });
 

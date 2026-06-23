@@ -41,7 +41,9 @@ export interface ReceiptFlags {
 	/** --png present; value is the path (or undefined → default path). */
 	png?: boolean;
 	pngPath?: string;
-	/** --reveal / --no-redact: opt OUT of redaction (default is redacted). */
+	/** --redact: opt IN to scrubbing username/hostname/paths (default shows them). */
+	redact?: boolean;
+	/** @deprecated --reveal / --no-redact: now a no-op (showing details is the default). */
 	reveal?: boolean;
 	/** suppress ASCII art + decorative copy. */
 	noArt?: boolean;
@@ -52,6 +54,12 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 	const snapshot = await runOnce(cfg);
 
 	const noArt = flags.noArt ?? resolveNoArt();
+
+	// The receipt defaults to THIS MONTH when no `--period` is given (a monthly
+	// statement is the natural framing). An explicit `--period all` opts back into
+	// all-time; day/week/quarter override as before. Everything downstream reads
+	// `period`, so resolve the default here once.
+	const period: Period = flags.period ?? 'month';
 
 	// Footer copy comes from personality (never under --json, never under --no-art).
 	const footer = noArt || flags.json ? '' : receiptFooter();
@@ -72,19 +80,20 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 	};
 
 	const model = buildReceipt(snapshot, {
-		period: flags.period,
+		period,
 		providers: flags.providers,
 		noArt: noArt || !!flags.json,
 		footer,
 		subscription
 	});
 
-	// Redaction runs BEFORE every render path (text / json / png). Default-on.
-	const redacted = redactReceipt(model, { reveal: flags.reveal });
+	// Redaction runs BEFORE every render path (text / json / png). OPT-IN: the
+	// receipt shows the user's real details unless `--redact` is passed.
+	const redacted = redactReceipt(model, { redact: flags.redact });
 
 	// ── --json: machine output only, art-free, pipe-safe ───────────────────────
 	if (flags.json) {
-		const { from, to } = periodDayRange(flags.period);
+		const { from, to } = periodDayRange(period);
 		const providerFilter =
 			flags.providers && flags.providers.length > 0 ? new Set(flags.providers) : null;
 		let grain = filterDays(snapshot.dayModel, from, to);
@@ -103,14 +112,14 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 		writeStdoutSync(JSON.stringify(payload) + '\n');
 		// If --png is ALSO requested, still write the file (json wins for stdout).
 		if (flags.png) {
-			await writePng(redacted, flags);
+			await writePng(redacted, flags, period);
 		}
 		return;
 	}
 
 	// ── --png: write a PNG (runtime brand renderer) ────────────────────────────
 	if (flags.png) {
-		await writePng(redacted, flags);
+		await writePng(redacted, flags, period);
 		// Also print the receipt to the terminal unless piped/non-interactive? The
 		// design treats --png as the file action; we still echo the text receipt so
 		// the user sees what was rendered. Keep it on the TTY only to stay pipe-safe.
@@ -140,8 +149,8 @@ let lastPngPath = '';
  * native renderer isn't installed, prints a friendly message and exits non-zero
  * WITHOUT writing a partial file.
  */
-async function writePng(model: import('../receipt/model.js').ReceiptModel, flags: ReceiptFlags): Promise<void> {
-	const periodTag = flags.period ?? 'all';
+async function writePng(model: import('../receipt/model.js').ReceiptModel, flags: ReceiptFlags, period: Period): Promise<void> {
+	const periodTag = period;
 	const outPath = flags.pngPath ?? `./chaching-receipt-${periodTag}.png`;
 	lastPngPath = outPath;
 

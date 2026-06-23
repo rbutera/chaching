@@ -63,16 +63,17 @@ Flags for stats:
   --json                   Output only the raw JSON snapshot to stdout
 
 Flags for receipt:
-  --period day|week|month  Aggregate by period (default: all time)
+  --period day|week|month|quarter|all  Aggregate by period (default: this month)
   --provider <name>        Filter to provider(s); repeatable or comma-separated
   --json                   Machine-readable receipt model to stdout (art-free)
   --png [path]             Write a shareable PNG (default: ./chaching-receipt-<period>.png)
-  --reveal, --no-redact    Show real usernames/hosts/paths (default: redacted)
+  --redact                 Scrub usernames/hosts/paths before sharing (default: shown)
 
 Examples:
   chaching stats --period week --provider codex
   chaching stats --json | jq .totals.cost
-  chaching receipt --period month
+  chaching receipt                 # this month (default)
+  chaching receipt --period all
   chaching receipt --png receipt.png
   chaching serve
 `);

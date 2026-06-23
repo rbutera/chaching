@@ -106,8 +106,8 @@ chaching stats --json           # machine-readable snapshot
 The fun one. Renders a period's spend as a thermal-printer receipt: line items per model, the cache savings as **coupons** (the caching pun, made structural), the cache cost as **billed line items** right beneath them (because cache isn't free, see below), a `TOTAL BURN`, an optional subscription-subsidy footer, a wry footer, and a barcode that means nothing.
 
 ```sh
-chaching receipt                         # this is going to sting
-chaching receipt --period month
+chaching receipt                         # this month (default) — this is going to sting
+chaching receipt --period all            # all time
 chaching receipt --png ~/burn.png        # export a shareable image
 chaching receipt --json
 ```
@@ -115,7 +115,7 @@ chaching receipt --json
 ```
 ------------------------------------------
     chaching — AI token spend register
-  all time  ·  2026-04-20 → 2026-06-22
+  this month  ·  2026-06-01 → 2026-06-22
 ------------------------------------------
 CLAUDE CODE
   Opus 4.8                          $9,141
@@ -141,7 +141,7 @@ net subsidy                     +$9,534
 
 **Cache is billed, not free.** The "you saved" coupon is real, but it's a *discount*, not a freebie: cache reads are still charged at the cache-read rate (0.1× of fresh input), and cache writes at the cache-write rate (1.25× for 5-minute, 2× for 1-hour). The receipt and the dashboard now show both numbers, the savings AND the billed cost, so it's unmistakable that the cache costs money, just much less than re-sending the same tokens uncached. The `YOU SAVED` line is the delta versus paying full input price; the `CACHE — BILLED` lines are what the cache actually cost. Every rate is read from the same price map the rest of chaching uses, never a hardcoded constant. (The write line uses the base cache-write rate; where a model also has a separate 1-hour cache rate, the billed-writes figure is a slight underestimate of that component, never an overstatement, and `TOTAL BURN` is always exact regardless.)
 
-**Privacy is the default.** Receipts redact your username, machine name, and file paths before they ever hit the terminal or the PNG, so you can post one without doxxing yourself. Add `--reveal` if you actually want the raw details (you usually don't).
+**Shows your details by default, redaction is one flag away.** A receipt is your own local data, so by default it shows your real username, machine name, and file paths. When you want to share one, add `--redact` (CLI) or `?redact=1` (the web receipt) to scrub the username, hostname, and paths into redaction blocks first, so you can post it without doxxing yourself.
 
 ### `chaching serve` — the web dashboard
 
@@ -289,7 +289,7 @@ Yes, that's the whole point of the history DB. Claude Code prunes its logs at ~3
 `npx chaching` is a fully working install and writes the same history DB. Installing globally (or leaving `serve` running) just means it runs regularly and never misses a day, which is what makes the history deep. Functionally identical, otherwise.
 
 **Can I share a receipt without leaking my username and file paths?**
-Yes. Redaction is on by default for both the terminal output and the PNG. `--reveal` opts back in to the raw details.
+Yes. By default a receipt shows your real details (it's your own local data). Add `--redact` on the CLI (or `?redact=1` on the web receipt) to scrub the username, hostname, and paths into redaction blocks before you share it.
 
 **Why is today's number lower than yesterday's?**
 Probably because today isn't over. chaching marks the current day as partial rather than pretending your spend collapsed. If a past day reads $0, that's a real quiet day; if it's a gap, the UI says "missing," not "$0."

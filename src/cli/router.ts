@@ -171,10 +171,15 @@ function parseReceiptFlags(argv: string[]): ReceiptFlags {
 	flags.noArt = noArt(argv);
 
 	const setPeriod = (p: string): void => {
-		if (p === 'day' || p === 'week' || p === 'month' || p === 'all') {
-			if (p !== 'all') flags.period = p;
+		if (p === 'day' || p === 'week' || p === 'month' || p === 'quarter' || p === 'all') {
+			// Store every value verbatim (including 'all'). The receipt command
+			// treats an UNSET period as the monthly default; an explicit `--period all`
+			// must therefore set 'all' so it can override that default.
+			flags.period = p;
 		} else {
-			console.error(`chaching receipt: unknown period '${p}' (must be day|week|month|all)`);
+			console.error(
+				`chaching receipt: unknown period '${p}' (must be day|week|month|quarter|all)`
+			);
 			process.exit(1);
 		}
 	};
@@ -184,8 +189,12 @@ function parseReceiptFlags(argv: string[]): ReceiptFlags {
 
 		if (arg === '--json') {
 			flags.json = true;
+		} else if (arg === '--redact') {
+			// Opt IN to scrubbing username/hostname/paths before sharing.
+			flags.redact = true;
 		} else if (arg === '--reveal' || arg === '--no-redact') {
-			flags.reveal = true;
+			// Deprecated no-ops: showing real details is now the default. Accepted so
+			// old muscle-memory / scripts don't hard-error.
 		} else if (arg === '--no-art') {
 			// already handled via noArt(); skip
 		} else if (arg === '--png') {
@@ -203,7 +212,7 @@ function parseReceiptFlags(argv: string[]): ReceiptFlags {
 		} else if (arg === '--period') {
 			const p = argv[i + 1];
 			if (!p || p.startsWith('--')) {
-				console.error(`chaching receipt: --period requires a value (day|week|month|all)`);
+				console.error(`chaching receipt: --period requires a value (day|week|month|quarter|all)`);
 				process.exit(1);
 			}
 			i++;
@@ -211,7 +220,7 @@ function parseReceiptFlags(argv: string[]): ReceiptFlags {
 		} else if (arg.startsWith('--period=')) {
 			const p = arg.slice('--period='.length);
 			if (!p) {
-				console.error(`chaching receipt: --period requires a value (day|week|month|all)`);
+				console.error(`chaching receipt: --period requires a value (day|week|month|quarter|all)`);
 				process.exit(1);
 			}
 			setPeriod(p);
