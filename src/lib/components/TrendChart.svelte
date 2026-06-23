@@ -11,6 +11,7 @@
 	import { scaleLinear } from 'd3-scale';
 	import { modelColor, modelLabel, money, fmtPeriodKey } from '$lib/format';
 	import type { PeriodBucket } from '$lib/core/aggregate';
+	import { barFill, tooltipSuffix, ariaProvenance } from '$lib/core/coverage-marks';
 
 	// A bucket is a single day (key = YYYY-MM-DD) or a coarse week/month span
 	// (key = YYYY-Www / YYYY-MM) when the window is long. The label + drill noun
@@ -59,9 +60,13 @@
 					const y0 = PAD.top + y(acc);
 					return { model: s.model, cost: s.cost, y: y0, h: Math.max(0, y1 - y0), color: modelColor(s.model) };
 				});
-			return { bucket: b, x, w: barW, segs, total: b.cost };
+			return { bucket: b, x, w: barW, segs, total: b.cost, fill: barFill(b.coverage) };
 		});
 	});
+
+	// A "dash" slot marks a MISSING day (no data) so it never reads as a $0 bar; we draw a
+	// short baseline tick centred in the bar's band. Geometry only (colour-independent).
+	const DASH_W = 0.5; // fraction of bar width for the dash tick
 
 	let labelEvery = $derived(Math.max(1, Math.ceil(buckets.length / 8)));
 
@@ -80,6 +85,14 @@
 
 	<div class="chart-wrap">
 		<svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" class="chart" aria-hidden="true">
+			<defs>
+				<!-- diagonal hatch for a PARTIAL (today / gated) bar: a structural mark that
+				     survives NO_COLOR / monochrome, independent of the model fill colour. -->
+				<pattern id="cov-hatch" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(45)">
+					<rect width="5" height="5" fill="rgba(0,0,0,0.0)" />
+					<line x1="0" y1="0" x2="0" y2="5" stroke="rgba(255,255,255,0.45)" stroke-width="1.4" />
+				</pattern>
+			</defs>
 			{#each yTicks as t (t)}
 				<line
 					x1={PAD.left}
@@ -99,6 +112,28 @@
 					{#each bar.segs as s (s.model)}
 						<rect x={bar.x} y={s.y} width={bar.w} height={s.h} fill={s.color} rx="1" />
 					{/each}
+					{#if bar.fill === 'hatched' && bar.segs.length}
+						<!-- partial overlay: hatch the stacked bar so "today" never reads as final -->
+						<rect
+							x={bar.x}
+							y={bar.segs[bar.segs.length - 1].y}
+							width={bar.w}
+							height={bar.x != null ? PAD.top + plotH - bar.segs[bar.segs.length - 1].y : 0}
+							fill="url(#cov-hatch)"
+							rx="1"
+						/>
+					{:else if bar.fill === 'dash'}
+						<!-- missing day: a baseline dash, structurally distinct from a $0 bar -->
+						<line
+							x1={bar.x + bar.w * (0.5 - DASH_W / 2)}
+							x2={bar.x + bar.w * (0.5 + DASH_W / 2)}
+							y1={PAD.top + plotH}
+							y2={PAD.top + plotH}
+							stroke="var(--fg-dim)"
+							stroke-width="2"
+							class="missing-dash"
+						/>
+					{/if}
 				</g>
 			{/each}
 
@@ -118,7 +153,7 @@
 					type="button"
 					class="bar-btn"
 					style={`left:${pctX(bar.x)}%;width:${pctX(bar.w)}%;top:${pctY(PAD.top)}%;height:${pctY(plotH)}%`}
-					aria-label={`${bucketLabel(bar.bucket)}: ${money(bar.total)}${bar.segs.length ? ` across ${bar.segs.length} model${bar.segs.length === 1 ? '' : 's'}` : ' (no spend)'}. Open the ${bucketNoun(bar.bucket)}'s detail.`}
+					aria-label={`${bucketLabel(bar.bucket)} — ${ariaProvenance(bar.bucket.coverage)}: ${money(bar.total)}${bar.segs.length ? ` across ${bar.segs.length} model${bar.segs.length === 1 ? '' : 's'}` : ' (no spend)'}. Open the ${bucketNoun(bar.bucket)}'s detail.`}
 					onclick={() => onPick(bar.bucket)}
 					onmouseenter={() => (hovered = i)}
 					onmouseleave={() => (hovered = null)}
@@ -134,7 +169,10 @@
 				style={`left:${pctX(tip.x + tip.w / 2)}%`}
 				class:flip={tip.x + tip.w / 2 > W * 0.62}
 			>
-				<p class="tip-head">{bucketLabel(tip.bucket)} · <span class="num">{money(tip.total)}</span></p>
+				<p class="tip-head">
+					{bucketLabel(tip.bucket)} · <span class="num">{money(tip.total)}</span>
+					{#if tooltipSuffix(tip.bucket.coverage)}<span class="tip-prov"> · {tooltipSuffix(tip.bucket.coverage)}</span>{/if}
+				</p>
 				{#if tipRows.length}
 					<ul>
 						{#each tipRows as r (r.model)}
@@ -157,7 +195,7 @@
 	<table class="visually-hidden">
 		<caption>Spend by period, stacked by model</caption>
 		<thead>
-			<tr><th>Period</th><th>Spend (USD)</th><th>Top model</th></tr>
+			<tr><th>Period</th><th>Spend (USD)</th><th>Top model</th><th>Data</th></tr>
 		</thead>
 		<tbody>
 			{#each buckets as b (b.key)}
@@ -166,6 +204,7 @@
 					<td>{bucketLabel(b)}</td>
 					<td>{money(b.cost)}</td>
 					<td>{top ? `${modelLabel(top[0])} ${money(top[1].cost)}` : '—'}</td>
+					<td>{ariaProvenance(b.coverage)}</td>
 				</tr>
 			{/each}
 		</tbody>
@@ -248,6 +287,13 @@
 		font-size: 0.78rem;
 		color: var(--fg);
 		font-weight: 600;
+	}
+	.tip-prov {
+		font-weight: 400;
+		color: var(--fg-muted);
+	}
+	.missing-dash {
+		opacity: 0.7;
 	}
 	.tooltip ul {
 		list-style: none;

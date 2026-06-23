@@ -179,6 +179,9 @@ describe('chaching stats --json', () => {
 		expect(snap).toHaveProperty('totals');
 		expect(snap).toHaveProperty('dayModel');
 		expect(snap).toHaveProperty('generatedAt');
+		// coverage provenance map ships verbatim in --json (art-free, machine-readable).
+		expect(snap).toHaveProperty('coverage');
+		expect(typeof snap.coverage).toBe('object');
 	});
 
 	it('--json with --period still outputs only JSON', async () => {

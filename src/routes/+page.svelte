@@ -24,6 +24,7 @@
 	} from '$lib/format';
 	import { totalTokens } from '$lib/core/aggregate';
 	import type { PeriodBucket } from '$lib/core/aggregate';
+	import { coverageSub } from '$lib/core/coverage-marks';
 
 	const feed = new FeedStore();
 	const dash = new Dashboard();
@@ -51,7 +52,7 @@
 	let modelTotals = $derived(snap ? dash.models(snap) : []);
 	let providerTotals = $derived(snap ? dash.providers(snap) : []);
 	let scopedTotals = $derived(
-		snap ? dash.scopedTotals(snap) : { tokens: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 }, cost: 0, requests: 0, costUnknownRequests: 0 }
+		snap ? dash.scopedTotals(snap) : { tokens: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 }, cost: 0, requests: 0, costUnknownRequests: 0, coverage: { states: {}, worst: 'frozen' as const } }
 	);
 	let scopedSessions = $derived(snap ? dash.scopedSessions(snap) : []);
 
@@ -188,7 +189,7 @@
 					label="Total spend (scope)"
 					value={money(scopedTotals.cost)}
 					accent="var(--accent)"
-					sub={`${int(scopedTotals.requests)} requests`}
+					sub={coverageSub(scopedTotals.coverage) ?? `${int(scopedTotals.requests)} requests`}
 				/>
 				<SummaryCard
 					label="Total tokens"
