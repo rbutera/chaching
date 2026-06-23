@@ -1,15 +1,17 @@
 // Build-time social card generator. Composes the OG element tree (dark brand
-// bg, the Till Stack mark, the wordmark, the honest tagline, a tasteful
-// faux-dashboard strip in brand-token colours) and writes static/og.png
-// (1200×630) via the shared render pipeline (satori → resvg).
+// bg, the full "Chaching!" lockup, the honest tagline, a tasteful faux-dashboard
+// strip in brand-token colours) and writes static/og.png (1200×630) via the
+// shared render pipeline (satori → resvg).
 //
 // satori constraints: flexbox-only layout, inline styles only, fonts as Buffers.
+// The brand lockup is embedded as a base64 data-URI <img> sourced verbatim from
+// static/logo.svg, so the OG card can never drift from the canonical wordmark.
 // Run via `npm run gen:assets`.
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { renderPng, type RenderNode } from './lib/render.ts';
+import { renderPng, pngFromSvg, type RenderNode } from './lib/render.ts';
 import { tokens } from '../src/lib/brand/tokens.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -18,34 +20,44 @@ const root = join(here, '..');
 const WIDTH = 1200;
 const HEIGHT = 630;
 
-const BG = tokens.surfaces.bg.hex; // #0a0b0f
+const BG = tokens.surfaces.bg.hex; // ink-950 #0e0d0b
 const SURFACE = tokens.surfaces.surface1.hex;
 const BORDER = tokens.surfaces.border.hex;
-const ACCENT = tokens.accent.hex; // brass #e0a52f
+const ACCENT = tokens.accent.hex; // brass / register gold #eba92c
 const FG = tokens.fg.fg.hex;
 const MUTED = tokens.fg.muted.hex;
 const DIM = tokens.fg.dim.hex;
+
+// Natural lockup dimensions (viewBox 244×48) → drawn at LOGO_HEIGHT, keeping ratio.
+const LOGO_NATURAL_W = 244;
+const LOGO_NATURAL_H = 48;
+const LOGO_HEIGHT = 76;
+const LOGO_WIDTH = Math.round((LOGO_HEIGHT * LOGO_NATURAL_W) / LOGO_NATURAL_H);
 
 /** Tiny helper to build a satori node without JSX. */
 function h(type: string, props: RenderNode['props']): RenderNode {
 	return { type, props };
 }
 
-/** The Till Stack mark as an inline svg node, in the brand accent. */
-function mark(size: number): RenderNode {
-	return h('svg', {
-		width: size,
-		height: size,
-		viewBox: '0 0 24 24',
-		fill: ACCENT,
-		children: [
-			h('path', {
-				'fill-rule': 'evenodd',
-				d: 'M12 1.5 22 6.1 12 10.7 2 6.1ZM9.2 5.35h5.6v1.5H9.2Z'
-			}),
-			h('path', { d: 'm2 10.35 10 4.6 10-4.6v3.2l-10 4.6-10-4.6Z' }),
-			h('path', { d: 'm2 16.15 10 4.6 10-4.6v3.2L12 23.95 2 19.35Z' })
-		]
+/**
+ * The canonical "Chaching!" lockup, embedded as a base64 data-URI <img>. We read
+ * static/logo.svg (which already declares `color` = the brass accent, so its
+ * `currentColor` paths paint brass) and pre-rasterize it to a PNG via resvg.
+ *
+ * The pre-rasterize step is load-bearing: satori embeds an SVG data-URI as an
+ * `<image href="data:image/svg+xml…">`, but resvg-js does NOT render a nested
+ * SVG-in-`<image>` (it comes out blank). A PNG data-URI rasterizes correctly, so
+ * we resvg the logo to a crisp 2× PNG first, then hand that to satori.
+ */
+async function lockupImg(): Promise<RenderNode> {
+	const svg = await readFile(join(root, 'static', 'logo.svg'), 'utf8');
+	const logoPng = pngFromSvg(svg, { width: LOGO_WIDTH * 2 }); // 2× for crisp downscale
+	const dataUri = `data:image/png;base64,${logoPng.toString('base64')}`;
+	return h('img', {
+		src: dataUri,
+		width: LOGO_WIDTH,
+		height: LOGO_HEIGHT,
+		style: { display: 'flex' }
 	});
 }
 
@@ -88,7 +100,8 @@ function statBlock(label: string, figure: string, barColor: string, barFrac: num
 	});
 }
 
-function ogElement(): RenderNode {
+async function ogElement(): Promise<RenderNode> {
+	const lockup = await lockupImg();
 	return h('div', {
 		style: {
 			display: 'flex',
@@ -100,23 +113,10 @@ function ogElement(): RenderNode {
 			fontFamily: 'Inter'
 		},
 		children: [
-			// Brand lockup row
+			// Brand lockup row — the canonical "Chaching!" wordmark
 			h('div', {
 				style: { display: 'flex', alignItems: 'center' },
-				children: [
-					mark(72),
-					h('div', {
-						style: {
-							display: 'flex',
-							fontSize: '64px',
-							fontWeight: 600,
-							color: FG,
-							marginLeft: '20px',
-							letterSpacing: '-0.02em'
-						},
-						children: 'chaching'
-					})
-				]
+				children: [lockup]
 			}),
 			// Honest tagline
 			h('div', {
@@ -168,7 +168,7 @@ async function main() {
 		readFile(join(fontDir, 'inter-latin-600-normal.woff'))
 	]);
 
-	const png = await renderPng(ogElement(), {
+	const png = await renderPng(await ogElement(), {
 		width: WIDTH,
 		height: HEIGHT,
 		fonts: [

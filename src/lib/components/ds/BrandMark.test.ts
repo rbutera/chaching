@@ -12,10 +12,16 @@ describe('BrandMark', () => {
 		expect(container.querySelector('.lockup')).toBeNull();
 	});
 
-	it('wordmark renders the mark plus the "chaching" lockup text', () => {
+	it('wordmark renders the full "Chaching!" lockup (244×48, mark + wordmark paths)', () => {
 		const { container } = render(BrandMark, { props: { wordmark: true } });
-		expect(container.querySelector('svg')).not.toBeNull();
-		expect(container.querySelector('.text')?.textContent).toBe('chaching');
+		const svg = container.querySelector('svg');
+		expect(svg).not.toBeNull();
+		// The full lockup uses the wide 244×48 viewBox (not the 24×24 mark box).
+		expect(svg?.getAttribute('viewBox')).toBe('0 0 244 48');
+		// Mark group (3 paths) + the outlined wordmark path = at least 4 paths.
+		expect(svg?.querySelectorAll('path').length).toBeGreaterThanOrEqual(4);
+		// No leftover text-based wordmark element.
+		expect(container.querySelector('.text')).toBeNull();
 	});
 
 	it('size scales the svg dimensions', () => {

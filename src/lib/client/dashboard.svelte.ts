@@ -11,9 +11,10 @@ import type { ModelTotal, PeriodBucket, ProviderTotal, Totals } from '$lib/core/
 import * as vm from '$lib/core/view-model';
 import type { DayCell } from '$lib/core/view-model';
 import {
-	cacheCostBreakdown,
+	cacheCostBreakdownWith,
 	type CacheCostBreakdownResult
-} from '$lib/core/pricing/cache-breakdown';
+} from '$lib/core/pricing/cache-breakdown-core';
+import { resolvePriceClient } from '$lib/pricing-client';
 import {
 	buildSubsidisation,
 	type ProviderSubsidisationConfig,
@@ -261,7 +262,12 @@ export class Dashboard {
 	 * with Day/Week/Month, unlike the subsidisation headline (design D5 cross).
 	 */
 	cacheBreakdown(snap: RollupSnapshot): CacheCostBreakdownResult {
-		return cacheCostBreakdown(this.scopedGrain(snap));
+		// Client-safe: resolve rates via the bundled client price map, NEVER the
+		// Node `cost.ts` (which uses node:url fileURLToPath and would crash in the browser).
+		return cacheCostBreakdownWith(this.scopedGrain(snap), (model) => {
+			const p = resolvePriceClient(model);
+			return p ? { input: p.input, cacheRead: p.cacheRead, cacheWrite: p.cacheCreation } : null;
+		});
 	}
 
 	/**
