@@ -6,7 +6,7 @@
 // rather than reaching for the real engine directly — that makes it testable with
 // a fake source under ink-testing-library, and keeps the React tree free of disk IO.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useApp, useInput, useWindowSize } from 'ink';
 import type { Period, RollupDelta, RollupSnapshot } from '../../lib/types.js';
 import {
@@ -22,7 +22,7 @@ import {
 import { filterDays } from '../../lib/core/aggregate.js';
 import { applyDelta } from '../../lib/core/merge.js';
 import { cacheCostBreakdown } from '../../lib/core/pricing/cache-breakdown.js';
-import { ACCENT, DIM, PERIOD_LABEL, bannerLine, color, scanningLine, emptyLine } from './theme.js';
+import { ACCENT, DIM, PERIOD_LABEL, bannerLine, color, noColor, scanningLine, emptyLine } from './theme.js';
 import {
 	CapBlock,
 	HelpFooter,
@@ -37,6 +37,55 @@ import {
 const MIN_COLUMNS = 40;
 const MIN_ROWS = 12;
 const TOP_MODELS = 6;
+
+/** Roll-up tween config: a few short frames, bounded so it never blocks input. */
+const ROLLUP_FRAMES = 6;
+const ROLLUP_FRAME_MS = 45;
+
+/**
+ * Bounded mechanical "roll-up" on the register total (odometer feel). Where the
+ * medium allows (motion on), the displayed value steps from the previous total to
+ * the new one over a FEW capped frames via a self-clearing interval — never a busy
+ * loop, so keypresses stay responsive. Under `quiet` (NO_COLOR / --no-art /
+ * CHACHING_NO_ART) it sets the value directly (no roll-up), per design D7.
+ */
+function useRollUp(target: number, quiet: boolean): number {
+	const [shown, setShown] = useState(target);
+	const fromRef = useRef(target);
+	const prevTargetRef = useRef(target);
+
+	useEffect(() => {
+		if (quiet) {
+			setShown(target);
+			fromRef.current = target;
+			prevTargetRef.current = target;
+			return;
+		}
+		const from = prevTargetRef.current;
+		prevTargetRef.current = target;
+		if (from === target) {
+			setShown(target);
+			return;
+		}
+		fromRef.current = from;
+		let frame = 0;
+		const id = setInterval(() => {
+			frame += 1;
+			const p = frame / ROLLUP_FRAMES;
+			if (p >= 1) {
+				setShown(target);
+				clearInterval(id);
+				return;
+			}
+			const eased = 1 - Math.pow(1 - p, 3);
+			setShown(fromRef.current + (target - fromRef.current) * eased);
+		}, ROLLUP_FRAME_MS);
+		if (typeof id.unref === 'function') id.unref();
+		return () => clearInterval(id);
+	}, [target, quiet]);
+
+	return shown;
+}
 
 /** What the root needs to render + stay live. The real engine satisfies this. */
 export interface DashboardSource {
@@ -171,6 +220,12 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 	const rows = dimensions?.rows ?? (measured.rows || 24);
 	const clock = now ?? (() => Date.now());
 
+	// Lifetime (all-time) spend — the long-haul ladder figure. Roll-up the register
+	// total (the scoped burn) where the medium allows; quiet under --no-art/NO_COLOR.
+	const lifetimeCost = snapshot.totals.cost;
+	const quietMotion = noArt || noColor();
+	const displayCost = useRollUp(totals.cost, quietMotion);
+
 	const banner = bannerLine(noArt, cols);
 
 	if (cols < MIN_COLUMNS || rows < MIN_ROWS) {
@@ -222,7 +277,14 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 			) : (
 				<>
 					<Box marginTop={1}>
-						<SummaryCards totals={totals} topModel={modelTotals[0] ?? null} savings={savings} />
+						<SummaryCards
+							totals={totals}
+							topModel={modelTotals[0] ?? null}
+							savings={savings}
+							lifetimeCost={lifetimeCost}
+							displayCost={displayCost}
+							noArt={noArt}
+						/>
 					</Box>
 
 					<Box marginTop={1}>
