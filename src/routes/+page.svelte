@@ -114,6 +114,23 @@
 	let heroCost = $derived(focusedTotals ? focusedTotals.cost : (hero?.current.cost ?? 0));
 	let heroLabel = $derived(focusedDay ? fmtDay(focusedDay) : (hero?.label ?? '—'));
 
+	// "Receipt" button → /api/receipt.png reflecting the dashboard's CURRENT view:
+	// the active period, any focused-day pin, and the provider filter. Redaction is
+	// OPT-IN (no `redact` param here) — it's the user's own local data; add `?redact=1`
+	// when sharing.
+	let receiptUrl = $derived.by(() => {
+		const qs = new URLSearchParams();
+		qs.set('period', dash.period);
+		if (focusedDay) qs.set('day', focusedDay);
+		for (const p of dash.providerFilter) qs.append('provider', p);
+		return `/api/receipt.png?${qs.toString()}`;
+	});
+
+	function openReceipt(): void {
+		// New tab; noopener for safety. The current view is baked into receiptUrl.
+		window.open(receiptUrl, '_blank', 'noopener');
+	}
+
 	// Hero count-up: animate from 0 → heroCost on first paint only. Live SSE deltas
 	// update via a RATE-LIMITED tick (trailing throttle, coalesce-to-latest) so a
 	// chatty feed never thrashes the figure. Both paths go through the shared
@@ -455,6 +472,17 @@
 						{/if}
 					</div>
 					{#if flourish}<div class="flourish">{flourish}</div>{/if}
+					<div class="hero-actions">
+						<button
+							type="button"
+							class="receipt-btn ka-chunk"
+							onclick={openReceipt}
+							title="Open a shareable receipt PNG of this view in a new tab"
+							aria-label="Open a shareable receipt of the current view in a new tab"
+						>
+							🧾 Receipt
+						</button>
+					</div>
 				</div>
 				<div class="hero-spark">
 					{#if heroSpark.length > 1}
@@ -863,6 +891,20 @@
 		font-family: var(--font-mono);
 		font-size: 0.82rem;
 		color: var(--text-muted);
+	}
+	.hero-actions {
+		margin-top: 0.85rem;
+	}
+	.receipt-btn {
+		font-family: var(--font-mono);
+		font-size: var(--text-2xs);
+		letter-spacing: var(--tracking-snug);
+		color: var(--text-on-gold);
+		background: var(--accent);
+		border: 1px solid var(--accent);
+		border-radius: var(--radius-pill);
+		padding: 0.35rem 0.85rem;
+		cursor: pointer;
 	}
 	.hero-spark {
 		flex: 0 0 auto;

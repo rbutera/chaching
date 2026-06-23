@@ -95,6 +95,7 @@
 	},
 	"dependencies": {
 		"@clack/prompts": "1.5.1",
+		"@resvg/resvg-js": "2.6.2",
 		"@tanstack/svelte-table": "9.0.0-beta.12",
 		"@tanstack/svelte-virtual": "3.13.29",
 		"ansi-styles": "6.2.3",
@@ -104,7 +105,8 @@
 		"d3-shape": "3.2.0",
 		"d3-time": "3.1.0",
 		"ink": "7.0.5",
-		"react": "19.2.7"
+		"react": "19.2.7",
+		"satori": "0.26.0"
 	},
 	"optionalDependencies": {
 		"@resvg/resvg-js": "2.6.2",

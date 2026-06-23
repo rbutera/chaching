@@ -7,6 +7,12 @@ const config = {
 		runes: ({ filename }) => (filename.split(/[/\\]/).includes('node_modules') ? undefined : true)
 	},
 	kit: {
+		// adapter-node bundles everything NOT in package.json `dependencies` and
+		// externalizes what IS. @resvg/resvg-js (a native .node binding rollup can't
+		// parse) + satori are listed in `dependencies` so the /api/receipt.png route's
+		// lazy render import resolves at runtime instead of being bundled. They remain
+		// `optionalDependencies` too, so a CLI-only install can still skip the native
+		// renderer.
 		adapter: adapter()
 	}
 };
