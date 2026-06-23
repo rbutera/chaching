@@ -11,11 +11,13 @@
 	"providers": {
 		"claude": {
 			"enabled": true,
-			"roots": ["~/.claude", "~/.config/claude"]
+			"roots": ["~/.claude", "~/.config/claude"],
+			"subscription": { "tier": "corporate", "monthlyUsd": 99 }
 		},
 		"codex": {
 			"enabled": true,
-			"root": "~/.codex/sessions"
+			"root": "~/.codex/sessions",
+			"subscription": { "tier": "corporate", "monthlyUsd": 99 }
 		},
 		"opencode": {
 			"enabled": true,

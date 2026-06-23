@@ -58,22 +58,24 @@ current logs cover). Uses Node's built-in `node:sqlite`, so it requires Node `>=
 ```json
 "claude": {
 	"enabled": true,
-	"roots": ["~/.claude", "~/.config/claude"]
+	"roots": ["~/.claude", "~/.config/claude"],
+	"subscription": { "tier": "corporate", "monthlyUsd": 99 }
 }
 ```
 
-chaching scans `projects/**/*.jsonl` under each root. Claude Code logs are read-only and de-duplicated by message/request id.
+chaching scans `projects/**/*.jsonl` under each root. Claude Code logs are read-only and de-duplicated by message/request id. The optional `subscription` block drives the subsidisation card and receipt footer (see [Subscription subsidisation](#subscription-subsidisation) below).
 
 ### Codex
 
 ```json
 "codex": {
 	"enabled": true,
-	"root": "~/.codex/sessions"
+	"root": "~/.codex/sessions",
+	"subscription": { "tier": "corporate", "monthlyUsd": 99 }
 }
 ```
 
-Codex usage is read from local JSONL session files. chaching uses `last_token_usage`, not cumulative totals, so repeated turn snapshots do not inflate spend.
+Codex usage is read from local JSONL session files. chaching uses `last_token_usage`, not cumulative totals, so repeated turn snapshots do not inflate spend. The optional `subscription` block drives the subsidisation card and receipt footer (see [Subscription subsidisation](#subscription-subsidisation) below).
 
 ### OpenCode
 
@@ -98,6 +100,31 @@ OpenCode usage is read from the local SQLite session table through Node's built-
 ```
 
 Cursor is disabled by default because it uses the Cursor Admin API. Set `enabled` to `true` and provide an admin API token to poll `POST https://api.cursor.com/teams/filtered-usage-events`. `chargedCents` is treated as the authoritative cost. Cursor events do not provide local project/session attribution, so chaching groups them by Cursor user or service account.
+
+## Subscription subsidisation
+
+The **Claude** and **Codex** providers each take an optional `subscription` block. It is purely a presentation input for the subsidisation card and receipt footer (the "how much API value did my flat fee buy me this month" framing). It never changes any cost computation.
+
+```json
+"subscription": {
+	"tier": "corporate",
+	"monthlyUsd": 99
+}
+```
+
+- `tier` — a preset id (or `"custom"`). It is a free string; the dashboard switcher writes the preset id it selected.
+- `monthlyUsd` — the flat monthly fee, in USD, that the API-equivalent burn is subsidised against. A non-negative finite number; `0` is allowed (Free tier → the subsidy multiple shows as "∞ — all of it" rather than dividing by zero).
+
+**Defaults and backward compatibility.** The block is optional and additive. A config written before this feature (no `subscription`) loads unchanged and defaults each of Claude and Codex to **Corporate $99**. An invalid `monthlyUsd` (a string, negative, `NaN`) is clamped back to the default fee without error. `cursor` and `opencode` do **not** take a subscription block (they report real cost, so subsidisation does not apply).
+
+**Presets** (the dashboard switcher offers these; the stored value is the resolved `{ tier, monthlyUsd }`, so a future preset price change never rewrites your saved fee):
+
+| Provider | Presets |
+|----------|---------|
+| Claude | Free `$0` · Pro `$20` · Max 5× `$100` · Max 20× `$200` · Team Premium `$100` · Corporate `$99` · Custom |
+| Codex | Free `$0` · Go `$8` · Plus `$20` · Pro 5× `$100` · Pro 20× `$200` · Corporate `$99` · Custom |
+
+The dashboard tier switcher writes through to this file atomically at mode `0600`. You can also edit it by hand; chaching picks up the change on its next run.
 
 ## Publish Checklist
 

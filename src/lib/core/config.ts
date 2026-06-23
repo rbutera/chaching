@@ -3,15 +3,72 @@ import { join } from 'node:path';
 import { chmod, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 
+/**
+ * A flat subscription plan for a provider whose API-equivalent cost chaching
+ * computes (Claude, Codex). `tier` is a preset id or `"custom"`; `monthlyUsd` is
+ * the flat fee actually paid that the API value is subsidised against. $0 (Free)
+ * is allowed and handled without divide-by-zero (see subsidisation.ts).
+ */
+export interface SubscriptionConfig {
+	tier: string;
+	monthlyUsd: number;
+}
+
 export interface ClaudeProviderConfig {
 	enabled: boolean;
 	roots: string[];
+	subscription: SubscriptionConfig;
 }
 
 export interface CodexProviderConfig {
 	enabled: boolean;
 	root: string;
+	subscription: SubscriptionConfig;
 }
+
+/** A single selectable subscription preset for a provider. */
+export interface SubscriptionPreset {
+	/** stable id stored in config (e.g. "corporate", "max-5x", "custom") */
+	id: string;
+	/** human label for the switcher */
+	label: string;
+	/** flat monthly fee in USD; ignored for the special `custom` preset (user supplies) */
+	monthlyUsd: number;
+	/** true for the free-form Custom amount entry (monthlyUsd is a placeholder) */
+	custom?: boolean;
+}
+
+/** The Corporate $99 default both subsidised providers fall back to. */
+export const DEFAULT_SUBSCRIPTION: SubscriptionConfig = { tier: 'corporate', monthlyUsd: 99 };
+
+/**
+ * Static preset tables per subsidised provider. The switcher writes the chosen
+ * preset's `id` + `monthlyUsd` (or `custom` + the user's number), so a future
+ * preset price change never silently rewrites a persisted fee (design D4).
+ */
+export const SUBSCRIPTION_PRESETS: {
+	claude: SubscriptionPreset[];
+	codex: SubscriptionPreset[];
+} = {
+	claude: [
+		{ id: 'free', label: 'Free', monthlyUsd: 0 },
+		{ id: 'pro', label: 'Pro', monthlyUsd: 20 },
+		{ id: 'max-5x', label: 'Max 5×', monthlyUsd: 100 },
+		{ id: 'max-20x', label: 'Max 20×', monthlyUsd: 200 },
+		{ id: 'team', label: 'Team Premium', monthlyUsd: 100 },
+		{ id: 'corporate', label: 'Corporate', monthlyUsd: 99 },
+		{ id: 'custom', label: 'Custom', monthlyUsd: 0, custom: true }
+	],
+	codex: [
+		{ id: 'free', label: 'Free', monthlyUsd: 0 },
+		{ id: 'go', label: 'Go', monthlyUsd: 8 },
+		{ id: 'plus', label: 'Plus', monthlyUsd: 20 },
+		{ id: 'pro-5x', label: 'Pro 5×', monthlyUsd: 100 },
+		{ id: 'pro-20x', label: 'Pro 20×', monthlyUsd: 200 },
+		{ id: 'corporate', label: 'Corporate', monthlyUsd: 99 },
+		{ id: 'custom', label: 'Custom', monthlyUsd: 0, custom: true }
+	]
+};
 
 export interface CursorProviderConfig {
 	enabled: boolean;
@@ -80,8 +137,12 @@ export function defaultConfig(): chachingConfig {
 		server: { host: DEFAULT_HOST, port: DEFAULT_PORT },
 		history: { enabled: true, dbPath: DEFAULT_HISTORY_DB_PATH },
 		providers: {
-			claude: { enabled: true, roots: ['~/.claude', '~/.config/claude'] },
-			codex: { enabled: true, root: '~/.codex/sessions' },
+			claude: {
+				enabled: true,
+				roots: ['~/.claude', '~/.config/claude'],
+				subscription: { ...DEFAULT_SUBSCRIPTION }
+			},
+			codex: { enabled: true, root: '~/.codex/sessions', subscription: { ...DEFAULT_SUBSCRIPTION } },
 			cursor: { enabled: false, adminApiToken: '', email: null, pollSeconds: DEFAULT_CURSOR_POLL_SECONDS },
 			opencode: { enabled: true, dbPath: '~/.local/share/opencode/opencode.db' }
 		}
@@ -112,11 +173,13 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 		providers: {
 			claude: {
 				enabled: booleanOr(claude.enabled, defaults.providers.claude.enabled),
-				roots: stringArrayOr(claude.roots, defaults.providers.claude.roots)
+				roots: stringArrayOr(claude.roots, defaults.providers.claude.roots),
+				subscription: normalizeSubscription(claude.subscription)
 			},
 			codex: {
 				enabled: booleanOr(codex.enabled, defaults.providers.codex.enabled),
-				root: stringOr(codex.root, defaults.providers.codex.root)
+				root: stringOr(codex.root, defaults.providers.codex.root),
+				subscription: normalizeSubscription(codex.subscription)
 			},
 			cursor: {
 				enabled: booleanOr(cursor.enabled, defaults.providers.cursor.enabled),
@@ -138,8 +201,12 @@ export function publicConfig(cfg: chachingConfig): PublicchachingConfig {
 		server: { ...cfg.server },
 		history: { ...cfg.history },
 		providers: {
-			claude: { ...cfg.providers.claude, roots: [...cfg.providers.claude.roots] },
-			codex: { ...cfg.providers.codex },
+			claude: {
+				...cfg.providers.claude,
+				roots: [...cfg.providers.claude.roots],
+				subscription: { ...cfg.providers.claude.subscription }
+			},
+			codex: { ...cfg.providers.codex, subscription: { ...cfg.providers.codex.subscription } },
 			cursor: {
 				enabled: cfg.providers.cursor.enabled,
 				email: cfg.providers.cursor.email,
@@ -223,6 +290,22 @@ function numberOrNull(value: unknown): number | null {
 
 function positiveIntOr(value: unknown, fallback: number): number {
 	return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+/**
+ * Parse a per-provider subscription block. Missing/invalid → Corporate $99.
+ * `monthlyUsd` is coerced to a non-negative finite number ($0 allowed for Free);
+ * a string/negative/NaN/Infinity falls back to the default. Never throws.
+ */
+function normalizeSubscription(value: unknown): SubscriptionConfig {
+	const raw = objectRecord(value);
+	const tier =
+		typeof raw.tier === 'string' && raw.tier.length > 0 ? raw.tier : DEFAULT_SUBSCRIPTION.tier;
+	const monthlyUsd =
+		typeof raw.monthlyUsd === 'number' && Number.isFinite(raw.monthlyUsd) && raw.monthlyUsd >= 0
+			? raw.monthlyUsd
+			: DEFAULT_SUBSCRIPTION.monthlyUsd;
+	return { tier, monthlyUsd };
 }
 
 function stringArrayOr(value: unknown, fallback: string[]): string[] {

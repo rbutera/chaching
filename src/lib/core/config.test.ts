@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { configFileMode, configFilePath, defaultConfig, normalizeConfig, publicConfig, saveConfig } from './config';
+import { clearConfigCache, configFileMode, configFilePath, defaultConfig, loadConfig, normalizeConfig, publicConfig, saveConfig } from './config';
 
 describe('config', () => {
 	it('builds the config path from XDG_CONFIG_HOME when present', () => {
@@ -36,8 +36,16 @@ describe('config', () => {
 
 		expect(cfg.cutoverTs).toBe(123);
 		expect(cfg.server).toEqual({ host: '127.0.0.1', port: 9999 });
-		expect(cfg.providers.claude).toEqual({ enabled: false, roots: ['~/claude-data'] });
-		expect(cfg.providers.codex).toEqual({ enabled: true, root: '~/codex-sessions' });
+		expect(cfg.providers.claude).toEqual({
+			enabled: false,
+			roots: ['~/claude-data'],
+			subscription: { tier: 'corporate', monthlyUsd: 99 }
+		});
+		expect(cfg.providers.codex).toEqual({
+			enabled: true,
+			root: '~/codex-sessions',
+			subscription: { tier: 'corporate', monthlyUsd: 99 }
+		});
 		expect(cfg.providers.cursor).toEqual({
 			enabled: true,
 			adminApiToken: 'crsr_test',
@@ -68,6 +76,113 @@ describe('config', () => {
 			adminApiTokenConfigured: true
 		});
 		expect(JSON.stringify(publicConfig(cfg))).not.toContain('crsr_secret');
+	});
+
+	it('defaults missing subscription to Corporate $99 (old v1.5.0 config loads unchanged)', () => {
+		// A pre-subscription config: claude/codex with no subscription block.
+		const cfg = normalizeConfig({
+			providers: {
+				claude: { enabled: true, roots: ['~/.claude'] },
+				codex: { enabled: true, root: '~/.codex/sessions' }
+			}
+		});
+		expect(cfg.providers.claude.subscription).toEqual({ tier: 'corporate', monthlyUsd: 99 });
+		expect(cfg.providers.codex.subscription).toEqual({ tier: 'corporate', monthlyUsd: 99 });
+	});
+
+	it('round-trip normalize is idempotent and preserves a custom subscription', () => {
+		const once = normalizeConfig({
+			providers: {
+				claude: { enabled: true, roots: ['~/.claude'], subscription: { tier: 'custom', monthlyUsd: 250 } },
+				codex: { enabled: true, root: '~/.codex/sessions', subscription: { tier: 'max-5x', monthlyUsd: 100 } }
+			}
+		});
+		const twice = normalizeConfig(once);
+		expect(twice).toEqual(once);
+		expect(twice.providers.claude.subscription).toEqual({ tier: 'custom', monthlyUsd: 250 });
+		expect(twice.providers.codex.subscription).toEqual({ tier: 'max-5x', monthlyUsd: 100 });
+	});
+
+	it('clamps an invalid monthlyUsd (string / negative / NaN) without throwing; $0 allowed', () => {
+		const fromString = normalizeConfig({
+			providers: { claude: { subscription: { tier: 'pro', monthlyUsd: 'not-a-number' } } }
+		});
+		expect(fromString.providers.claude.subscription.monthlyUsd).toBe(99); // default fee
+		expect(fromString.providers.claude.subscription.tier).toBe('pro'); // tier kept
+
+		const negative = normalizeConfig({
+			providers: { codex: { subscription: { tier: 'go', monthlyUsd: -5 } } }
+		});
+		expect(negative.providers.codex.subscription.monthlyUsd).toBe(99);
+
+		const free = normalizeConfig({
+			providers: { claude: { subscription: { tier: 'free', monthlyUsd: 0 } } }
+		});
+		expect(free.providers.claude.subscription.monthlyUsd).toBe(0); // $0 is valid (Free)
+	});
+
+	it('cursor and opencode never carry a subscription field', () => {
+		const cfg = normalizeConfig({});
+		expect('subscription' in cfg.providers.cursor).toBe(false);
+		expect('subscription' in cfg.providers.opencode).toBe(false);
+	});
+
+	it('subscription survives a save → reload round trip and stays 0600', async () => {
+		const previous = process.env.XDG_CONFIG_HOME;
+		const dir = await mkdtemp(join(tmpdir(), 'chaching-sub-test-'));
+		process.env.XDG_CONFIG_HOME = dir;
+		try {
+			const cfg = defaultConfig();
+			cfg.providers.claude.subscription = { tier: 'max-20x', monthlyUsd: 200 };
+			await saveConfig(cfg);
+			expect(await configFileMode()).toBe(0o600);
+			clearConfigCache();
+			const reloaded = await loadConfig();
+			expect(reloaded.providers.claude.subscription).toEqual({ tier: 'max-20x', monthlyUsd: 200 });
+		} finally {
+			if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
+			else process.env.XDG_CONFIG_HOME = previous;
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it('an additive subscription patch (the /api/config merge) preserves cutover + the other provider', async () => {
+		// Mirrors the POST /api/config merge: load, splice one provider's subscription,
+		// saveConfig. A subscription-only write must not touch cutoverTs or codex.
+		const previous = process.env.XDG_CONFIG_HOME;
+		const dir = await mkdtemp(join(tmpdir(), 'chaching-patch-test-'));
+		process.env.XDG_CONFIG_HOME = dir;
+		try {
+			const base = defaultConfig();
+			base.cutoverTs = 1_700_000_000_000;
+			base.providers.codex.subscription = { tier: 'plus', monthlyUsd: 20 };
+			await saveConfig(base);
+			clearConfigCache();
+
+			const loaded = await loadConfig();
+			const patched = {
+				...loaded,
+				providers: {
+					...loaded.providers,
+					claude: {
+						...loaded.providers.claude,
+						subscription: { tier: 'max-20x', monthlyUsd: 200 }
+					}
+				}
+			};
+			await saveConfig(patched);
+			clearConfigCache();
+
+			const reloaded = await loadConfig();
+			expect(reloaded.providers.claude.subscription).toEqual({ tier: 'max-20x', monthlyUsd: 200 });
+			expect(reloaded.providers.codex.subscription).toEqual({ tier: 'plus', monthlyUsd: 20 });
+			expect(reloaded.cutoverTs).toBe(1_700_000_000_000);
+			expect(await configFileMode()).toBe(0o600);
+		} finally {
+			if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
+			else process.env.XDG_CONFIG_HOME = previous;
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 
 	it('writes config files with owner-only permissions', async () => {
