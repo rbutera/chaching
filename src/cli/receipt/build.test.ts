@@ -40,7 +40,8 @@ function snapFrom(grain: DayModelAgg[]): RollupSnapshot {
 		providers: [...new Set(grain.map((g) => g.provider))],
 		unknownPriceModels: [],
 		stats: { filesScanned: 0, recordsCounted: 0, linesSkipped: 0, duplicatesSkipped: 0 },
-		cutoverTs: null
+		cutoverTs: null,
+		coverage: {}
 	};
 }
 

@@ -159,16 +159,27 @@ class Ingestion {
 		}
 	}
 
+	/**
+	 * The freeze-gating partial signal: true when THIS scan had an unreadable file or any
+	 * provider ingest error, so a past day may be incomplete and must NOT be frozen yet.
+	 * The SINGLE source of "partial" — shared by `freezeNewDays()` (what is safe to finalize)
+	 * and the coverage path (what to mark `partial`), so the two can never drift (design D2).
+	 */
+	private scanIsPartial(): boolean {
+		if (this.scanHadErrors) return true;
+		for (const msg of Object.values(this.providerStatus.snapshot())) {
+			if (msg) return true; // a provider failed to ingest -> a day may be partial
+		}
+		return false;
+	}
+
 	/** Freeze each past day (day < today UTC) that was scanned and is not yet frozen. */
 	private freezeNewDays(cfg: chachingConfig): void {
 		if (!cfg.history.enabled || !this.historyStore) return;
 		// A partial scan (unreadable file, provider error) may leave a past day incomplete.
 		// Freezing it would lock in the partial copy forever, so skip freezing this run and
 		// let a later clean run capture the complete day.
-		if (this.scanHadErrors) return;
-		for (const msg of Object.values(this.providerStatus.snapshot())) {
-			if (msg) return; // a provider failed to ingest -> a day may be partial
-		}
+		if (this.scanIsPartial()) return;
 		const today = isoDayUTC(this.now());
 		const frozen = this.rollup.frozenDaySet();
 		const newDays = new Set<string>();
@@ -372,7 +383,14 @@ class Ingestion {
 	}
 
 	snapshot(): RollupSnapshot {
-		return this.rollup.snapshot();
+		return this.rollup.snapshot(this.now(), {
+			today: isoDayUTC(this.now()),
+			scanPartial: this.scanIsPartial(),
+			// History-disabled degrade rule (design D-risk): with no freeze, nothing is ever
+			// `frozen`/`zero`, so a scanned past day with spend must NOT read `missing`. The
+			// rollup treats available scanned data as authoritative-equivalent for display.
+			historyEnabled: this.resolvedConfig?.history.enabled ?? false
+		});
 	}
 
 	setCutover(ts: number | null): void {

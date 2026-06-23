@@ -6,6 +6,8 @@
 
 import type {
 	BlockSummary,
+	CoverageMap,
+	DayCoverage,
 	DayModelAgg,
 	RollupDelta,
 	RollupSnapshot,
@@ -53,6 +55,22 @@ interface DayModelExtra {
 
 /** A frozen-candidate aggregate: the public agg plus the persisted-only extras. */
 export type FrozenAgg = DayModelAgg & DayModelExtra;
+
+/**
+ * The two facts the engine owns that the rollup can't see, injected so the rollup can
+ * classify per-day coverage (design D2):
+ * - `today`: the canonical UTC day, so "today" reads `partial` (live tail).
+ * - `scanPartial`: this run's freeze-gating signal (`scanIsPartial()`), so a scanned-but-
+ *   unfrozen PAST day reads `partial` rather than authoritative.
+ * - `historyEnabled`: with history off nothing is ever frozen; a scanned past day with
+ *   spend is then marked `partial` (authoritative-equivalent for display) so the
+ *   view-model never mislabels it `missing` (the history-disabled degrade rule).
+ */
+export interface CoverageInput {
+	today: string;
+	scanPartial: boolean;
+	historyEnabled: boolean;
+}
 
 function zeroExtra(): DayModelExtra {
 	return { cacheCreation1h: 0, cacheCreation5m: 0, webSearchRequests: 0, webFetchRequests: 0 };
@@ -330,6 +348,62 @@ export class Rollup {
 		return days;
 	}
 
+	/**
+	 * Days that have at least one row with real activity (requests > 0). A frozen day
+	 * present in the index only as all-zero rows is a genuine `$0` day (state `zero`),
+	 * NOT a day with spend. Requests is the activity signal: a day can have rows whose
+	 * cost is 0 (unknown-price model) yet still represent real usage.
+	 */
+	private daysWithSpend(): Set<string> {
+		const days = new Set<string>();
+		for (const dm of this.dayModel.values()) {
+			if (dm.requests > 0) days.add(dm.day);
+		}
+		return days;
+	}
+
+	/**
+	 * Classify per-day coverage from facts the layer holds (frozen set, scanned days,
+	 * per-day spend, latestDay) plus the engine-injected `{ today, scanPartial,
+	 * historyEnabled }`. Emits ONLY days the layer has an opinion about (frozen / zero /
+	 * partial). `missing` is never a key here — it is range-relative and filled by the
+	 * view-model. Priority order matches design D1.
+	 */
+	private buildCoverage(input: CoverageInput): CoverageMap {
+		const { today, scanPartial, historyEnabled } = input;
+		const frozen = this.frozenDays;
+		const withSpend = this.daysWithSpend();
+		const coverage: CoverageMap = {};
+
+		// Every frozen PAST day gets an opinion: frozen (has spend) or zero (genuine $0).
+		// A frozen "today" or future day is nonsensical (today is partial by definition);
+		// today is handled below so it always reads `partial`, never frozen/zero.
+		for (const day of frozen) {
+			if (day >= today) continue;
+			coverage[day] = withSpend.has(day) ? 'frozen' : 'zero';
+		}
+
+		// Today is partial by definition whenever the layer has touched it at all (scanned
+		// live, or — pathologically — marked frozen). It can never read frozen/zero.
+		if (this.scannedDays().has(today) || frozen.has(today)) {
+			coverage[today] = 'partial';
+		}
+
+		// Past scanned (live, not-frozen) days are partial only when this run's scan was
+		// gated partial (the freeze couldn't run), OR — history-disabled degrade — when
+		// history is off (nothing ever freezes) and the day has spend, so it never reads
+		// `missing` downstream. Otherwise (history on, clean scan, somehow un-frozen) the
+		// layer has no authoritative opinion and the view-model treats it as missing.
+		for (const day of this.scannedDays()) {
+			if (coverage[day]) continue; // today / a frozen classification already won
+			if (day < today && (scanPartial || (!historyEnabled && withSpend.has(day)))) {
+				coverage[day] = 'partial';
+			}
+		}
+
+		return coverage;
+	}
+
 	private modelsByCost(): string[] {
 		return [...this.modelCost.entries()].sort((a, b) => b[1] - a[1]).map(([m]) => m);
 	}
@@ -361,9 +435,14 @@ export class Rollup {
 		return this.blockAccumulator.snapshot(now);
 	}
 
-	snapshot(now = Date.now()): RollupSnapshot {
+	snapshot(now = Date.now(), coverageInput?: CoverageInput): RollupSnapshot {
 		const meta = getPricingMeta();
 		void meta; // meta exposed via separate endpoint; kept here for future inline use
+		// Coverage is classified from the engine-injected facts. When no input is supplied
+		// (e.g. a bare unit test that doesn't exercise coverage), emit an empty map: the
+		// view-model then treats every in-window day as `missing`, which is honest for a
+		// snapshot whose provenance the caller never declared.
+		const coverage = coverageInput ? this.buildCoverage(coverageInput) : {};
 		return {
 			generatedAt: now,
 			earliestDay: this.earliestDay,
@@ -388,7 +467,8 @@ export class Rollup {
 				linesSkipped: this.linesSkipped,
 				duplicatesSkipped: this.duplicatesSkipped
 			},
-			cutoverTs: this.cutoverTs
+			cutoverTs: this.cutoverTs,
+			coverage
 		};
 	}
 

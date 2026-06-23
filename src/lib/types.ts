@@ -63,6 +63,27 @@ export interface BlockSummary {
 	isActive: boolean; // now < endTs
 }
 
+/**
+ * Per-calendar-day trustworthiness of the spend numbers. Derived from the freeze
+ * model (which days are finalized in the history DB) plus the engine's "today" and
+ * its freeze-gating partial signal. Four states, in priority order:
+ *
+ * - `frozen`  — a past day finalized in the history DB, with spend. Authoritative.
+ * - `zero`    — a past frozen day with genuine $0 (we were running; no usage). NOT a gap.
+ * - `partial` — today (the live tail), OR a past day scanned-but-not-yet-frozen because
+ *               this run's scan was gated partial (read/provider error). Not final.
+ * - `missing` — inside the requested range but neither frozen nor scanned-with-data
+ *               (logs pruned by retention, or chaching wasn't running). Distinct from `zero`.
+ *
+ * `missing` is RANGE-RELATIVE: the snapshot `coverage` map only carries days the data
+ * layer has an opinion about (frozen / zero / partial). The view-model fills `missing`
+ * for any in-window day absent from the map (the single place it is materialized).
+ */
+export type DayCoverage = 'frozen' | 'partial' | 'missing' | 'zero';
+
+/** day (YYYY-MM-DD UTC) -> its coverage state. Only days-with-an-opinion are keys. */
+export type CoverageMap = Record<string, DayCoverage>;
+
 /** The full snapshot pushed to the client over SSE on connect. */
 export interface RollupSnapshot {
 	generatedAt: number;
@@ -94,6 +115,13 @@ export interface RollupSnapshot {
 	};
 	/** the configured work/personal cutover timestamp (epoch ms) if set, else null */
 	cutoverTs: number | null;
+	/**
+	 * Per-day coverage for the days the data layer has an opinion about (frozen / zero /
+	 * partial). Absent days are NOT keys — `missing` is range-relative and filled by the
+	 * view-model over its window. Additive: older clients ignore it. NOT threaded through
+	 * `RollupDelta` (the hot path stays lean; coverage is recomputed from the next snapshot).
+	 */
+	coverage: CoverageMap;
 }
 
 /** Incremental delta emitted after the cold scan when new lines are tailed. */
