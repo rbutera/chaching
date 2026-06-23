@@ -112,10 +112,17 @@ chaching receipt --png ~/burn.png        # export a shareable image
 chaching receipt --json
 ```
 
+The period is a **rolling window anchored at your latest day with data**, the same
+window the dashboard hero uses, so `receipt --period month` always equals the
+dashboard's "month" total. `month` = the last 30 days, `week` = the last 7, `day` =
+the latest day, `quarter` = the last 90, `all` = your whole banked history. (The
+SUBSCRIPTION SUBSIDY footer is the one exception — it stays on a calendar
+month-to-date basis, because that is what reconciles against a monthly fee.)
+
 ```
 ------------------------------------------
     chaching — AI token spend register
-  this month  ·  2026-06-01 → 2026-06-22
+  this month  ·  2026-05-25 → 2026-06-23
 ------------------------------------------
 CLAUDE CODE
   Opus 4.8                          $9,141

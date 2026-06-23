@@ -14,7 +14,7 @@ import { getPricingMeta } from '../../lib/core/pricing/cost.js';
 import { sumGrain, filterDays } from '../../lib/core/aggregate.js';
 import type { Period } from '../../lib/types.js';
 import { noArt as resolveNoArt, receiptFooter } from '../theme/personality.js';
-import { buildReceipt, periodDayRange } from '../receipt/build.js';
+import { buildReceipt, rollingPeriodRange } from '../receipt/build.js';
 import { redactReceipt } from '../receipt/redact.js';
 import { renderReceiptText } from '../receipt/render-text.js';
 import type { ReceiptJson } from '../receipt/model.js';
@@ -61,9 +61,10 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 	// `period`, so resolve the default here once.
 	const period: Period = flags.period ?? 'month';
 
-	// Pin ONE clock for the whole command so the receipt body and the --json totals
-	// can't straddle a UTC-midnight tick (body scoped to one window, totals to the
-	// next). buildReceipt + periodDayRange both take this same instant.
+	// Pin ONE clock for the whole command. The line items / TOTAL BURN now scope
+	// through the ROLLING window (anchored at snap.latestDay) so the receipt total
+	// matches the dashboard hero; `now` is still passed to buildReceipt for the
+	// deterministic ref/barcode seed and the calendar-MTD subsidisation footer.
 	const now = new Date();
 
 	// Footer copy comes from personality (never under --json, never under --no-art).
@@ -99,7 +100,9 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 
 	// ── --json: machine output only, art-free, pipe-safe ───────────────────────
 	if (flags.json) {
-		const { from, to } = periodDayRange(period, now);
+		// Same ROLLING window buildReceipt scoped the body through, so the --json
+		// totals == the receipt body == the dashboard hero for this period.
+		const { from, to } = rollingPeriodRange(snapshot, period);
 		const providerFilter =
 			flags.providers && flags.providers.length > 0 ? new Set(flags.providers) : null;
 		let grain = filterDays(snapshot.dayModel, from, to);
