@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { chachingConfig } from './config';
+import { DEFAULT_SUBSCRIPTION, type chachingConfig } from './config';
 
 // Import the core engine via its relative path only — no SvelteKit $lib alias
 // resolution. If this module loaded any framework runtime, this import would fail
@@ -15,8 +15,8 @@ function disabledConfig(): chachingConfig {
 		server: { host: '127.0.0.1', port: 5178 },
 		history: { enabled: false, dbPath: '' },
 		providers: {
-			claude: { enabled: false, roots: [] },
-			codex: { enabled: false, root: '' },
+			claude: { enabled: false, roots: [], subscription: { ...DEFAULT_SUBSCRIPTION } },
+			codex: { enabled: false, root: '', subscription: { ...DEFAULT_SUBSCRIPTION } },
 			cursor: { enabled: false, adminApiToken: '', email: null, pollSeconds: 3600 },
 			opencode: { enabled: false, dbPath: '' }
 		}
@@ -57,7 +57,7 @@ describe('core engine (no SvelteKit)', () => {
 		tmpRoots.push(root);
 		await mkdir(join(root, 'projects'), { recursive: true });
 		const cfg = disabledConfig();
-		cfg.providers.claude = { enabled: true, roots: [root] };
+		cfg.providers.claude = { enabled: true, roots: [root], subscription: { ...DEFAULT_SUBSCRIPTION } };
 
 		const before = activeHandleCount();
 		await runOnce(cfg);
@@ -73,7 +73,7 @@ describe('core engine (no SvelteKit)', () => {
 		await mkdir(join(root, 'projects'), { recursive: true });
 
 		const cfg = disabledConfig();
-		cfg.providers.claude = { enabled: true, roots: [root] };
+		cfg.providers.claude = { enabled: true, roots: [root], subscription: { ...DEFAULT_SUBSCRIPTION } };
 
 		const before = activeHandleCount();
 		const engine = createEngine(cfg);
@@ -91,7 +91,7 @@ describe('core engine (no SvelteKit)', () => {
 		tmpRoots.push(root);
 		await mkdir(join(root, 'projects'), { recursive: true });
 		const cfg = disabledConfig();
-		cfg.providers.claude = { enabled: true, roots: [root] };
+		cfg.providers.claude = { enabled: true, roots: [root], subscription: { ...DEFAULT_SUBSCRIPTION } };
 
 		const before = activeHandleCount();
 		const engine = createEngine(cfg);

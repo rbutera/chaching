@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runOnce } from '../engine';
 import { HistoryStore } from './store';
-import type { chachingConfig } from '../config';
+import { DEFAULT_SUBSCRIPTION, type chachingConfig } from '../config';
 
 const roots: string[] = [];
 
@@ -64,8 +64,8 @@ function cfg(root: string, dbPath: string): chachingConfig {
 		server: { host: '127.0.0.1', port: 5178 },
 		history: { enabled: true, dbPath },
 		providers: {
-			claude: { enabled: true, roots: [root] },
-			codex: { enabled: false, root: '' },
+			claude: { enabled: true, roots: [root], subscription: { ...DEFAULT_SUBSCRIPTION } },
+			codex: { enabled: false, root: '', subscription: { ...DEFAULT_SUBSCRIPTION } },
 			cursor: { enabled: false, adminApiToken: '', email: null, pollSeconds: 3600 },
 			opencode: { enabled: false, dbPath: '' }
 		}
