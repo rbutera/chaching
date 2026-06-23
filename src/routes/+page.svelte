@@ -6,7 +6,7 @@
 	import SummaryCard from '$lib/components/SummaryCard.svelte';
 	import TrendChart from '$lib/components/TrendChart.svelte';
 	import Donut from '$lib/components/Donut.svelte';
-	import SessionList from '$lib/components/SessionList.svelte';
+	import SessionExplorer from '$lib/components/SessionExplorer.svelte';
 	import DetailSheet from '$lib/components/DetailSheet.svelte';
 	import Sparkline from '$lib/components/Sparkline.svelte';
 	import CalendarHeatmap from '$lib/components/CalendarHeatmap.svelte';
@@ -86,8 +86,10 @@
 				: dash.scopedTotals(snap)
 			: { tokens: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 }, cost: 0, requests: 0, costUnknownRequests: 0, coverage: { states: {}, worst: 'frozen' as const } }
 	);
-	let scopedSessions = $derived(
-		snap ? (focusedDay ? dash.focusedSessions(snap, focusedDay) : dash.scopedSessions(snap)) : []
+	// The explorer is cross-day by default (design D6): all banked sessions, frozen ∪ live.
+	// A pinned focusedDay deep-links it to that single day (design D8 drill-target scope).
+	let explorerSessions = $derived(
+		snap ? (focusedDay ? dash.focusedSessions(snap, focusedDay) : dash.allSessions(snap)) : []
 	);
 
 	// whether the scoped window's partial day is TODAY (live tail) vs a past gated-partial day.
@@ -320,7 +322,11 @@
 			<!-- 5h cap-proximity + sessions -->
 			<section class="grid">
 				<div class="panel">
-					<SessionList sessions={scopedSessions} onOpen={(s) => dash.openSessionDrill(s)} />
+					<SessionExplorer
+						sessions={explorerSessions}
+						now={snap.generatedAt || Date.now()}
+						onOpen={(s) => dash.openSessionDrill(s)}
+					/>
 				</div>
 				<div class="panel cap-panel">
 					<h2 class="panel-title">5-hour window (cap proximity)</h2>

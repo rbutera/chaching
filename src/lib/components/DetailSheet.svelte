@@ -53,6 +53,9 @@
 				requests: s.requests,
 				timeRange: fmtTimeRange(s.firstTs, s.lastTs),
 				models: s.models,
+				// Per-session model MIX is not split by model in the session summary (only the
+				// aggregate token/cost is stored), so we show the mix as labelled swatches (design
+				// D5: cheap-and-honest) rather than fabricating a per-model token split.
 				modelTotals: null as ModelTotal[] | null,
 				prior: null as { tokens: TokenCounts; cost: number } | null
 			};
@@ -192,6 +195,28 @@
 			<h3>Token composition</h3>
 			<TokenSplitBar tokens={slice.tokens} color={primaryColor} />
 		</section>
+
+		{#if drill.kind === 'session' && drill.session && drill.session.models.length > 0}
+			<section class="block">
+				<h3>Model mix</h3>
+				<ul class="mix">
+					{#each drill.session.models as m (m)}
+						<li class="mix-swatch-row">
+							<span class="swatch" style={`background:${modelColor(m)}`}></span>
+							<span class="mname">{modelLabel(m)}</span>
+						</li>
+					{/each}
+				</ul>
+				{#if drill.session.costUnknownRequests > 0}
+					<p class="unknown">
+						{int(drill.session.costUnknownRequests)} of {int(drill.session.requests)} request{drill
+							.session.requests === 1
+							? ''
+							: 's'} have no known price — cost shown is a partial estimate.
+					</p>
+				{/if}
+			</section>
+		{/if}
 
 		{#if slice.modelTotals && slice.modelTotals.length > 1}
 			<section class="block">
@@ -439,6 +464,9 @@
 		gap: 0.6rem;
 		align-items: center;
 		font-size: 0.84rem;
+	}
+	.mix li.mix-swatch-row {
+		grid-template-columns: 12px 1fr;
 	}
 	.swatch {
 		width: 11px;
