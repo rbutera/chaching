@@ -55,12 +55,14 @@ function addRow(into: CacheCostBreakdown, dm: DayModelAgg): void {
 		return;
 	}
 
-	// Billed cache-read cost: cacheRead × the cache-read rate.
+	// Billed cache-read cost: cacheRead × the cache-read rate (exact: computeCost bills
+	// reads at this same single rate, so the read figure reconciles with total burn).
 	into.cacheReadCost += read * price.cache_read_input_token_cost;
-	// Billed cache-write cost: cacheCreation × the 5m / default creation rate. We use the
-	// single creation rate here (the grain does not carry the 1h/5m split), matching the
-	// dominant pricing; the figure is a faithful presentation of the creation term, not a
-	// recompute of total burn.
+	// Billed cache-write cost: cacheCreation × the BASE (5m / default) creation rate. The
+	// grain carries only a combined creation total (no 1h/5m split, design D1), so where a
+	// model has a distinct 1h rate AND 1h-cached writes, computeCost bills those at the
+	// higher 1h rate and this presentation figure is a slight UNDERSTATEMENT of the write
+	// component (it never overstates, and never affects total burn, which stays totals.cost).
 	into.cacheWriteCost += write * price.cache_creation_input_token_cost;
 	// Saved vs uncached: what those reads WOULD have cost at the fresh-input rate, less the
 	// read rate actually billed. Always ≥ 0 (read rate < input rate by construction).

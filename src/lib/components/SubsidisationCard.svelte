@@ -34,9 +34,9 @@
 	};
 
 	/** Render a multiple as "97×" / "1.4×" / "∞ — all of it" / "0× — nothing yet". */
-	function fmtMultiple(multiple: number | null, burn: number): string {
+	function fmtMultiple(multiple: number | null): string {
 		if (multiple == null) return '∞ — all of it';
-		if (multiple === 0 || burn === 0) return '0× — nothing used yet this month';
+		if (multiple === 0) return '0× — nothing used yet this month';
 		return multiple >= 100 ? `${Math.round(multiple)}×` : `${multiple.toFixed(1)}×`;
 	}
 
@@ -74,7 +74,7 @@
 	<!-- COMBINED HEADLINE -->
 	<div class="headline">
 		<span class="multiple num" aria-label="combined subsidy multiple">
-			{fmtMultiple(rollup.combined.mtd.multiple, rollup.combined.monthly.burnMTD)}
+			{fmtMultiple(rollup.combined.mtd.multiple)}
 		</span>
 		<p class="headline-sub">
 			<span class="num">{money(rollup.combined.mtd.apiEquivalentUsd)}</span> of API value for
@@ -87,7 +87,7 @@
 				<span class="net-neg">under-using your plan · {money(rollup.combined.mtd.netSubsidyUsd)}</span>
 			{/if}
 			<span class="projected">
-				· projected <span class="num">{fmtMultiple(rollup.combined.projected.multiple, rollup.combined.monthly.burnProjected)}</span>
+				· projected <span class="num">{fmtMultiple(rollup.combined.projected.multiple)}</span>
 			</span>
 		</p>
 	</div>
@@ -99,7 +99,7 @@
 			<li class="prov">
 				<div class="prov-top">
 					<span class="prov-name">{label}</span>
-					<span class="prov-mult num">{fmtMultiple(p.mtd.multiple, p.monthly.burnMTD)}</span>
+					<span class="prov-mult num">{fmtMultiple(p.mtd.multiple)}</span>
 				</div>
 				<div class="prov-detail">
 					<span class="num">{money(p.mtd.apiEquivalentUsd)}</span> value ·

@@ -103,7 +103,7 @@ chaching stats --json           # machine-readable snapshot
 
 ### `chaching receipt` — proof of purchase
 
-The fun one. Renders a period's spend as a thermal-printer receipt: line items per model, cache reads itemised as **coupons** (the caching pun, made structural), a `TOTAL BURN`, a wry footer, and a barcode that means nothing.
+The fun one. Renders a period's spend as a thermal-printer receipt: line items per model, the cache savings as **coupons** (the caching pun, made structural), the cache cost as **billed line items** right beneath them (because cache isn't free, see below), a `TOTAL BURN`, an optional subscription-subsidy footer, a wry footer, and a barcode that means nothing.
 
 ```sh
 chaching receipt                         # this is going to sting
@@ -121,14 +121,25 @@ CLAUDE CODE
   Opus 4.8                          $9,141
   Sonnet 4.6                          $95
 . . . . . . . . . . . . . . . . . . . . .
-COUPONS / CACHE DISCOUNTS
+COUPONS — CACHE DISCOUNTS
   Opus 4.8 cache hit              -$56,035
 YOU SAVED                         -$58,414
+
+CACHE — BILLED, NOT FREE
+  cache reads (billed)               $28
+  cache writes (billed)              $11
 ------------------------------------------
 TOTAL BURN                          $9,633
 ------------------------------------------
+SUBSCRIPTION SUBSIDY
+this month multiple                   97×
+$9,633 value           for $99.00 fee
+net subsidy                     +$9,534
+------------------------------------------
         REF F993F9 · 2026-06-22
 ```
+
+**Cache is billed, not free.** The "you saved" coupon is real, but it's a *discount*, not a freebie: cache reads are still charged at the cache-read rate (0.1× of fresh input), and cache writes at the cache-write rate (1.25× for 5-minute, 2× for 1-hour). The receipt and the dashboard now show both numbers, the savings AND the billed cost, so it's unmistakable that the cache costs money, just much less than re-sending the same tokens uncached. The `YOU SAVED` line is the delta versus paying full input price; the `CACHE — BILLED` lines are what the cache actually cost. Every rate is read from the same price map the rest of chaching uses, never a hardcoded constant. (The write line uses the base cache-write rate; where a model also has a separate 1-hour cache rate, the billed-writes figure is a slight underestimate of that component, never an overstatement, and `TOTAL BURN` is always exact regardless.)
 
 **Privacy is the default.** Receipts redact your username, machine name, and file paths before they ever hit the terminal or the PNG, so you can post one without doxxing yourself. Add `--reveal` if you actually want the raw details (you usually don't).
 
@@ -157,6 +168,30 @@ chaching provider add opencode
 ```
 
 The wizard shows a checklist of providers (all on by default), asks for any secret it needs (just Cursor's admin token), and writes `~/.config/chaching/config.json` at mode `0600`.
+
+---
+
+## Subsidisation: what your flat fee actually buys
+
+Here's the number most people on Claude Code or Codex actually care about. You're not paying per token; you're on a flat plan (Pro, Max, Corporate, whatever). So the interesting question isn't "what did this cost", it's "how much API-priced value did my flat monthly fee just buy me". chaching already computes the API-equivalent burn for every provider. Point it at your subscription and it frames that burn against the fee:
+
+> **97×** — $9,633 of API value for $99.
+
+The dashboard shows a **Subscription subsidy** card (per-provider and combined) with the multiple, the net monthly subsidy, and a projected figure; the receipt grows a subsidy footer on `--period month` (and the all-time default). Both are month-based on purpose.
+
+**It's calendar-month, month-to-date.** The headline compares the current calendar month *so far* against the *full* monthly fee, because that's the comparison that lines up with your card statement. Early in the month that number is honestly low (you've only banked a few days), so the card also shows a clearly-labelled **projected** multiple, `month-to-date burn ÷ fraction of the month elapsed`, for "if it keeps going like this, where does it land". The headline never dips mid-month; it only grows. The subsidy headline stays month-based even when you flip the dashboard to Day/Week, while the cache panel follows the period selector, because one is "what did my monthly fee buy me" and the other is "what did this window cost".
+
+**Tiers.** Per provider you pick a plan from a switcher (or enter a Custom amount):
+
+| Claude | Codex |
+|--------|-------|
+| Free $0 · Pro $20 · Max 5× $100 · Max 20× $200 · Team Premium $100 · Corporate $99 · Custom | Free $0 · Go $8 · Plus $20 · Pro 5× $100 · Pro 20× $200 · Corporate $99 · Custom |
+
+The default for both is **Corporate $99** (so it does something sensible before you touch it). The switcher writes straight through to `~/.config/chaching/config.json` (atomically, mode `0600`) and the card recomputes live.
+
+**Edge cases it handles honestly.** A **Free ($0)** tier has no fee to divide by, so the multiple reads **"∞ — all of it"** (every penny subsidised), never a divide-by-zero or a leaked `Infinity`. If your fee currently exceeds the value you've used (light month, or it's the 2nd), the card says **"under-using your plan"** with the real negative number, not a fake positive. Subsidisation applies only to Claude and Codex, the providers whose cost chaching computes; OpenCode and Cursor report their real cost, so subsidising them would be meaningless.
+
+> Out of scope for now: overage / extra-credit / metered-above-plan accounting. The current model is flat-subscription only. (Future.)
 
 ---
 
