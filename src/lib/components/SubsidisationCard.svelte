@@ -64,12 +64,12 @@
 </script>
 
 <section class="subsidy" aria-labelledby="subsidy-heading">
-	<header class="head">
+	<div class="head">
 		<div>
 			<h2 id="subsidy-heading" class="title">Subscription subsidy</h2>
 			<p class="basis">this month so far · vs your flat monthly fee</p>
 		</div>
-	</header>
+	</div>
 
 	<!-- COMBINED HEADLINE -->
 	<div class="headline">

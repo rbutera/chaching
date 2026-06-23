@@ -51,32 +51,41 @@
 </div>
 
 <style>
+	/* Register & Receipt segmented control — mono labels, brass-on-active (the
+	   design's `.seg`/`.on`). */
 	.seg {
 		display: inline-flex;
-		background: var(--surface-1);
+		background: var(--surface-2);
 		border: 1px solid var(--border);
-		border-radius: 999px;
+		border-radius: var(--radius-sm);
 		padding: 3px;
 		gap: 2px;
 	}
 	.seg button {
 		border: none;
 		background: transparent;
-		color: var(--fg-muted);
-		padding: 0.4rem 1.1rem;
-		border-radius: 999px;
-		font-size: 0.85rem;
+		color: var(--text-muted);
+		padding: 0.4rem 0.85rem;
+		border-radius: 6px;
+		font-family: var(--font-mono);
+		font-size: 0.78rem;
 		font-weight: 550;
 		transition:
-			background 0.18s,
-			color 0.18s;
-		min-height: 36px;
+			background var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
+		min-height: 34px;
 	}
 	.seg button.active {
-		background: var(--surface-3);
-		color: var(--fg);
+		background: var(--accent);
+		color: var(--text-on-gold);
+		font-weight: 600;
 	}
 	.seg button:hover:not(.active) {
-		color: var(--fg);
+		color: var(--text);
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.seg button {
+			transition: none;
+		}
 	}
 </style>

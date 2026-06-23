@@ -3,17 +3,22 @@
 	import { FeedStore } from '$lib/client/feed.svelte';
 	import { Dashboard } from '$lib/client/dashboard.svelte';
 	import PeriodSwitcher from '$lib/components/PeriodSwitcher.svelte';
-	import SummaryCard from '$lib/components/SummaryCard.svelte';
 	import TrendChart from '$lib/components/TrendChart.svelte';
 	import Donut from '$lib/components/Donut.svelte';
 	import SessionExplorer from '$lib/components/SessionExplorer.svelte';
 	import DetailSheet from '$lib/components/DetailSheet.svelte';
-	import Sparkline from '$lib/components/Sparkline.svelte';
 	import CalendarHeatmap from '$lib/components/CalendarHeatmap.svelte';
 	import DayNavigator from '$lib/components/DayNavigator.svelte';
 	import CachePanel from '$lib/components/CachePanel.svelte';
 	import SubsidisationCard from '$lib/components/SubsidisationCard.svelte';
-	import Wordmark from '$lib/brand/Wordmark.svelte';
+	// Register & Receipt design-system primitives (chaching-ds-components).
+	import BrandMark from '$lib/components/ds/BrandMark.svelte';
+	import Badge from '$lib/components/ds/Badge.svelte';
+	import MoneyFigure from '$lib/components/ds/MoneyFigure.svelte';
+	import StatCard from '$lib/components/ds/StatCard.svelte';
+	import Sparkline from '$lib/components/ds/Sparkline.svelte';
+	import SpendMeter from '$lib/components/ds/SpendMeter.svelte';
+	import Divider from '$lib/components/ds/Divider.svelte';
 	import type { SubsidisedProvider } from '$lib/core/subsidisation';
 	import type { PublicchachingConfig } from '$lib/core/config';
 	import {
@@ -22,7 +27,6 @@
 		pctDelta,
 		modelLabel,
 		modelColor,
-		providerColor,
 		providerLabel,
 		fmtDay,
 		fmtPeriodKey,
@@ -50,10 +54,21 @@
 		}
 	}
 
+	// Honour prefers-reduced-motion in JS (the count-up must render the final value
+	// immediately when reduced; the token base reset already nukes CSS transitions).
+	let reducedMotion = $state(false);
+
 	onMount(() => {
 		feed.start();
 		void loadPublicConfig();
-		return () => feed.stop();
+		const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+		reducedMotion = mq.matches;
+		const onMq = (e: MediaQueryListEvent) => (reducedMotion = e.matches);
+		mq.addEventListener('change', onMq);
+		return () => {
+			feed.stop();
+			mq.removeEventListener('change', onMq);
+		};
 	});
 
 	let snap = $derived(feed.snapshot);
@@ -81,6 +96,38 @@
 	);
 	let heroCost = $derived(focusedTotals ? focusedTotals.cost : (hero?.current.cost ?? 0));
 	let heroLabel = $derived(focusedDay ? fmtDay(focusedDay) : (hero?.label ?? '—'));
+
+	// Hero count-up: animate from 0 → heroCost on first paint only (not on live deltas).
+	// JS-gated on reduced-motion (renders the final value immediately). Deltas update in
+	// place — once `countDone` is set, displayCost tracks heroCost without re-animating.
+	let displayCost = $state(0);
+	let countDone = $state(false);
+	$effect(() => {
+		const target = heroCost;
+		if (countDone || reducedMotion) {
+			displayCost = target;
+			countDone = true;
+			return;
+		}
+		// only run once, on the first non-trivial value
+		if (target <= 0) {
+			displayCost = 0;
+			return;
+		}
+		countDone = true;
+		const start = performance.now();
+		const dur = 650;
+		let raf = 0;
+		const tick = (t: number) => {
+			const p = Math.min(1, (t - start) / dur);
+			const eased = 1 - Math.pow(1 - p, 3);
+			displayCost = target * eased;
+			if (p < 1) raf = requestAnimationFrame(tick);
+			else displayCost = target;
+		};
+		raf = requestAnimationFrame(tick);
+		return () => cancelAnimationFrame(raf);
+	});
 
 	// trend buckets (always full rolling window — the navigation surface)
 	let trend = $derived<PeriodBucket[]>(snap ? dash.trend(snap) : []);
@@ -124,7 +171,7 @@
 	// Cache-cost breakdown for the current scope (follows the period selector). Every
 	// rate comes from resolvePrice via cacheCostBreakdown — no hardcoded per-family
 	// literals (the old inline-rate drift is gone). Drives the CachePanel + the
-	// "Cache savings" SummaryCard.
+	// "Cache savings" StatCard.
 	let cacheBreakdown = $derived(snap ? dash.cacheBreakdown(snap).combined : null);
 	let cacheSavings = $derived.by(() => {
 		const b = cacheBreakdown;
@@ -189,6 +236,27 @@
 	// 5h cap-proximity active block
 	let activeBlock = $derived(snap?.blocks.find((b) => b.isActive) ?? null);
 
+	// Escalation flourish — the affectionate daily ladder keyed off the scoped hero cost
+	// (design D6). Shown only in day / focused-day scope: a "🚨 on fire" against an
+	// all-time total is meaningless (resolves the design.md open question — scope-gate
+	// rather than per-period rescale). Emoji are the severity encoding (data, not decor).
+	const FLOURISH_LADDER: [number, string][] = [
+		[20, '💰 decent day'],
+		[50, '💸 treating yourself'],
+		[100, '💸💸 big day'],
+		[200, '🔥 account on fire'],
+		[500, '🚨 send help'],
+		[2000, '🚨🚨 write a blog post']
+	];
+	let flourish = $derived.by(() => {
+		// only meaningful at a single-day grain: a pinned day, or the rolling "day" period.
+		const dayScoped = focusedDay != null || dash.period === 'day';
+		if (!dayScoped) return '';
+		let out = '';
+		for (const [t, txt] of FLOURISH_LADDER) if (heroCost >= t) out = txt;
+		return out;
+	});
+
 	const isDayBucket = (b: PeriodBucket) => /^\d{4}-\d{2}-\d{2}$/.test(b.key);
 
 	function onTrendPick(b: PeriodBucket) {
@@ -233,6 +301,7 @@
 		});
 	}
 
+	// Connection state — all four states kept (P14). Skin only: colour + glow.
 	let connDot = $derived(
 		feed.conn === 'live'
 			? 'var(--good)'
@@ -249,70 +318,79 @@
 <div class="page">
 	<header class="topbar">
 		<div class="brand">
-			<h1 class="brand-title"><Wordmark size={22} /></h1>
+			<h1 class="brand-title"><BrandMark size={24} wordmark title="chaching" /></h1>
 			<p class="tagline">local AI token spend</p>
 		</div>
-		<div class="status" title={`feed: ${feed.conn}`}>
-			<span class="dot" style={`background:${connDot}`}></span>
-			<span class="status-txt">{feed.conn}</span>
+		<div class="conn" title={`feed: ${feed.conn}`}>
+			<span class="dot" style={`background:${connDot}; box-shadow: 0 0 8px ${connDot}`}></span>
+			<span class="conn-txt">{feed.conn}</span>
 		</div>
 	</header>
 
 	{#if !snap}
-		<div class="loading">
+		<div class="loading" aria-live="polite">
 			<div class="spinner" aria-hidden="true"></div>
-			<p>Cold-scanning Claude Code transcripts…</p>
+			<p>Counting your sins… cold-scanning Claude Code transcripts.</p>
 			<p class="loading-sub">First load streams every session file once. This is the only slow part.</p>
 		</div>
 	{:else}
 		<main>
-			<!-- HERO -->
-			<section class="hero-sec" aria-label="Current period spend">
+			<!-- REGION 2 · HERO -->
+			<section class="hero" aria-label="Current period spend">
 				<div class="hero-left">
-				<p class="hero-label">
-					Spend · {heroLabel}
+					<p class="hero-label">
+						spend · {heroLabel}
 						{#if focusedDay}<span class="scope">· pinned day</span>{/if}
-					{#if dash.providerFilter.size > 0}<span class="scope">· {[...dash.providerFilter].map(providerLabel).join(', ')}</span>{/if}
-					{#if dash.modelFilter.size > 0}<span class="scope">· {[...dash.modelFilter].map(modelLabel).join(', ')}</span>{/if}
-				</p>
-					<div class="hero-row">
-						<span class="hero-num num">{money(heroCost)}</span>
+						{#if dash.providerFilter.size > 0}<span class="scope">· {[...dash.providerFilter].map(providerLabel).join(', ')}</span>{/if}
+						{#if dash.modelFilter.size > 0}<span class="scope">· {[...dash.modelFilter].map(modelLabel).join(', ')}</span>{/if}
+					</p>
+					<div class="hero-figure">
+						<MoneyFigure amount={displayCost} size="hero" tone="gold" />
 						{#if heroDelta}
-							<span class="hero-delta {heroDelta.dir}">
+							<span class="delta {heroDelta.dir}">
 								{heroDelta.text}
-								<span class="hero-delta-sub">vs prior {money(hero?.prior.cost ?? 0)}</span>
+								<span class="sub">vs prior {money(hero?.prior.cost ?? 0)}</span>
 							</span>
 						{/if}
 					</div>
+					{#if flourish}<div class="flourish">{flourish}</div>{/if}
 				</div>
 				<div class="hero-spark">
 					{#if heroSpark.length > 1}
-						<Sparkline values={heroSpark} width={200} height={56} color="var(--accent)" ariaLabel="Spend trend across periods" />
+						<Sparkline values={heroSpark} width={240} height={64} color="var(--accent)" area dot ariaLabel="Spend trend across periods" />
 					{/if}
 				</div>
 			</section>
 
-			<!-- STICKY CONTROLS -->
+			<!-- REGION 3 · STICKY CONTROLS -->
 			<div class="controls">
 				<div class="period-wrap" class:overridden={focusedDay != null}>
-						<PeriodSwitcher value={dash.period} onChange={(p) => dash.setPeriod(p)} />
-						{#if focusedDay != null}<span class="override-note">overridden by focused day</span>{/if}
-					</div>
-					<DayNavigator
-						{focusedDay}
-						earliest={snap.earliestDay}
-						latest={snap.latestDay}
-						onStep={(d) => dash.stepFocusedDay(snap, d)}
-						onJump={(day) => dash.setFocusedDay(snap, day)}
-						onClear={() => dash.clearFocusedDay()}
-						onEnter={() => snap.latestDay && dash.setFocusedDay(snap, snap.latestDay)}
-					/>
+					<PeriodSwitcher value={dash.period} onChange={(p) => dash.setPeriod(p)} />
+					{#if focusedDay != null}<span class="override-note">overridden by focused day</span>{/if}
+				</div>
+				{#if focusedDay != null}
+					<span class="pinned-badge">
+						<Badge tone="accent" solid>pinned · {fmtDay(focusedDay)}</Badge>
+						<button class="pin-clear" aria-label="Clear pinned day" onclick={() => dash.clearFocusedDay()}>✕</button>
+					</span>
+				{/if}
+				<DayNavigator
+					{focusedDay}
+					earliest={snap.earliestDay}
+					latest={snap.latestDay}
+					onStep={(d) => dash.stepFocusedDay(snap, d)}
+					onJump={(day) => dash.setFocusedDay(snap, day)}
+					onClear={() => dash.clearFocusedDay()}
+					onEnter={() => snap.latestDay && dash.setFocusedDay(snap, snap.latestDay)}
+				/>
 				{#if providerTotals.length > 1}
-					<div class="provider-filter" aria-label="Provider filter">
+					<div class="pills" aria-label="Provider filter">
 						{#each providerTotals as p (p.provider)}
 							<button
+								class="provider-pill"
 								class:active={dash.providerFilter.has(p.provider)}
-								style={`--provider:${providerColor(p.provider)}`}
+								aria-pressed={dash.providerFilter.has(p.provider)}
+								style={`--provider:var(--p-${p.provider}, var(--m-other))`}
 								onclick={() => dash.toggleProvider(p.provider)}
 							>
 								<span>{providerLabel(p.provider)}</span>
@@ -329,36 +407,36 @@
 				{/if}
 			</div>
 
-			<!-- SUMMARY CARDS -->
-			<section class="cards" aria-label="Summary">
-				<SummaryCard
-					label="Total spend (scope)"
+			<!-- REGION 4 · STAT ROW -->
+			<section class="stat-grid" aria-label="Summary">
+				<StatCard
+					label="total spend"
 					value={money(scopedTotals.cost)}
 					accent="var(--accent)"
 					sub={coverageSub(scopedTotals.coverage, windowIncludesToday) ?? `${int(scopedTotals.requests)} requests`}
 				/>
-				<SummaryCard
-					label="Total tokens"
+				<StatCard
+					label="total tokens"
 					value={compactTokens(totalTok)}
 					accent="var(--m-sonnet)"
 					sub={`${compactTokens(scopedTotals.tokens.output)} output`}
 				/>
-				<SummaryCard
-					label="Cache savings"
+				<StatCard
+					label="cache savings"
 					value={money(cacheSavings.saved)}
 					accent="var(--good)"
 					sub={`${Math.round(cacheSavings.hitRate * 100)}% cache-read share`}
 				/>
-				<SummaryCard
-					label="Top model"
+				<StatCard
+					label="top model"
 					value={topModel ? modelLabel(topModel.model) : '—'}
 					accent={topModel ? modelColor(topModel.model) : 'var(--m-other)'}
 					sub={topModel ? `${money(topModel.cost)} · ${compactTokens(totalTokens(topModel.tokens))}` : ''}
 				/>
 			</section>
 
-			<!-- CACHE COST + SUBSCRIPTION SUBSIDY -->
-			<section class="grid value-grid" aria-label="Cache cost and subscription subsidy">
+			<!-- REGION 5 · VALUE-CARD BAND (cache cost + subscription subsidy, design.md D1a) -->
+			<section class="value-grid" aria-label="Cache cost and subscription subsidy">
 				{#if cacheBreakdown}
 					<CachePanel breakdown={cacheBreakdown} />
 				{/if}
@@ -367,36 +445,58 @@
 				{/if}
 			</section>
 
-			<!-- CALENDAR HEATMAP: primary time-nav surface -->
-				<section class="heatmap-sec" aria-label="Daily spend calendar">
-					<div class="panel">
-						<CalendarHeatmap
-							cells={dayCells}
-							{focusedDay}
-							coverage={coverageFor}
-							onPick={(day) => dash.setFocusedDay(snap, day)}
-						/>
-					</div>
-				</section>
+			<!-- REGION 6 · CALENDAR HEATMAP (primary time-nav surface) -->
+			<section class="heatmap-sec" aria-label="Daily spend calendar">
+				<div class="panel">
+					<CalendarHeatmap
+						cells={dayCells}
+						{focusedDay}
+						coverage={coverageFor}
+						onPick={(day) => dash.setFocusedDay(snap, day)}
+					/>
+				</div>
+			</section>
 
-				<!-- MAIN GRID: trend + breakdown -->
-			<section class="grid">
-				<div class="panel trend-panel">
+			<!-- REGION 7 · BY-MODEL / 5H WINDOW GRID -->
+			<section class="grid2">
+				<div class="panel by-model">
 					{#if trend.length > 0}
 						<TrendChart buckets={trend} models={stackModels} onPick={onTrendPick} today={todayUTC} />
 					{:else}
 						<p class="empty">No data in this scope.</p>
 					{/if}
+					<div class="model-break">
+						<h2 class="panel-title"><span>by model</span></h2>
+						<Donut models={modelTotals} activeFilter={dash.modelFilter} onToggle={(m) => dash.toggleModel(m)} />
+					</div>
 				</div>
 
-				<div class="panel donut-panel">
-					<h2 class="panel-title">By model</h2>
-					<Donut models={modelTotals} activeFilter={dash.modelFilter} onToggle={(m) => dash.toggleModel(m)} />
+				<div class="panel cap-panel">
+					<h2 class="panel-title"><span>5-hour window · cap proximity</span></h2>
+					{#if activeBlock}
+						<SpendMeter amount={activeBlock.cost} context="block" label={`closes ${new Date(activeBlock.endTs).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`} />
+						<p class="cap-sub">{compactTokens(totalTokens(activeBlock.tokens))} tokens this window</p>
+					{:else}
+						<p class="empty">No active window right now.</p>
+					{/if}
+					{#if snap.blocks.length > 0}
+						<div class="cap-recent">
+							<Divider variant="solid" />
+							<ul class="recent-blocks">
+								{#each snap.blocks.slice(0, 5) as b (b.startTs)}
+									<li>
+										<span class="num">{money(b.cost)}</span>
+										<span class="blk-sub">{new Date(b.startTs).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+									</li>
+								{/each}
+							</ul>
+						</div>
+					{/if}
 				</div>
 			</section>
 
-			<!-- 5h cap-proximity + sessions -->
-			<section class="grid">
+			<!-- REGION 8 · SESSIONS -->
+			<section class="sessions-sec" aria-label="Sessions">
 				<div class="panel">
 					<SessionExplorer
 						sessions={explorerSessions}
@@ -404,37 +504,16 @@
 						onOpen={(s) => dash.openSessionDrill(s)}
 					/>
 				</div>
-				<div class="panel cap-panel">
-					<h2 class="panel-title">5-hour window (cap proximity)</h2>
-					{#if activeBlock}
-						<div class="cap">
-							<span class="cap-num num">{money(activeBlock.cost)}</span>
-							<span class="cap-sub">current window · {compactTokens(totalTokens(activeBlock.tokens))} tokens</span>
-							<span class="cap-time">closes {new Date(activeBlock.endTs).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
-						</div>
-					{:else}
-						<p class="empty">No active window right now.</p>
-					{/if}
-					{#if snap.blocks.length > 0}
-						<ul class="recent-blocks">
-							{#each snap.blocks.slice(0, 5) as b (b.startTs)}
-								<li>
-									<span class="num">{money(b.cost)}</span>
-									<span class="blk-sub">{new Date(b.startTs).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				</div>
 			</section>
 
-			<!-- HONESTY / LIMITS -->
+			<!-- REGION 9 · HONESTY FOOTER -->
 			<footer class="honesty">
 				<p>
 					<strong>Cost is a computed estimate.</strong> Claude Code stores token counts, not cost; figures
-					are tokens × a vendored LiteLLM price snapshot (provider counts are best-effort, not invoice-exact).
+					are tokens × a vendored LiteLLM price snapshot — best-effort, not invoice-exact. It counts the cache hits too.
 				</p>
 				<p>
+					Coverage is explicit: frozen days are authoritative, today reads partial, gaps read as missing — never a lying $0.
 					Data covers <strong>{snap.earliestDay ? fmtDay(snap.earliestDay) : '—'}</strong> →
 					<strong>{snap.latestDay ? fmtDay(snap.latestDay) : '—'}</strong>
 					({int(snap.stats.recordsCounted)} responses across {int(snap.stats.filesScanned)} files; {int(snap.stats.duplicatesSkipped)} streamed duplicates removed). Older logs beyond Claude Code's 30-day retention are gone.
@@ -467,38 +546,42 @@
 		margin: 0 auto;
 		padding: 0 1rem env(safe-area-inset-bottom, 1rem);
 	}
+
+	/* REGION 1 · TOPBAR — sticky, brass mark on warm ink, --bg gradient mask. */
 	.topbar {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 1rem 0 0.6rem;
+		padding: 1.1rem 0 0.75rem;
 		position: sticky;
 		top: 0;
-		background: linear-gradient(var(--bg) 70%, transparent);
-		z-index: 10;
+		z-index: var(--z-sticky);
+		background: linear-gradient(var(--bg) 72%, transparent);
 	}
 	.brand {
 		display: flex;
 		align-items: baseline;
-		gap: 0.6rem;
+		gap: 0.85rem;
 	}
 	.brand-title {
 		margin: 0;
-		font-size: 1.05rem;
+		font-size: 1rem;
 		font-weight: inherit;
 		line-height: 1;
 	}
 	.tagline {
 		margin: 0;
-		font-size: 0.72rem;
-		color: var(--fg-dim);
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		color: var(--text-dim);
 	}
-	.status {
-		display: flex;
+	.conn {
+		display: inline-flex;
 		align-items: center;
-		gap: 0.4rem;
-		font-size: 0.72rem;
-		color: var(--fg-dim);
+		gap: 0.5rem;
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		color: var(--text-muted);
 	}
 	.dot {
 		width: 8px;
@@ -506,14 +589,16 @@
 		border-radius: 50%;
 	}
 
+	/* LOADING — characterful cold-scan state. */
 	.loading {
 		text-align: center;
 		padding: 4rem 1rem;
-		color: var(--fg-muted);
+		color: var(--text-muted);
+		font-family: var(--font-mono);
 	}
 	.loading-sub {
 		font-size: 0.8rem;
-		color: var(--fg-dim);
+		color: var(--text-dim);
 	}
 	.spinner {
 		width: 28px;
@@ -529,70 +614,79 @@
 			transform: rotate(360deg);
 		}
 	}
+	@media (prefers-reduced-motion: reduce) {
+		.spinner {
+			animation-duration: 2s;
+		}
+	}
 
-	.hero-sec {
+	/* REGION 2 · HERO — total + delta + flourish left, sparkline right, wraps on narrow. */
+	.hero {
 		display: flex;
 		justify-content: space-between;
 		align-items: flex-end;
-		gap: 1rem;
-		padding: 0.6rem 0 1rem;
+		gap: 1.5rem;
+		padding: 1.1rem 0 1.4rem;
 		flex-wrap: wrap;
 	}
 	.hero-label {
-		margin: 0 0 0.2rem;
-		font-size: 0.74rem;
+		margin: 0 0 0.4rem;
+		font-family: var(--font-mono);
+		font-size: 0.7rem;
 		text-transform: uppercase;
-		letter-spacing: 0.07em;
-		color: var(--fg-dim);
+		letter-spacing: 0.08em;
+		color: var(--text-dim);
 	}
 	.scope {
 		color: var(--accent);
 	}
-	.hero-row {
+	.hero-figure {
 		display: flex;
 		align-items: baseline;
-		gap: 0.9rem;
+		gap: 1.1rem;
 		flex-wrap: wrap;
 	}
-	.hero-num {
-		font-size: clamp(2.6rem, 9vw, 3.6rem);
-		font-weight: 720;
-		line-height: 1;
-		letter-spacing: -0.02em;
-	}
-	.hero-delta {
+	.delta {
 		font-family: var(--font-num);
-		font-size: 1rem;
-		font-weight: 600;
+		font-size: 0.9rem;
+		font-weight: 700;
 		display: flex;
 		flex-direction: column;
+		line-height: 1.2;
 	}
-	.hero-delta.up {
+	.delta.up {
 		color: var(--bad);
 	}
-	.hero-delta.down {
+	.delta.down {
 		color: var(--good);
 	}
-	.hero-delta.flat {
-		color: var(--fg-dim);
+	.delta.flat {
+		color: var(--text-dim);
 	}
-	.hero-delta-sub {
+	.delta .sub {
 		font-size: 0.7rem;
-		color: var(--fg-dim);
+		color: var(--text-dim);
 		font-weight: 400;
+	}
+	.flourish {
+		margin-top: 0.5rem;
+		font-family: var(--font-mono);
+		font-size: 0.82rem;
+		color: var(--text-muted);
 	}
 	.hero-spark {
 		flex: 0 0 auto;
 	}
 
+	/* REGION 3 · STICKY CONTROLS — sticky under the topbar at top: 58px. */
 	.controls {
 		position: sticky;
-		top: 56px;
-		z-index: 9;
+		top: 58px;
+		z-index: 8;
 		display: flex;
 		align-items: center;
-		gap: 0.6rem;
-		padding: 0.5rem 0;
+		gap: 0.75rem;
+		padding: 0.5rem 0 0.9rem;
 		background: linear-gradient(var(--bg) 75%, transparent);
 		flex-wrap: wrap;
 	}
@@ -605,120 +699,158 @@
 		opacity: 0.7;
 	}
 	.override-note {
-		font-size: 0.68rem;
-		color: var(--fg-dim);
+		font-family: var(--font-mono);
+		font-size: 0.66rem;
+		color: var(--text-dim);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 	}
-	.heatmap-sec {
-		margin-bottom: 1rem;
+	.pinned-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+	}
+	.pin-clear {
+		background: transparent;
+		border: none;
+		color: var(--text-muted);
+		font-size: 0.8rem;
+		line-height: 1;
+		min-height: 32px;
+		padding: 0 0.3rem;
+		cursor: pointer;
+	}
+	.pin-clear:hover {
+		color: var(--text);
+	}
+	.pills {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+	.provider-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
+		min-height: 34px;
+		border-radius: var(--radius-pill);
+		border: 1px solid color-mix(in srgb, var(--provider) 45%, var(--border));
+		background: color-mix(in srgb, var(--provider) 10%, var(--surface-2));
+		color: var(--text-muted);
+		padding: 0.35rem 0.75rem;
+		font-family: var(--font-mono);
+		font-size: 0.74rem;
+		transition: background var(--dur-fast) var(--ease-out);
+	}
+	.provider-pill.active {
+		background: color-mix(in srgb, var(--provider) 22%, var(--surface-2));
+		color: var(--text);
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--provider) 70%, transparent);
 	}
 	.clear-filter {
 		background: var(--surface-2);
 		border: 1px solid var(--border);
-		border-radius: 999px;
+		border-radius: var(--radius-pill);
 		padding: 0.35rem 0.8rem;
-		font-size: 0.78rem;
-		color: var(--fg-muted);
-		min-height: 36px;
+		font-family: var(--font-mono);
+		font-size: 0.74rem;
+		color: var(--text-muted);
+		min-height: 34px;
+		cursor: pointer;
 	}
 	.clear-filter:hover {
-		color: var(--fg);
-	}
-	.provider-filter {
-		display: flex;
-		align-items: center;
-		gap: 0.4rem;
-		flex-wrap: wrap;
-	}
-	.provider-filter button {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.45rem;
-		min-height: 36px;
-		border-radius: 999px;
-		border: 1px solid color-mix(in srgb, var(--provider) 45%, var(--border));
-		background: color-mix(in srgb, var(--provider) 10%, var(--surface-2));
-		color: var(--fg-muted);
-		padding: 0.35rem 0.7rem;
-		font-size: 0.74rem;
-	}
-	.provider-filter button.active {
-		background: color-mix(in srgb, var(--provider) 22%, var(--surface-2));
-		color: var(--fg);
-		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--provider) 70%, transparent);
+		color: var(--text);
 	}
 
-	.cards {
+	/* REGION 4 · STAT ROW — base 2-up, 4-up at >= 720px. */
+	.stat-grid {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
-		gap: 0.7rem;
+		gap: 0.75rem;
 		margin-bottom: 1rem;
 	}
 	@media (min-width: 720px) {
-		.cards {
+		.stat-grid {
 			grid-template-columns: repeat(4, 1fr);
 		}
 	}
 
-	.grid {
+	/* REGION 5 · VALUE BAND — base single column, 1fr 1fr at >= 860px. */
+	.value-grid {
 		display: grid;
 		grid-template-columns: 1fr;
 		gap: 0.9rem;
 		margin-bottom: 1rem;
 	}
 	@media (min-width: 860px) {
-		.grid {
-			grid-template-columns: 2fr 1fr;
-		}
 		.value-grid {
 			grid-template-columns: 1fr 1fr;
 			align-items: start;
 		}
 	}
+
+	/* REGION 6 · HEATMAP */
+	.heatmap-sec {
+		margin-bottom: 1rem;
+	}
+
+	/* REGION 7 · MODEL / 5H GRID — base single column, 2fr 1fr at >= 860px. */
+	.grid2 {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 0.9rem;
+		margin-bottom: 1rem;
+	}
+	@media (min-width: 860px) {
+		.grid2 {
+			grid-template-columns: 2fr 1fr;
+			align-items: start;
+		}
+	}
+
+	/* Shared panel surface. */
 	.panel {
 		background: var(--surface-1);
 		border: 1px solid var(--border);
 		border-radius: var(--radius);
-		padding: 1rem;
+		padding: 1.1rem;
 		box-shadow: var(--shadow);
 	}
 	.panel-title {
-		margin: 0 0 0.8rem;
-		font-size: 0.8rem;
-		color: var(--fg-muted);
+		margin: 0 0 0.85rem;
+		font-family: var(--font-mono);
+		font-size: 0.7rem;
+		color: var(--text-dim);
 		text-transform: uppercase;
-		letter-spacing: 0.06em;
+		letter-spacing: 0.08em;
 		font-weight: 600;
+		display: flex;
+		justify-content: space-between;
+	}
+	.model-break {
+		margin-top: 1.1rem;
 	}
 	.empty {
-		color: var(--fg-dim);
+		color: var(--text-dim);
 		text-align: center;
 		padding: 2rem 1rem;
-	}
-	.cap {
-		display: flex;
-		flex-direction: column;
-		gap: 0.1rem;
-		margin-bottom: 0.8rem;
-	}
-	.cap-num {
-		font-size: 1.8rem;
-		font-weight: 680;
+		font-family: var(--font-mono);
+		font-size: 0.85rem;
 	}
 	.cap-sub {
-		font-size: 0.78rem;
-		color: var(--fg-muted);
+		margin: 0.6rem 0 0;
+		font-family: var(--font-mono);
+		font-size: 0.76rem;
+		color: var(--text-muted);
 	}
-	.cap-time {
-		font-size: 0.74rem;
-		color: var(--fg-dim);
+	.cap-recent {
+		margin-top: 1rem;
 	}
 	.recent-blocks {
 		list-style: none;
 		margin: 0;
-		padding: 0.6rem 0 0;
-		border-top: 1px solid var(--border);
+		padding: 0.7rem 0 0;
 		display: flex;
 		flex-direction: column;
 		gap: 0.35rem;
@@ -726,28 +858,36 @@
 	.recent-blocks li {
 		display: flex;
 		justify-content: space-between;
-		font-size: 0.82rem;
+		font-family: var(--font-mono);
+		font-size: 0.8rem;
 	}
 	.blk-sub {
-		color: var(--fg-dim);
-		font-size: 0.74rem;
+		color: var(--text-dim);
+		font-size: 0.72rem;
 	}
 
+	/* REGION 8 · SESSIONS */
+	.sessions-sec {
+		margin-bottom: 1rem;
+	}
+
+	/* REGION 9 · HONESTY FOOTER — receipt-honesty voice, mono. */
 	.honesty {
-		margin: 1.5rem 0 3rem;
-		padding: 1rem 1.1rem;
+		margin: 1.4rem 0 3rem;
+		padding: 1.1rem 1.2rem;
 		background: var(--surface-1);
 		border: 1px solid var(--border);
 		border-radius: var(--radius);
-		color: var(--fg-muted);
-		font-size: 0.8rem;
-		line-height: 1.5;
+		color: var(--text-muted);
+		font-family: var(--font-mono);
+		font-size: 0.78rem;
+		line-height: 1.6;
 	}
 	.honesty p {
-		margin: 0 0 0.5rem;
+		margin: 0 0 0.55rem;
 	}
 	.honesty strong {
-		color: var(--fg);
+		color: var(--text);
 		font-weight: 600;
 	}
 	.honesty .warn {
@@ -758,13 +898,13 @@
 		align-items: center;
 		gap: 0.5rem;
 		flex-wrap: wrap;
-		margin-top: 0.7rem !important;
+		margin-top: 0.75rem !important;
 	}
 	.cutover input {
 		background: var(--surface-2);
 		border: 1px solid var(--border);
-		border-radius: 8px;
-		color: var(--fg);
+		border-radius: var(--radius-sm);
+		color: var(--text);
 		padding: 0.35rem 0.5rem;
 		font-family: var(--font-num);
 		color-scheme: dark;

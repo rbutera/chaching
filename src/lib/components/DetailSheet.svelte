@@ -157,14 +157,14 @@
 	tabindex="-1"
 	bind:this={panel}
 >
-	<header class="sheet-head">
+	<div class="sheet-head">
 		<div>
 			<p class="crumb">{slice.crumb}</p>
 			<h2 class="sheet-title">{slice.title}</h2>
 			<p class="range">{slice.timeRange}</p>
 		</div>
 		<button class="close" onclick={onClose} aria-label="Close detail">✕</button>
-	</header>
+	</div>
 
 	<div class="sheet-body">
 		<div class="hero">
