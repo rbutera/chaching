@@ -2,11 +2,14 @@
 // Mirrors the original bin/chaching.js behaviour exactly.
 
 import { createServer } from 'node:net';
+import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { homedir, platform } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { noArt, accent, dim } from '../theme/personality.js';
+import { bannerLine } from '../tui/theme.js';
 
 function configPath(): string {
 	const configHome = process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), '.config');
@@ -68,7 +71,73 @@ export async function runServe(): Promise<void> {
 		process.env.PORT = String(port);
 	}
 
+	const host = process.env.HOST;
+	const port = process.env.PORT;
+	// The URL we print + open. A wildcard bind (0.0.0.0/::) has no meaningful "open"
+	// target, so we surface localhost for the human-facing link.
+	const displayHost = host === '0.0.0.0' || host === '::' ? 'localhost' : host;
+	const url = `http://${displayHost}:${port}`;
+
+	printBanner(url);
+
+	if (shouldAutoOpen(host)) {
+		openInBrowser(url);
+	}
+
 	await import(buildEntry);
+}
+
+/** Branded startup banner + the "chaching dashboard → URL" line. */
+function printBanner(url: string): void {
+	const argv = process.argv.slice(2);
+	if (!noArt(argv)) {
+		const banner = bannerLine(false, process.stdout.columns ?? 80);
+		if (banner) console.error(accent(banner));
+	}
+	console.error(`${dim('chaching dashboard →')} ${accent(url)}`);
+}
+
+/**
+ * Decide whether to auto-open the dashboard in the default browser. GUARDED:
+ *   - opt-out via --no-open / CHACHING_NO_OPEN
+ *   - only on an interactive TTY (the always-on kinto serve is non-TTY → never opens)
+ *   - only when bound to loopback (a 0.0.0.0 / tailnet / explicit-IP bind is "remote"
+ *     and must NOT pop a browser on the host)
+ *   - never with no display (CI / headless: no DISPLAY on linux, SSH session)
+ */
+export function shouldAutoOpen(
+	host: string | undefined,
+	env: NodeJS.ProcessEnv = process.env,
+	argv: string[] = process.argv.slice(2),
+	isTTY: boolean = !!process.stdout.isTTY,
+	os: NodeJS.Platform = platform()
+): boolean {
+	if (argv.includes('--no-open')) return false;
+	if (env.CHACHING_NO_OPEN != null && env.CHACHING_NO_OPEN !== '') return false;
+	if (!isTTY) return false;
+	// Only a loopback bind is "local enough" to open a browser on this machine.
+	const loopback = host === '127.0.0.1' || host === 'localhost' || host === '::1';
+	if (!loopback) return false;
+	// Headless guards: linux with no X display, or a non-interactive SSH session.
+	if (os === 'linux' && !env.DISPLAY && !env.WAYLAND_DISPLAY) return false;
+	if (env.SSH_CONNECTION || env.SSH_TTY) return false;
+	return true;
+}
+
+/** Open a URL in the default browser, cross-platform, with a tiny detached exec. */
+function openInBrowser(url: string): void {
+	const os = platform();
+	const cmd = os === 'darwin' ? 'open' : os === 'win32' ? 'cmd' : 'xdg-open';
+	const args = os === 'win32' ? ['/c', 'start', '""', url] : [url];
+	try {
+		const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+		child.on('error', () => {
+			/* opening is best-effort — never crash serve over it */
+		});
+		child.unref();
+	} catch {
+		/* ignore — auto-open is a convenience, not a requirement */
+	}
 }
 
 /** First free TCP port at or above `start` (bounded), probing on `host`. */
