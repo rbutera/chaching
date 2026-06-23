@@ -139,6 +139,13 @@ export interface AnsiMap {
 	bad: AnsiColor;
 	warn: AnsiColor;
 	dim: AnsiColor;
+	/** Spend-escalation ladder (calm → warm → hot → alarm), for the 5h-block flourish. */
+	spend: {
+		calm: AnsiColor;
+		warm: AnsiColor;
+		hot: AnsiColor;
+		alarm: AnsiColor;
+	};
 	models: {
 		opus: AnsiColor;
 		sonnet: AnsiColor;
@@ -173,6 +180,12 @@ export function toAnsiMap(t: Tokens): AnsiMap {
 		bad: resolve(t.status.bad),
 		warn: resolve(t.status.warn),
 		dim: resolve(t.fg.dim),
+		spend: {
+			calm: resolve(t.spend.calm),
+			warm: resolve(t.spend.warm),
+			hot: resolve(t.spend.hot),
+			alarm: resolve(t.spend.alarm)
+		},
 		models: {
 			opus: resolve(t.models.opus),
 			sonnet: resolve(t.models.sonnet),

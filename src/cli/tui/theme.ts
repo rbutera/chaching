@@ -15,9 +15,8 @@ import { toAnsiMap } from '../../lib/brand/generate.js';
 import {
 	noColor as _noColor,
 	noArt as _noArt,
-	BANNER_FULL,
-	BANNER_COMPACT,
 } from '../theme/personality.js';
+import { LOGO_FULL, LOGO_COMPACT, LOGO_FULL_MIN_COLS } from './banner.js';
 
 // Shared brand → terminal color map. The CLI passes token hex to Ink/chalk,
 // which auto-downsamples Truecolor → 256 → 16; the curated basic name is the
@@ -87,7 +86,27 @@ export function modelColorName(model: string): string {
 /** Brand accent — register-gold (brass), shared across web + CLI. */
 export const ACCENT = ANSI.accent.hex;
 export const DIM = ANSI.dim.hex;
+/** Status `good` — green; the `you saved` savings line (token-sourced, no literal hex). */
+export const GOOD = ANSI.good.hex;
 export const SPARK_CHARS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'] as const;
+
+/**
+ * Map a spend amount to a spend-escalation ladder hue, sourced from the shared
+ * token ANSI map (calm → warm → hot → alarm). Used to color the 5h-block flourish
+ * so it reads hotter as spend climbs. Returns undefined under NO_COLOR (routed
+ * through `color()`), so it strips cleanly to plain text.
+ *
+ * Tiers mirror the BLOCK_FLOURISHES thresholds: warm ≥ $10, hot ≥ $75, alarm ≥
+ * $200; below $10 reads calm (green). No literal hex, no named ANSI here.
+ */
+export function spendLadderColor(cost: number): string | undefined {
+	const hex =
+		cost >= 200 ? ANSI.spend.alarm.hex
+		: cost >= 75 ? ANSI.spend.hot.hex
+		: cost >= 10 ? ANSI.spend.warm.hex
+		: ANSI.spend.calm.hex;
+	return color(hex);
+}
 
 /**
  * Render a series of numbers as a Unicode-block sparkline. Empty/short series
@@ -124,11 +143,14 @@ export const PERIOD_LABEL: Record<Period, string> = {
 };
 
 /**
- * Banner for the TUI (Ink). Returns plain multi-line text; Ink renders it via
- * <Text color> on the caller side. Wide banner at ≥72 cols, compact fallback below.
- * Returns null when noArt is true.
+ * Banner for the TUI (Ink). Returns the inlined `logo.txt` register wordmark as
+ * plain multi-line text; the caller paints it in the brass accent via <Text color>.
+ *
+ * Width-aware: the full wordmark (76 cols) renders at >= LOGO_FULL_MIN_COLS; below
+ * that it falls back to the compact wordmark. Returns null when noArt is true
+ * (suppression is absolute — no banner at all).
  */
 export function bannerLine(isNoArt: boolean, columns = 80): string | null {
 	if (isNoArt) return null;
-	return columns >= 72 ? BANNER_FULL : BANNER_COMPACT;
+	return columns >= LOGO_FULL_MIN_COLS ? LOGO_FULL : LOGO_COMPACT;
 }

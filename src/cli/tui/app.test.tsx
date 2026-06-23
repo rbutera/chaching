@@ -11,6 +11,26 @@ function dm(day: string, provider: string, model: string, cost: number, requests
 	return { day, provider, model, tokens: toks(cost * 1000), requests, cost, costUnknownRequests: 0 };
 }
 
+/** A grain row with cache-read tokens, so `cacheCostBreakdown` reports real savings. */
+function dmWithCache(
+	day: string,
+	provider: string,
+	model: string,
+	cost: number,
+	cacheRead: number,
+	requests = 1
+): DayModelAgg {
+	return {
+		day,
+		provider,
+		model,
+		tokens: { input: cost * 1000, output: 0, cacheCreation: 0, cacheRead },
+		requests,
+		cost,
+		costUnknownRequests: 0
+	};
+}
+
 function snapFrom(grain: DayModelAgg[]): RollupSnapshot {
 	const days = grain.map((g) => g.day).sort();
 	const totalCost = grain.reduce((a, g) => a + g.cost, 0);
@@ -29,6 +49,24 @@ function snapFrom(grain: DayModelAgg[]): RollupSnapshot {
 		stats: { filesScanned: 1, recordsCounted: grain.length, linesSkipped: 0, duplicatesSkipped: 0 },
 		cutoverTs: null,
 		coverage: {}
+	};
+}
+
+/** A snapshot carrying one active 5h block at `cost`, for the escalation flourish. */
+function snapWithBlock(cost: number, startTs = 0): RollupSnapshot {
+	const snap = snapFrom([dm('2026-06-19', 'codex', 'claude-opus-4-8', cost)]);
+	return {
+		...snap,
+		blocks: [
+			{
+				startTs,
+				endTs: startTs + 5 * 60 * 60 * 1000,
+				tokens: toks(0),
+				requests: 1,
+				cost,
+				isActive: true
+			}
+		]
 	};
 }
 
@@ -91,19 +129,47 @@ const POPULATED = snapFrom([
 ]);
 
 describe('DashboardApp', () => {
-	it('renders a populated snapshot: totals, breakdowns, trend, 5h block', () => {
+	it('renders a populated snapshot: register total, breakdowns, trend, 5h block, keybar', () => {
 		const { source } = makeSource(POPULATED);
 		const { lastFrame, unmount } = render(
 			<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={DIMS} />
 		);
 		const frame = lastFrame()!;
-		expect(frame).toContain('Spend');
-		expect(frame).toContain('Total spend');
-		expect(frame).toContain('By provider');
+		expect(frame).toContain('TOTAL BURN'); // register total micro-label
+		expect(frame).toContain('it counts the cache hits too'); // header rule
+		expect(frame).toContain('BY PROVIDER');
 		expect(frame).toContain('Codex');
-		expect(frame).toContain('By model');
-		expect(frame).toContain('Trend');
-		expect(frame).toContain('5h window');
+		expect(frame).toContain('BY MODEL');
+		expect(frame).toContain('●'); // categorical dots lead the rows
+		expect(frame).toContain('trend');
+		expect(frame).toContain('5h block');
+		// keybar surfaces Q (quarter) + a (all), which the old footer omitted
+		expect(frame).toContain('d w m Q a');
+		expect(frame).toContain('period');
+		unmount();
+	});
+
+	it('renders the you-saved line in the good (green) hue when savings present', () => {
+		const grain = [dmWithCache('2026-06-19', 'codex', 'claude-opus-4-8', 10, 5_000_000)];
+		const { source } = makeSource(snapFrom(grain));
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain('YOU SAVED');
+		expect(frame).toContain('−$'); // U+2212 minus + savings figure (good/green hue via color(GOOD))
+		unmount();
+	});
+
+	it('does NOT fabricate a $0 you-saved line when no savings figure exists', () => {
+		// POPULATED has cacheRead: 0 everywhere → savedVsUncached === 0 → no line.
+		const { source } = makeSource(POPULATED);
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		expect(frame).not.toContain('YOU SAVED');
+		expect(frame).toContain('TOTAL BURN'); // total still renders
 		unmount();
 	});
 
@@ -149,10 +215,10 @@ describe('DashboardApp', () => {
 		const { lastFrame, stdin, unmount } = render(
 			<DashboardApp source={source} period="day" noArt now={() => 0} dimensions={DIMS} />
 		);
-		expect(lastFrame()).toContain('Trend · Day');
+		expect(lastFrame()).toContain('· Day');
 		stdin.write('w');
 		await new Promise((r) => setTimeout(r, 20));
-		expect(lastFrame()).toContain('Trend · Week');
+		expect(lastFrame()).toContain('· Week');
 		unmount();
 	});
 
@@ -239,7 +305,7 @@ describe('DashboardApp', () => {
 			<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={DIMS} />
 		);
 		await new Promise((r) => setTimeout(r, 30));
-		expect(lastFrame()).toContain('Total spend');
+		expect(lastFrame()).toContain('TOTAL BURN');
 		expect(lastFrame()).not.toContain('cold-scanning');
 		unmount();
 	});
@@ -271,10 +337,85 @@ describe('DashboardApp', () => {
 				<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={DIMS} />
 			);
 			const frame = lastFrame()!;
-			expect(frame).toContain('Total spend');
+			expect(frame).toContain('TOTAL BURN');
 			// no ANSI color escapes for foreground colors in NO_COLOR mode
 			// (Ink may still emit layout, but our color() returns undefined)
 			expect(frame).not.toMatch(/\[3[0-9]m/);
+			expect(frame).not.toMatch(/\[38;2;/); // no 24-bit truecolor escapes either
+			unmount();
+		} finally {
+			if (prev === undefined) delete process.env.NO_COLOR;
+			else process.env.NO_COLOR = prev;
+		}
+	});
+
+	it('shows no 5h-block flourish below the first threshold (< $10)', () => {
+		const { source } = makeSource(snapWithBlock(5));
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="week" now={() => 60_000} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain('5h block');
+		expect(frame).not.toContain('warming up');
+		expect(frame).not.toContain('the register is on fire');
+		unmount();
+	});
+
+	it('selects the warm flourish (warming up) and colors it on the spend ladder', () => {
+		const { source } = makeSource(snapWithBlock(18.4));
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="week" now={() => 60_000} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain('💸 warming up'); // colored via spendLadderColor (unit-tested in theme.test.ts)
+		unmount();
+	});
+
+	it('escalates to the alarm flourish (the register is on fire) at high spend', () => {
+		const { source } = makeSource(snapWithBlock(250));
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="week" now={() => 60_000} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain('🚨 the register is on fire'); // alarm tier (color via spendLadderColor)
+		unmount();
+	});
+
+	it('--no-art strips the banner and the 5h-block flourish (layout intact)', () => {
+		const { source } = makeSource(snapWithBlock(250));
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="week" noArt now={() => 60_000} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		// noArt → no flourish copy, no banner art, but the register layout survives
+		expect(frame).not.toContain('the register is on fire');
+		expect(frame).not.toContain('$$$$$$'); // logo.txt wordmark art absent
+		expect(frame).toContain('TOTAL BURN');
+		expect(frame).toContain('5h block');
+		unmount();
+	});
+
+	it('pinned mono fallback: NO_COLOR + --no-art has no color, no banner, no flourish, layout intact', () => {
+		const prev = process.env.NO_COLOR;
+		process.env.NO_COLOR = '1';
+		try {
+			const { source } = makeSource(snapWithBlock(250));
+			const { lastFrame, unmount } = render(
+				<DashboardApp source={source} period="week" noArt now={() => 60_000} dimensions={DIMS} />
+			);
+			const frame = lastFrame()!;
+			// no color of any kind
+			expect(frame).not.toMatch(/\x1b\[38;2;/);
+			expect(frame).not.toMatch(/\x1b\[3[0-9]m/);
+			expect(frame).not.toMatch(/\x1b\[9[0-9]m/);
+			// no banner art, no flourish
+			expect(frame).not.toContain('the register is on fire');
+			// register layout reads as plain text
+			expect(frame).toContain('TOTAL BURN');
+			expect(frame).toContain('BY PROVIDER');
+			expect(frame).toContain('BY MODEL');
+			expect(frame).toContain('5h block');
+			expect(frame).toContain('d w m Q a');
 			unmount();
 		} finally {
 			if (prev === undefined) delete process.env.NO_COLOR;

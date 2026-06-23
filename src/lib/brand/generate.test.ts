@@ -145,12 +145,22 @@ describe('toAnsiMap', () => {
 		expect(map.providers.cursor.hex).toBe(tokens.providers.cursor.hex);
 	});
 
+	it('resolves the spend-escalation ladder (calm → warm → hot → alarm) to its tokens', () => {
+		expect(map.spend.calm.hex).toBe(tokens.spend.calm.hex);
+		expect(map.spend.warm.hex).toBe(tokens.spend.warm.hex);
+		expect(map.spend.hot.hex).toBe(tokens.spend.hot.hex);
+		expect(map.spend.alarm.hex).toBe(tokens.spend.alarm.hex);
+	});
+
 	it('uses ansi-styles for the 256 fallback path (no hand-rolled converter)', () => {
 		// Every resolved 256 index must equal ansi-styles' computation for the hex.
 		for (const c of [map.accent, map.good, map.bad, map.warn, map.dim]) {
 			expect(c.ansi256).toBe(styles.hexToAnsi256(c.hex));
 		}
 		for (const c of Object.values(map.models)) {
+			expect(c.ansi256).toBe(styles.hexToAnsi256(c.hex));
+		}
+		for (const c of Object.values(map.spend)) {
 			expect(c.ansi256).toBe(styles.hexToAnsi256(c.hex));
 		}
 	});

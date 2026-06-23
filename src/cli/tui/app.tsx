@@ -13,13 +13,15 @@ import {
 	defaultViewState,
 	heroTotals,
 	models,
+	periodWindow,
 	providers,
 	scopedTotals,
 	trend,
 	type ViewState
 } from '../../lib/core/view-model.js';
+import { filterDays } from '../../lib/core/aggregate.js';
 import { applyDelta } from '../../lib/core/merge.js';
-import { money } from '../../lib/format.js';
+import { cacheCostBreakdown } from '../../lib/core/pricing/cache-breakdown.js';
 import { ACCENT, DIM, PERIOD_LABEL, bannerLine, color, scanningLine, emptyLine } from './theme.js';
 import {
 	CapBlock,
@@ -145,6 +147,17 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 	const buckets = useMemo(() => trend(snapshot, view), [snapshot, view]);
 	const activeBlock = useMemo(() => snapshot.blocks.find((b) => b.isActive) ?? null, [snapshot]);
 
+	// `you saved` — read-only cache savings (saved-vs-uncached) over the SAME period
+	// window + provider filter the totals use, derived via the shared cache-breakdown
+	// (every rate from the price table; no recompute of burn). Rendered only when > 0;
+	// never a fabricated $0 (content rule: honest numbers).
+	const savings = useMemo(() => {
+		const w = periodWindow(snapshot, view);
+		let grain = filterDays(snapshot.dayModel, w.from, w.to);
+		if (view.providerFilter.size > 0) grain = grain.filter((dm) => view.providerFilter.has(dm.provider));
+		return cacheCostBreakdown(grain).combined.savedVsUncached;
+	}, [snapshot, view]);
+
 	// useWindowSize re-renders on terminal resize (SIGWINCH) → the layout reflows.
 	// Tests inject `dimensions` for determinism. A real terminal reports
 	// columns/rows; some PTYs report 0 until the first SIGWINCH, so treat 0 as
@@ -188,12 +201,13 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 				</Text>
 			) : null}
 
-			{/* Hero: current-period spend + label */}
-			<Box>
-				<Text color={color(DIM)}>{`Spend · ${hero.label}${scopeLabel}  `}</Text>
-				<Text color={color(ACCENT)} bold>
-					{money(hero.current.cost)}
+			{/* Register-tape header rule: brand line + active period (mockup .head). */}
+			<Box justifyContent="space-between">
+				<Text color={color(DIM)}>
+					<Text color={color(ACCENT)}>{'◆ '}</Text>
+					{`it counts the cache hits too${scopeLabel}`}
 				</Text>
+				<Text color={color(DIM)}>{`${hero.label} ▾`}</Text>
 			</Box>
 
 			{empty ? (
@@ -204,7 +218,7 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 			) : (
 				<>
 					<Box marginTop={1}>
-						<SummaryCards totals={totals} topModel={modelTotals[0] ?? null} />
+						<SummaryCards totals={totals} topModel={modelTotals[0] ?? null} savings={savings} />
 					</Box>
 
 					<Box marginTop={1}>
@@ -212,7 +226,7 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 					</Box>
 
 					<Box marginTop={1} gap={3} flexWrap="wrap">
-						<ProviderBreakdown providers={providerList} />
+						<ProviderBreakdown providers={providerList} filter={view.providerFilter} />
 						<ModelBreakdown models={modelTotals} topN={TOP_MODELS} />
 					</Box>
 

@@ -1,5 +1,11 @@
 // Ink presentational components for the dashboard. Pure: they take already-derived
 // data (from the shared view-model) and render. No engine/state access here.
+//
+// Styled to the canonical terminal mockup (ui_kits/terminal/): a register total
+// with `you saved` in green, `●`-dotted by-provider/by-model columns, a token-
+// accent sparkline with a peak readout, a 5h-block gauge carrying the spend-tier-
+// colored escalation flourish, and a compact keybar. Every color routes through
+// the shared token ANSI map via theme.ts; `color()` strips it under NO_COLOR.
 
 import { Box, Text } from 'ink';
 import type { BlockSummary } from '../../lib/types.js';
@@ -9,60 +15,125 @@ import { compactTokens, int, money, modelLabel, providerLabel } from '../../lib/
 import {
 	ACCENT,
 	DIM,
+	GOOD,
 	color,
 	gaugeBar,
 	modelColorName,
 	providerColorName,
 	sparkline,
+	spendLadderColor,
 	flourishFor,
-	formatFlourish,
 	BLOCK_FLOURISHES,
 } from './theme.js';
 
-/** A single labelled summary card. */
-function Card({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent: string }) {
-	return (
-		<Box flexDirection="column" borderStyle="round" borderColor={color(DIM)} paddingX={1} minWidth={18}>
-			<Text color={color(DIM)}>{label}</Text>
-			<Text color={color(accent)} bold>
-				{value}
-			</Text>
-			{sub ? <Text color={color(DIM)}>{sub}</Text> : null}
-		</Box>
-	);
-}
-
-export function SummaryCards({ totals, topModel }: { totals: Totals; topModel: ModelTotal | null }) {
+/**
+ * The hero register total + `you saved`. The total is the biggest element on the
+ * surface: `$` + the tabular money figure in accent-bold, with a `TOTAL BURN`
+ * uppercase micro-label beneath. `you saved −$…` renders in the token `good`
+ * (green) hue ONLY when a savings figure is present (savings > 0) — never a
+ * fabricated `$0` (content rule: numbers are honest). The top model sits to the
+ * right in its categorical hue.
+ */
+export function SummaryCards({
+	totals,
+	topModel,
+	savings
+}: {
+	totals: Totals;
+	topModel: ModelTotal | null;
+	/** read-only cache savings (saved-vs-uncached) for the scope, or 0/undefined when absent */
+	savings?: number;
+}) {
 	const toks = totalTokens(totals.tokens);
+	const showSaved = typeof savings === 'number' && savings > 0;
 	return (
-		<Box gap={1} flexWrap="wrap">
-			<Card label="Total spend" value={money(totals.cost)} sub={`${int(totals.requests)} requests`} accent={ACCENT} />
-			<Card label="Total tokens" value={compactTokens(toks)} sub={`${compactTokens(totals.tokens.output)} output`} accent="cyan" />
-			<Card
-				label="Top model"
-				value={topModel ? modelLabel(topModel.model) : '—'}
-				sub={topModel ? `${money(topModel.cost)} · ${compactTokens(totalTokens(topModel.tokens))}` : ''}
-				accent={topModel ? modelColorName(topModel.model) : DIM}
-			/>
+		<Box flexWrap="wrap" gap={4}>
+			{/* register total */}
+			<Box flexDirection="column">
+				<Text>
+					<Text color={color(DIM)}>$</Text>
+					<Text color={color(ACCENT)} bold>
+						{money(totals.cost).replace(/^\$/, '')}
+					</Text>
+				</Text>
+				<Text color={color(DIM)}>TOTAL BURN</Text>
+			</Box>
+
+			{/* tokens */}
+			<Box flexDirection="column">
+				<Text>{compactTokens(toks)}</Text>
+				<Text color={color(DIM)}>TOKENS</Text>
+			</Box>
+
+			{/* you saved — only when present (no fabricated $0) */}
+			{showSaved ? (
+				<Box flexDirection="column">
+					<Text color={color(GOOD)}>{`−${money(savings!)}`}</Text>
+					<Text color={color(DIM)}>YOU SAVED</Text>
+				</Box>
+			) : null}
+
+			{/* top model */}
+			<Box flexDirection="column">
+				<Text color={color(topModel ? modelColorName(topModel.model) : DIM)}>
+					{topModel ? modelLabel(topModel.model) : '—'}
+				</Text>
+				<Text color={color(DIM)}>{topModel ? `TOP MODEL · ${money(topModel.cost)}` : 'TOP MODEL'}</Text>
+			</Box>
 		</Box>
 	);
 }
 
-export function ProviderBreakdown({ providers }: { providers: ProviderTotal[] }) {
+/** One `●`-led breakdown row: dot in the row's categorical hue, name, right-aligned money, dim tok/req. */
+function BreakdownRow({
+	colorHex,
+	name,
+	cost,
+	tokens,
+	requests,
+	off = false
+}: {
+	colorHex: string;
+	name: string;
+	cost: number;
+	tokens: number;
+	requests: number;
+	off?: boolean;
+}) {
+	return (
+		<Text dimColor={off}>
+			<Text color={color(colorHex)}>{'● '}</Text>
+			<Text>{name.padEnd(16)}</Text>
+			<Text bold>{money(cost).padStart(10)}</Text>
+			<Text color={color(DIM)}>{`  ${compactTokens(tokens).padStart(7)} tok  ${int(requests).padStart(6)} req`}</Text>
+		</Text>
+	);
+}
+
+export function ProviderBreakdown({
+	providers,
+	filter
+}: {
+	providers: ProviderTotal[];
+	/** active provider filter; a provider not in a non-empty set renders dimmed (mockup .line.off) */
+	filter?: Set<string>;
+}) {
 	if (providers.length === 0) return null;
+	const allActive = !filter || filter.size === 0;
 	return (
 		<Box flexDirection="column">
-			<Text color={color(DIM)}>By provider</Text>
-			{providers.map((p) => {
-				const toks = totalTokens(p.tokens);
-				return (
-					<Text key={p.provider}>
-						<Text color={color(providerColorName(p.provider))}>{providerLabel(p.provider).padEnd(14)}</Text>
-						<Text bold>{money(p.cost).padStart(10)}</Text>
-						<Text color={color(DIM)}>{`  ${compactTokens(toks).padStart(7)} tok  ${int(p.requests).padStart(6)} req`}</Text>
-					</Text>
-				);
-			})}
+			<Text color={color(DIM)}>BY PROVIDER</Text>
+			{providers.map((p) => (
+				<BreakdownRow
+					key={p.provider}
+					colorHex={providerColorName(p.provider)}
+					name={providerLabel(p.provider)}
+					cost={p.cost}
+					tokens={totalTokens(p.tokens)}
+					requests={p.requests}
+					off={!(allActive || filter!.has(p.provider))}
+				/>
+			))}
 		</Box>
 	);
 }
@@ -72,17 +143,17 @@ export function ModelBreakdown({ models, topN }: { models: ModelTotal[]; topN: n
 	if (top.length === 0) return null;
 	return (
 		<Box flexDirection="column">
-			<Text color={color(DIM)}>{`By model (top ${top.length})`}</Text>
-			{top.map((m) => {
-				const toks = totalTokens(m.tokens);
-				return (
-					<Text key={m.model}>
-						<Text color={color(modelColorName(m.model))}>{modelLabel(m.model).padEnd(16)}</Text>
-						<Text bold>{money(m.cost).padStart(10)}</Text>
-						<Text color={color(DIM)}>{`  ${compactTokens(toks).padStart(7)} tok  ${int(m.requests).padStart(6)} req`}</Text>
-					</Text>
-				);
-			})}
+			<Text color={color(DIM)}>{`BY MODEL (top ${top.length})`}</Text>
+			{top.map((m) => (
+				<BreakdownRow
+					key={m.model}
+					colorHex={modelColorName(m.model)}
+					name={modelLabel(m.model)}
+					cost={m.cost}
+					tokens={totalTokens(m.tokens)}
+					requests={m.requests}
+				/>
+			))}
 		</Box>
 	);
 }
@@ -92,28 +163,36 @@ export function TrendSparkline({ buckets, periodLabel }: { buckets: PeriodBucket
 	const spark = sparkline(costs);
 	const peak = costs.length > 0 ? Math.max(...costs) : 0;
 	return (
-		<Box flexDirection="column">
-			<Text color={color(DIM)}>{`Trend · ${periodLabel} (${buckets.length} buckets)`}</Text>
+		<Box>
+			<Text color={color(DIM)}>{`trend  `}</Text>
 			{spark ? (
 				<Text color={color(ACCENT)}>{spark}</Text>
 			) : (
 				<Text color={color(DIM)}>no data in scope</Text>
 			)}
-			{peak > 0 ? <Text color={color(DIM)}>{`peak ${money(peak)}`}</Text> : null}
+			{peak > 0 ? <Text color={color(DIM)}>{`  peak ${money(peak)}`}</Text> : null}
+			<Text color={color(DIM)}>{`  · ${periodLabel}`}</Text>
 		</Box>
 	);
 }
 
+/** Local two-digit HH:MM (UTC) for a block close time. */
+function hhmm(ts: number): string {
+	const d = new Date(ts);
+	return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+}
+
 /**
- * The rolling 5h cap-proximity block. Shows elapsed/remaining within the window
- * plus the spend in that window. `now` is injectable for deterministic tests.
- * `noArt` suppresses the big-spend flourish emoji/copy.
+ * The rolling 5h cap-proximity block. Gauge (token-accent fill, dim track), the
+ * block spend, and the escalation flourish colored along the spend ladder. The
+ * meta line carries elapsed/remaining + the close time (mockup framing). `now` is
+ * injectable for deterministic tests. `noArt` suppresses the flourish.
  */
 export function CapBlock({ block, now, noArt = false }: { block: BlockSummary | null; now: number; noArt?: boolean }) {
 	if (!block) {
 		return (
 			<Box flexDirection="column">
-				<Text color={color(DIM)}>5h window</Text>
+				<Text color={color(DIM)}>5h block</Text>
 				<Text color={color(DIM)}>no active window</Text>
 			</Box>
 		);
@@ -126,20 +205,22 @@ export function CapBlock({ block, now, noArt = false }: { block: BlockSummary | 
 		const m = mins(ms);
 		return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`;
 	};
-	const flourish = !noArt ? formatFlourish(flourishFor(block.cost, BLOCK_FLOURISHES)) : '';
+	// Compose the flourish as PLAIN text (emoji + remark) so Ink owns the color —
+	// the spend-ladder hue, not the flat dim that formatFlourish would bake in.
+	// `--no-art` strips it entirely (the noArt guard), as does the zero tier.
+	const tier = flourishFor(block.cost, BLOCK_FLOURISHES);
+	const flourish = !noArt ? [tier.emoji, tier.remark].filter(Boolean).join(' ') : '';
 	return (
 		<Box flexDirection="column">
-			<Text color={color(DIM)}>5h window (cap proximity)</Text>
-			<Box>
-				<Text color={color(ACCENT)} bold>
-					{money(block.cost)}
-				</Text>
-				{flourish ? <Text color={color(DIM)}>{`  ${flourish}`}</Text> : null}
-			</Box>
-			<Text color={color(DIM)}>{`${compactTokens(totalTokens(block.tokens))} tok · ${int(block.requests)} req`}</Text>
 			<Text>
 				<Text color={color(ACCENT)}>{gaugeBar(span > 0 ? elapsed / span : 0, 20)}</Text>
-				<Text color={color(DIM)}>{`  ${fmtDur(elapsed)} in · ${fmtDur(remaining)} left`}</Text>
+				<Text color={color(ACCENT)} bold>
+					{`  ${money(block.cost)}`}
+				</Text>
+				{flourish ? <Text color={spendLadderColor(block.cost)}>{`  ${flourish}`}</Text> : null}
+			</Text>
+			<Text color={color(DIM)}>
+				{`5h block · ${fmtDur(elapsed)} in · ${fmtDur(remaining)} left · closes ${hhmm(block.endTs)}`}
 			</Text>
 		</Box>
 	);
@@ -178,11 +259,28 @@ export function ProviderFilterRow({
 	);
 }
 
-/** The keybindings hint footer. */
+/**
+ * The compact keybar (mockup form): period keys `d w m Q a`, provider toggles
+ * `1-9`, clear `0`, quit `q`. Key glyphs in the accent, labels in dim. Surfaces
+ * `Q` (quarter) and `a` (all) which the old footer omitted (a real discoverability
+ * fix — the keys already work in the root).
+ */
 export function HelpFooter() {
+	const Key = ({ children }: { children: string }) => (
+		<Text color={color(ACCENT)} bold>
+			{children}
+		</Text>
+	);
 	return (
 		<Text color={color(DIM)}>
-			{'d/w/m or ←/→ period · 1-9 toggle provider · 0 clear · q quit'}
+			<Key>d w m Q a</Key>
+			<Text>{' period · '}</Text>
+			<Key>1-9</Key>
+			<Text>{' toggle provider · '}</Text>
+			<Key>0</Key>
+			<Text>{' clear · '}</Text>
+			<Key>q</Key>
+			<Text>{' quit'}</Text>
 		</Text>
 	);
 }
