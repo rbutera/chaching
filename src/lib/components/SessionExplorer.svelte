@@ -234,74 +234,79 @@
 		</div>
 	</div>
 
-	<div class="sortbar" role="row" aria-label="Sort sessions">
+	<!--
+		Sort controls = a toolbar of real <button>s (the actionable controls). The active
+		sort + direction is announced two ways: aria-pressed on the active button and the
+		button's aria-label spelling out the direction (no orphaned grid/columnheader roles
+		— this isn't a grid, it's a sortable list).
+	-->
+	<div class="sortbar" role="group" aria-label="Sort sessions">
 		{#each sortable as col (col.id)}
-			<!-- aria-sort lives on the columnheader (where the role supports it), the control is a real button -->
-			<div class="sortcell" role="columnheader" aria-sort={ariaSort(col.id)}>
-				<button
-					class="sortbtn"
-					class:active={ariaSort(col.id) !== 'none'}
-					onclick={() => toggleSort(col.id)}
+			{@const dir = ariaSort(col.id)}
+			<button
+				class="sortbtn"
+				class:active={dir !== 'none'}
+				aria-pressed={dir !== 'none'}
+				aria-label={`Sort by ${col.label}${dir === 'descending' ? ', descending' : dir === 'ascending' ? ', ascending' : ''}`}
+				onclick={() => toggleSort(col.id)}
+			>
+				{col.label}
+				<span class="caret" aria-hidden="true"
+					>{dir === 'descending' ? '↓' : dir === 'ascending' ? '↑' : ''}</span
 				>
-					{col.label}
-					<span class="caret" aria-hidden="true"
-						>{ariaSort(col.id) === 'descending' ? '↓' : ariaSort(col.id) === 'ascending' ? '↑' : ''}</span
-					>
-				</button>
-			</div>
+			</button>
 		{/each}
 	</div>
 
 	{#if sortedRows.length === 0}
 		<p class="empty">{search.trim() ? 'No sessions match that project.' : 'No sessions in scope.'}</p>
 	{:else}
-		<div
-			class="scroll"
-			bind:this={scrollEl}
-			role="grid"
-			aria-rowcount={sortedRows.length}
-			aria-label="Sessions"
-		>
-			<div class="sizer" style={`height:${totalSize}px`}>
+		<!-- the scroll container is the virtualization viewport; the list is its semantic child -->
+		<div class="scroll" bind:this={scrollEl}>
+			<ul class="sizer" style={`height:${totalSize}px`} aria-label={`${sortedRows.length} sessions`}>
 				{#each virtualItems as vi (vi.key)}
 					{@const row = sortedRows[vi.index]}
 					{@const r = row.original}
-					<div
-						class="row"
-						role="row"
-						tabindex={vi.index === activeIndex ? 0 : -1}
-						data-row-index={vi.index}
-						aria-rowindex={vi.index + 1}
-						style={`transform:translateY(${vi.start}px);height:${ROW_H}px`}
-						onclick={() => onOpen(r.session)}
-						onkeydown={(e) => onRowKey(e, vi.index, r.session)}
-						onfocus={() => (activeIndex = vi.index)}
-					>
-						<span class="dots" aria-hidden="true">
-							{#each r.models.slice(0, 3) as m (m)}
-								<span class="dot" style={`background:${modelColor(m)}`}></span>
-							{/each}
-						</span>
-						<span class="proj" role="gridcell">
-							<span class="proj-name">{r.project}</span>
-							<span class="sub">
-								{modelLabel(r.models[0] ?? '')}{r.models.length > 1
-									? ` +${r.models.length - 1}`
-									: ''}
-								{#if r.live}<span class="badge live">live</span>{/if}
-								{#if r.costUnknown}<span class="badge unknown" title="Some requests have no known price"
-										>cost partial</span
-									>{/if}
+					{@const liveTxt = r.live ? ', live' : ''}
+					{@const unknownTxt = r.costUnknown ? ', cost partial' : ''}
+					<li class="rowwrap" style={`transform:translateY(${vi.start}px);height:${ROW_H}px`}>
+						<!-- each row is a real <button>: the interactive control AT announces as actionable -->
+						<button
+							class="row"
+							type="button"
+							tabindex={vi.index === activeIndex ? 0 : -1}
+							data-row-index={vi.index}
+							aria-label={`${r.project}, ${money(r.cost)}, ${compactTokens(r.tokens)} tokens, ${r.requests} requests${liveTxt}${unknownTxt}. Open session detail.`}
+							onclick={() => onOpen(r.session)}
+							onkeydown={(e) => onRowKey(e, vi.index, r.session)}
+							onfocus={() => (activeIndex = vi.index)}
+						>
+							<span class="dots" aria-hidden="true">
+								{#each r.models.slice(0, 3) as m (m)}
+									<span class="dot" style={`background:${modelColor(m)}`}></span>
+								{/each}
 							</span>
-						</span>
-						<span class="when" role="gridcell">{fmtTimeRange(r.session.firstTs, r.session.lastTs)}</span>
-						<span class="figs" role="gridcell">
-							<span class="cost num">{money(r.cost)}</span>
-							<span class="tok num">{compactTokens(r.tokens)} tok · {r.requests} req</span>
-						</span>
-					</div>
+							<span class="proj">
+								<span class="proj-name">{r.project}</span>
+								<span class="sub" aria-hidden="true">
+									{modelLabel(r.models[0] ?? '')}{r.models.length > 1
+										? ` +${r.models.length - 1}`
+										: ''}
+									{#if r.live}<span class="badge live">live</span>{/if}
+									{#if r.costUnknown}<span class="badge unknown" title="Some requests have no known price"
+											>cost partial</span
+										>{/if}
+								</span>
+							</span>
+							<span class="when" aria-hidden="true">{fmtTimeRange(r.session.firstTs, r.session.lastTs)}</span>
+							<span class="figs" aria-hidden="true">
+								<span class="cost num">{money(r.cost)}</span>
+								<span class="tok num">{compactTokens(r.tokens)} tok · {r.requests} req</span>
+							</span>
+						</button>
+					</li>
 				{/each}
-			</div>
+			</ul>
 		</div>
 		<p class="count">{sortedRows.length} session{sortedRows.length === 1 ? '' : 's'}{search.trim() ? ' (filtered)' : ''}</p>
 	{/if}
@@ -351,9 +356,6 @@
 		gap: 0.4rem;
 		flex-wrap: wrap;
 	}
-	.sortcell {
-		display: contents;
-	}
 	.sortbtn {
 		display: inline-flex;
 		align-items: center;
@@ -390,19 +392,30 @@
 	.sizer {
 		position: relative;
 		width: 100%;
+		list-style: none;
+		margin: 0;
+		padding: 0;
 	}
-	.row {
+	.rowwrap {
 		position: absolute;
 		top: 0;
 		left: 0;
 		width: 100%;
+	}
+	.row {
+		width: 100%;
+		height: 100%;
 		display: grid;
 		grid-template-columns: auto minmax(0, 1.4fr) minmax(0, 1fr) auto;
 		gap: 0.7rem;
 		align-items: center;
 		text-align: left;
 		padding: 0.5rem 0.8rem;
+		border: none;
 		border-bottom: 1px solid var(--border);
+		background: transparent;
+		color: inherit;
+		font: inherit;
 		cursor: pointer;
 		box-sizing: border-box;
 	}

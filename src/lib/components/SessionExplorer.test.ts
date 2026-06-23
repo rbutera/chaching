@@ -67,37 +67,42 @@ describe('SessionExplorer — sort headers (aria-sort + reorder)', () => {
 	];
 
 	function projectOrder(): string[] {
-		// rows render in sorted order; read the visible project names top-to-bottom by aria-rowindex
-		const rows = screen.getAllByRole('row').filter((r) => r.hasAttribute('data-row-index'));
+		// rows render in sorted order; read the visible project names top-to-bottom by data-row-index
+		const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-row-index]'));
 		return rows
 			.sort((a, b) => Number(a.dataset.rowIndex) - Number(b.dataset.rowIndex))
-			.map((r) => within(r).getByText(/cheap|pricey|tokens/).textContent ?? '');
+			.map((r) => within(r).getByText(/^cheap$|^pricey$|^tokens$/).textContent ?? '');
 	}
 
-	it('default sort is recency (newest lastTs first) and reflects aria-sort', () => {
+	// the active sort is announced via aria-pressed on the sort <button>
+	function sortBtn(label: string): HTMLElement {
+		return screen.getByRole('button', { name: new RegExp(`^Sort by ${label}`) });
+	}
+
+	it('default sort is recency (newest lastTs first), reflected by aria-pressed + label', () => {
 		render(SessionExplorer, { sessions, onOpen: () => {}, now: NOW });
-		const recencyHeader = screen.getByText('Last active').closest('[role="columnheader"]')!;
-		expect(recencyHeader).toHaveAttribute('aria-sort', 'descending');
+		const recency = sortBtn('Last active');
+		expect(recency).toHaveAttribute('aria-pressed', 'true');
+		expect(recency).toHaveAccessibleName(/descending/);
 		// newest lastTs is 'pricey' (06-12), then 'tokens' (06-11), then 'cheap' (06-10)
 		expect(projectOrder()).toEqual(['pricey', 'tokens', 'cheap']);
 	});
 
-	it('sorting by cost reorders rows and sets aria-sort on the cost header', async () => {
+	it('sorting by cost reorders rows and marks the cost button as the active sort', async () => {
 		const user = userEvent.setup();
 		render(SessionExplorer, { sessions, onOpen: () => {}, now: NOW });
-		await user.click(screen.getByText('Cost'));
-		const costHeader = screen.getByText('Cost').closest('[role="columnheader"]')!;
-		expect(costHeader).toHaveAttribute('aria-sort', 'descending'); // cost sortDescFirst
-		// recency header is no longer the active sort
-		const recencyHeader = screen.getByText('Last active').closest('[role="columnheader"]')!;
-		expect(recencyHeader).toHaveAttribute('aria-sort', 'none');
+		await user.click(sortBtn('Cost'));
+		expect(sortBtn('Cost')).toHaveAttribute('aria-pressed', 'true'); // cost sortDescFirst
+		expect(sortBtn('Cost')).toHaveAccessibleName(/descending/);
+		// recency is no longer the active sort
+		expect(sortBtn('Last active')).toHaveAttribute('aria-pressed', 'false');
 		expect(projectOrder()).toEqual(['pricey', 'tokens', 'cheap']); // 99, 5, 1
 	});
 
 	it('sorting by tokens reorders rows by total token count', async () => {
 		const user = userEvent.setup();
 		render(SessionExplorer, { sessions, onOpen: () => {}, now: NOW });
-		await user.click(screen.getByText('Tokens'));
+		await user.click(sortBtn('Tokens'));
 		expect(projectOrder()[0]).toBe('tokens'); // 1M tokens leads
 	});
 });
@@ -154,7 +159,7 @@ describe('SessionExplorer — delta preserves sort + search state', () => {
 			sess({ sessionId: 'b', project: 'bar-1', cost: 9 })
 		];
 		const { rerender } = render(SessionExplorer, { sessions: base, onOpen: () => {}, now: NOW });
-		await user.click(screen.getByText('Cost'));
+		await user.click(screen.getByRole('button', { name: /^Sort by Cost/ }));
 		await user.type(screen.getByLabelText('Search sessions by project'), 'foo');
 		// a "delta" arrives: a new live session for the foo project, plus b grows
 		const next = [
@@ -167,9 +172,10 @@ describe('SessionExplorer — delta preserves sort + search state', () => {
 		expect(screen.getByText('foo-1')).toBeInTheDocument();
 		expect(screen.getByText('foo-2')).toBeInTheDocument();
 		expect(screen.queryByText('bar-1')).not.toBeInTheDocument();
-		// sort key survived → cost header still active
-		const costHeader = screen.getByText('Cost').closest('[role="columnheader"]')!;
-		expect(costHeader).toHaveAttribute('aria-sort', 'descending');
+		// sort key survived → cost button still the active sort
+		const costBtn = screen.getByRole('button', { name: /^Sort by Cost/ });
+		expect(costBtn).toHaveAttribute('aria-pressed', 'true');
+		expect(costBtn).toHaveAccessibleName(/descending/);
 	});
 });
 
