@@ -114,9 +114,10 @@
 	let heroCost = $derived(focusedTotals ? focusedTotals.cost : (hero?.current.cost ?? 0));
 	let heroLabel = $derived(focusedDay ? fmtDay(focusedDay) : (hero?.label ?? '—'));
 
-	// "Receipt" button → /api/receipt.png reflecting the dashboard's CURRENT view:
-	// the active period, any focused-day pin, and the provider filter. Redaction is
-	// OPT-IN (no `redact` param here) — it's the user's own local data; add `?redact=1`
+	// "Receipt" button → /api/receipt.png reflecting the dashboard's current period,
+	// focused-day pin, and provider filter. (The receipt has no per-MODEL scope — same
+	// as the CLI receipt command — so a model filter isn't forwarded.) Redaction is
+	// OPT-IN (no `redact` param here): it's the user's own local data; add `?redact=1`
 	// when sharing.
 	let receiptUrl = $derived.by(() => {
 		const qs = new URLSearchParams();

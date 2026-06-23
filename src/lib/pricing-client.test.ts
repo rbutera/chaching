@@ -39,9 +39,13 @@ describe('resolvePriceClient — Codex / GPT families (widened P2)', () => {
 	});
 
 	it('prices the reasoning + codex-mini ids', () => {
-		expect(resolvePriceClient('o3')).toMatchObject({ input: 2e-6 });
+		expect(resolvePriceClient('o3')).toMatchObject({ input: 2e-6, cacheRead: 5e-7 });
 		expect(resolvePriceClient('o4-mini')).toMatchObject({ input: 1.1e-6 });
 		expect(resolvePriceClient('codex-mini-latest')).toMatchObject({ input: 1.5e-6 });
+	});
+
+	it('o3-mini matches before bare o3 (distinct cache-read rate)', () => {
+		expect(resolvePriceClient('o3-mini')).toMatchObject({ input: 1.1e-6, cacheRead: 5.5e-7 });
 	});
 
 	it('OpenAI cacheCreation equals input (no cache-write billing)', () => {

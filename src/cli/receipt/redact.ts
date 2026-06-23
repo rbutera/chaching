@@ -153,7 +153,10 @@ export function redactReceipt(model: ReceiptModel, opts: RedactOptions = {}): Re
 		coupons: model.coupons.map((c) => ({
 			...c,
 			modelLabel: redactText(c.modelLabel, secrets)
-		}))
+		})),
+		// Emitted only in --json. Model ids are normally not PII, but an unknown /
+		// custom id could carry a local endpoint or project string — scrub defensively.
+		unknownPriceModels: model.unknownPriceModels.map((m) => redactText(m, secrets))
 	};
 }
 

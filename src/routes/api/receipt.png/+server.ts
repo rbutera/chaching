@@ -50,9 +50,14 @@ export const GET: RequestHandler = async ({ url }) => {
 	})();
 
 	// Focused-day pin (dashboard drill-in) → a single-day inclusive range that wins
-	// over the period's computed range. Ignored if malformed.
+	// over the period's computed range. A present-but-malformed `day` is a 400 (don't
+	// silently widen the scope back to the full period — that would show MORE than the
+	// caller asked for, which matters now redaction is opt-in).
 	const day = params.get('day');
-	const range = day && DAY_RE.test(day) ? { from: day, to: day } : undefined;
+	if (day !== null && !DAY_RE.test(day)) {
+		throw error(400, `invalid day '${day}' (expected YYYY-MM-DD)`);
+	}
+	const range = day ? { from: day, to: day } : undefined;
 
 	// Provider filter (repeatable or comma-separated), mirroring the CLI.
 	const providers = params

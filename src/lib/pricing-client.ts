@@ -37,6 +37,7 @@ const GPT41_NANO: ClientPrice = { input: 1e-7, output: 4e-7, cacheCreation: 1e-7
 const GPT4O: ClientPrice = { input: 2.5e-6, output: 1e-5, cacheCreation: 2.5e-6, cacheRead: 1.25e-6 };
 const GPT4O_MINI: ClientPrice = { input: 1.5e-7, output: 6e-7, cacheCreation: 1.5e-7, cacheRead: 7.5e-8 };
 const O3: ClientPrice = { input: 2e-6, output: 8e-6, cacheCreation: 2e-6, cacheRead: 5e-7 };
+const O3_MINI: ClientPrice = { input: 1.1e-6, output: 4.4e-6, cacheCreation: 1.1e-6, cacheRead: 5.5e-7 };
 const O4_MINI: ClientPrice = { input: 1.1e-6, output: 4.4e-6, cacheCreation: 1.1e-6, cacheRead: 2.75e-7 };
 const CODEX_MINI: ClientPrice = { input: 1.5e-6, output: 6e-6, cacheCreation: 1.5e-6, cacheRead: 3.75e-7 };
 
@@ -66,6 +67,8 @@ export function resolvePriceClient(model: string): ClientPrice | null {
 
 	if (/codex-mini/i.test(model)) return CODEX_MINI;
 	if (/o4-mini/i.test(model)) return O4_MINI;
+	// o3-mini before the bare o3 rule (its cache-read rate differs).
+	if (/o3-mini/i.test(model)) return O3_MINI;
 	if (/(?:^|[^a-z])o3(?:$|[^a-z])/i.test(model)) return O3;
 
 	return null;

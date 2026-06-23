@@ -61,6 +61,11 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 	// `period`, so resolve the default here once.
 	const period: Period = flags.period ?? 'month';
 
+	// Pin ONE clock for the whole command so the receipt body and the --json totals
+	// can't straddle a UTC-midnight tick (body scoped to one window, totals to the
+	// next). buildReceipt + periodDayRange both take this same instant.
+	const now = new Date();
+
 	// Footer copy comes from personality (never under --json, never under --no-art).
 	const footer = noArt || flags.json ? '' : receiptFooter();
 
@@ -84,7 +89,8 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 		providers: flags.providers,
 		noArt: noArt || !!flags.json,
 		footer,
-		subscription
+		subscription,
+		now: now.getTime()
 	});
 
 	// Redaction runs BEFORE every render path (text / json / png). OPT-IN: the
@@ -93,7 +99,7 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 
 	// ── --json: machine output only, art-free, pipe-safe ───────────────────────
 	if (flags.json) {
-		const { from, to } = periodDayRange(period);
+		const { from, to } = periodDayRange(period, now);
 		const providerFilter =
 			flags.providers && flags.providers.length > 0 ? new Set(flags.providers) : null;
 		let grain = filterDays(snapshot.dayModel, from, to);
