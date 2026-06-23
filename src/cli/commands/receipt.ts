@@ -15,7 +15,7 @@ import { sumGrain, filterDays } from '../../lib/core/aggregate.js';
 import type { Period } from '../../lib/types.js';
 import { noArt as resolveNoArt, receiptFooter } from '../theme/personality.js';
 import { buildReceipt, rollingPeriodRange } from '../receipt/build.js';
-import { redactReceipt } from '../receipt/redact.js';
+import { redactReceipt, currentAccount } from '../receipt/redact.js';
 import { renderReceiptText } from '../receipt/render-text.js';
 import type { ReceiptJson } from '../receipt/model.js';
 
@@ -91,6 +91,7 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 		noArt: noArt || !!flags.json,
 		footer,
 		subscription,
+		account: currentAccount(),
 		now: now.getTime()
 	});
 

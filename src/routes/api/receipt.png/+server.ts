@@ -20,7 +20,7 @@ import type { RequestHandler } from './$types';
 import { getService } from '$lib/server/service';
 import { loadConfig } from '$lib/core/config';
 import { buildReceipt } from '../../../cli/receipt/build';
-import { redactReceipt } from '../../../cli/receipt/redact';
+import { redactReceipt, currentAccount } from '../../../cli/receipt/redact';
 import { receiptFooter } from '../../../cli/theme/personality';
 import type { Period } from '$lib/types';
 
@@ -91,7 +91,8 @@ export const GET: RequestHandler = async ({ url }) => {
 		providers: providers.length > 0 ? providers : undefined,
 		range,
 		footer: receiptFooter(),
-		subscription
+		subscription,
+		account: currentAccount()
 	});
 
 	// Redaction OPT-IN (matches the CLI): shows real details unless `?redact=1`.

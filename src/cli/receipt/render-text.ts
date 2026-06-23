@@ -91,9 +91,12 @@ export function renderReceiptText(model: ReceiptModel, e: RenderTextEnv = {}): s
 				: `${model.from} -> ${model.to}` // ASCII arrow: pipe-safe, no tofu in dumb terminals
 			: model.periodLabel;
 	lines.push(centre(`${model.periodLabel}  ·  ${rangeLine}`));
-	// user · path line — the wordmark carries "@ host" (already redacted upstream);
-	// surface it as the design's user·path sub. providers double as the "path" slot.
-	const hostPart = model.wordmark.includes('@') ? model.wordmark.split('@').pop()!.trim() : '';
+	// user · path line — `model.account` carries the real "user@host" (shown by
+	// default; already scrubbed upstream when redaction was opted into). Fall back to
+	// the wordmark's legacy "@host" segment. providers double as the "path" slot.
+	const hostPart =
+		(model.account && model.account.trim()) ||
+		(model.wordmark.includes('@') ? model.wordmark.split('@').pop()!.trim() : '');
 	const pathPart = model.providers && model.providers.length > 0 ? model.providers.join(', ') : '';
 	if (hostPart || pathPart) {
 		lines.push(centre([hostPart, pathPart].filter(Boolean).join('  ·  ')));

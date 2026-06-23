@@ -81,6 +81,18 @@ function safeHomedir(): string {
 	}
 }
 
+/**
+ * The real "user@host" for the receipt header's user·path line — the machine the
+ * receipt was cut on. Node-only (CLI command + the web PNG route, both server-side).
+ * Falls back to neutral labels if the OS lookup fails (CI/sandbox). This is the
+ * value the receipt shows by DEFAULT; `redactReceipt` scrubs it only on opt-in.
+ */
+export function currentAccount(env: NodeJS.ProcessEnv = process.env): string {
+	const user = env.USER || env.USERNAME || safeUserInfoUsername() || 'user';
+	const host = safeHostname() || 'host';
+	return `${user}@${host}`;
+}
+
 /** Escape a string for use inside a RegExp. */
 function escapeRe(s: string): string {
 	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -137,6 +149,9 @@ export function redactReceipt(model: ReceiptModel, opts: RedactOptions = {}): Re
 
 	return {
 		...model,
+		// the real user@host shown by default; on opt-in redaction the username and
+		// hostname tokens collapse to the placeholder → renders as a redaction block.
+		account: model.account ? redactText(model.account, secrets) : model.account,
 		wordmark: redactText(model.wordmark, secrets),
 		periodLabel: redactText(model.periodLabel, secrets),
 		footer: redactText(model.footer, secrets),

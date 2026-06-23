@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { ReceiptModel } from './model.js';
-import { redactReceipt, PLACEHOLDER } from './redact.js';
+import { redactReceipt, PLACEHOLDER, currentAccount } from './redact.js';
 import { renderReceiptText } from './render-text.js';
 
 // Adversarial fixture: every redactable class present in free-text fields.
@@ -17,6 +17,7 @@ function adversarialModel(): ReceiptModel {
 		from: '2026-06-01',
 		to: '2026-06-19',
 		providers: null,
+		account: `${SECRET_USER}@${SECRET_HOST}`,
 		lineItems: [
 			{
 				provider: 'claude',
@@ -122,6 +123,36 @@ describe('redactReceipt — opt-in scrubbing', () => {
 		expect(redacted.providers).not.toContain(SECRET_USER);
 		const text = renderReceiptText(redacted, { noColor: true });
 		expect(text).not.toContain(SECRET_USER);
+	});
+
+	it('shows the real user@host account line by DEFAULT (opt-in redaction)', () => {
+		const shown = redactReceipt(adversarialModel(), {
+			username: SECRET_USER,
+			hostname: SECRET_HOST,
+			env: {} as NodeJS.ProcessEnv
+		});
+		// the account field is the real machine identity, untouched when not redacting
+		expect(shown.account).toBe(`${SECRET_USER}@${SECRET_HOST}`);
+		const text = renderReceiptText(shown, { noColor: true });
+		expect(text).toContain(`${SECRET_USER}@${SECRET_HOST}`);
+	});
+
+	it('scrubs the user@host account line to a redaction block on --redact', () => {
+		const redacted = redactReceipt(adversarialModel(), redactOpts);
+		expect(redacted.account).not.toContain(SECRET_USER);
+		expect(redacted.account).not.toContain(SECRET_HOST);
+		expect(redacted.account).toContain(PLACEHOLDER);
+		const text = renderReceiptText(redacted, { noColor: true });
+		expect(text).not.toContain(`${SECRET_USER}@${SECRET_HOST}`);
+	});
+
+	it('currentAccount reads user@host from env, falling back to neutral labels', () => {
+		expect(currentAccount({ USER: 'rai', USERNAME: undefined } as NodeJS.ProcessEnv)).toMatch(
+			/^rai@.+/
+		);
+		// host segment is always present (never empty)
+		const acct = currentAccount({ USER: 'rai' } as NodeJS.ProcessEnv);
+		expect(acct.split('@')[1].length).toBeGreaterThan(0);
 	});
 
 	it('collapses paths containing special chars without leaking the tail', () => {

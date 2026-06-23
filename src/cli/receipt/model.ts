@@ -88,6 +88,13 @@ export interface ReceiptModel {
 	to: string | null;
 	/** provider filter applied, if any */
 	providers: string[] | null;
+	/**
+	 * Real "user@host" for the header's user·path line (the machine the receipt was
+	 * cut on). Shown verbatim by DEFAULT; scrubbed to a redaction block only when the
+	 * caller opts in (`--redact` / `?redact=1`). Absent/undefined → the design's
+	 * placeholder block (back-compat for callers that don't supply identity).
+	 */
+	account?: string | null;
 
 	/** per-provider/model line items, most-expensive first */
 	lineItems: ReceiptLineItem[];

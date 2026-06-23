@@ -54,6 +54,12 @@ export interface BuildReceiptOptions {
 	 * label + subsidisation basis; only the scoped grain comes from this range.
 	 */
 	range?: { from: string; to: string };
+	/**
+	 * Real "user@host" for the header's user·path line. Supplied by the Node callers
+	 * (CLI `receipt` + web PNG route) via `currentAccount()`. Kept as an injected
+	 * option so `buildReceipt` stays pure/deterministic for tests (no `os` read here).
+	 */
+	account?: string;
 }
 
 /**
@@ -182,6 +188,7 @@ export function buildReceipt(snapshot: RollupSnapshot, opts: BuildReceiptOptions
 			from: from ?? null,
 			to: to ?? null,
 			providers: opts.providers ?? null,
+			account: opts.account ?? null,
 			lineItems: [],
 			coupons: [],
 			youSaved: 0,
@@ -368,6 +375,7 @@ export function buildReceipt(snapshot: RollupSnapshot, opts: BuildReceiptOptions
 		from: coveredFrom,
 		to: coveredTo,
 		providers: opts.providers ?? null,
+		account: opts.account ?? null,
 		lineItems,
 		coupons,
 		youSaved,

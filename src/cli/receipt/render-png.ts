@@ -279,16 +279,14 @@ function barcodeNode(): RenderNode {
 function header(model: ReceiptModel, markDataUri: string, arrowDataUri: string): RenderNode[] {
 	const hasRange = !!(model.from && model.to) && model.from !== model.to;
 
-	// The design's user·path line. The model carries no separate user/path field
-	// (Non-Goal to change), so derive a redaction-faithful value from the wordmark's
-	// "@ host" segment: redacted by default → a redaction block; revealed → plain.
-	// We never read env here (the model is already redacted upstream). When the
-	// wordmark has no "@host" (the canonical WORDMARK does not), fall back to the
-	// PLACEHOLDER sentinel so the default render shows a redaction block — matching
-	// the design AND render-text.ts (NOT the whole wordmark, which would print it
-	// as plain text and break the redacted-by-default header).
+	// The design's user·path line. `model.account` carries the real "user@host" the
+	// receipt was cut on (supplied by the Node callers). It's shown verbatim by
+	// DEFAULT; on opt-in redaction the caller has already scrubbed it upstream to a
+	// placeholder-bearing string, so `redactableSpan` renders it as a redaction block.
+	// We never read env here. Fall back to the wordmark's "@host" (legacy) then the
+	// PLACEHOLDER sentinel so a caller that supplies no identity still gets a block.
 	const hostPart = model.wordmark.includes('@') ? model.wordmark.split('@').pop()!.trim() : '';
-	const userVal = hostPart || PLACEHOLDER;
+	const userVal = (model.account && model.account.trim()) || hostPart || PLACEHOLDER;
 
 	const nodes: RenderNode[] = [
 		markNode(markDataUri),
