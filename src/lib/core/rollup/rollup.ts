@@ -477,7 +477,7 @@ export class Rollup {
 	}
 
 	/** Drain accumulated changes into a delta and reset the dirty sets. */
-	drainDelta(now = Date.now()): RollupDelta | null {
+	drainDelta(now = Date.now(), coverageInput?: CoverageInput): RollupDelta | null {
 		if (!this.dirtyAny) return null;
 
 		const dayModel: DayModelAgg[] = [];
@@ -516,7 +516,8 @@ export class Rollup {
 				recordsCounted: this.recordsCounted,
 				linesSkipped: this.linesSkipped,
 				duplicatesSkipped: this.duplicatesSkipped
-			}
+			},
+			coverage: coverageInput ? this.buildCoverage(coverageInput) : {}
 		};
 	}
 }

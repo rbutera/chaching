@@ -23,12 +23,19 @@
 	let {
 		buckets,
 		models,
-		onPick
+		onPick,
+		today = null
 	}: {
 		buckets: PeriodBucket[];
 		models: string[]; // stacking order (cost desc); first = bottom
 		onPick: (bucket: PeriodBucket) => void;
+		/** UTC today (YYYY-MM-DD); a day-bucket equal to it is the live tail ("so far today"). */
+		today?: string | null;
 	} = $props();
+
+	// A bar is "today" only when it is a single-day bucket whose key is the UTC today: that
+	// distinguishes the live-tail partial from a PAST day a gated scan left partial (D1).
+	const isTodayBucket = (b: PeriodBucket) => today != null && b.key === today;
 
 	const W = 640;
 	const H = 280;
@@ -118,7 +125,18 @@
 							x={bar.x}
 							y={bar.segs[bar.segs.length - 1].y}
 							width={bar.w}
-							height={bar.x != null ? PAD.top + plotH - bar.segs[bar.segs.length - 1].y : 0}
+							height={PAD.top + plotH - bar.segs[bar.segs.length - 1].y}
+							fill="url(#cov-hatch)"
+							rx="1"
+						/>
+					{:else if bar.fill === 'hatched'}
+						<!-- partial today with no spend YET: a short hatched stub at the baseline so
+						     it reads as "started, partial", structurally distinct from a missing dash. -->
+						<rect
+							x={bar.x}
+							y={PAD.top + plotH - 4}
+							width={bar.w}
+							height={4}
 							fill="url(#cov-hatch)"
 							rx="1"
 						/>
@@ -153,7 +171,7 @@
 					type="button"
 					class="bar-btn"
 					style={`left:${pctX(bar.x)}%;width:${pctX(bar.w)}%;top:${pctY(PAD.top)}%;height:${pctY(plotH)}%`}
-					aria-label={`${bucketLabel(bar.bucket)} — ${ariaProvenance(bar.bucket.coverage)}: ${money(bar.total)}${bar.segs.length ? ` across ${bar.segs.length} model${bar.segs.length === 1 ? '' : 's'}` : ' (no spend)'}. Open the ${bucketNoun(bar.bucket)}'s detail.`}
+					aria-label={`${bucketLabel(bar.bucket)} — ${ariaProvenance(bar.bucket.coverage, isTodayBucket(bar.bucket))}: ${money(bar.total)}${bar.segs.length ? ` across ${bar.segs.length} model${bar.segs.length === 1 ? '' : 's'}` : ' (no spend)'}. Open the ${bucketNoun(bar.bucket)}'s detail.`}
 					onclick={() => onPick(bar.bucket)}
 					onmouseenter={() => (hovered = i)}
 					onmouseleave={() => (hovered = null)}
@@ -171,7 +189,7 @@
 			>
 				<p class="tip-head">
 					{bucketLabel(tip.bucket)} · <span class="num">{money(tip.total)}</span>
-					{#if tooltipSuffix(tip.bucket.coverage)}<span class="tip-prov"> · {tooltipSuffix(tip.bucket.coverage)}</span>{/if}
+					{#if tooltipSuffix(tip.bucket.coverage, isTodayBucket(tip.bucket))}<span class="tip-prov"> · {tooltipSuffix(tip.bucket.coverage, isTodayBucket(tip.bucket))}</span>{/if}
 				</p>
 				{#if tipRows.length}
 					<ul>
@@ -204,7 +222,7 @@
 					<td>{bucketLabel(b)}</td>
 					<td>{money(b.cost)}</td>
 					<td>{top ? `${modelLabel(top[0])} ${money(top[1].cost)}` : '—'}</td>
-					<td>{ariaProvenance(b.coverage)}</td>
+					<td>{ariaProvenance(b.coverage, isTodayBucket(b))}</td>
 				</tr>
 			{/each}
 		</tbody>

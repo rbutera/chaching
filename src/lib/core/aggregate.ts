@@ -186,29 +186,39 @@ export function aggregateByPeriod(
 	}
 
 	if (coverageFold) {
-		// Group every in-window calendar day by its bucket key (filter-invariant: a day's
-		// coverage doesn't depend on which models/providers were selected), summarize per
-		// bucket, and attach. A day with NO spend rows still lands in its bucket here, so
-		// a `missing` / frozen-`zero` day is counted even though the grain loop never saw it.
-		const daysByBucket = new Map<string, string[]>();
-		for (const day of coverageFold.days) {
+		// Group the distinct calendar days to summarize per bucket key (filter-invariant: a
+		// day's coverage doesn't depend on which models/providers were selected). The day set
+		// is the UNION of the caller's in-window day list (so a `missing` / frozen-`zero` day
+		// with NO spend rows is still counted) and every day that actually has spend rows in
+		// this aggregation (so a spend day the caller forgot to include can never silently
+		// read authoritative — it is classified from the map, defaulting to `missing`).
+		const daysByBucket = new Map<string, Set<string>>();
+		const addDay = (day: string) => {
 			const key = periodKey(day, grain);
-			let list = daysByBucket.get(key);
-			if (!list) {
-				list = [];
-				daysByBucket.set(key, list);
+			let set = daysByBucket.get(key);
+			if (!set) {
+				set = new Set();
+				daysByBucket.set(key, set);
 			}
-			list.push(day);
+			set.add(day);
+		};
+		for (const day of coverageFold.days) addDay(day);
+		for (const dm of dayModel) {
+			if (modelFilter && modelFilter.size > 0 && !modelFilter.has(dm.model)) continue;
+			if (providerFilter && providerFilter.size > 0 && !providerFilter.has(dm.provider)) continue;
+			addDay(dm.day);
 		}
-		for (const [key, days] of daysByBucket) {
-			const summary = summarizeCoverage(days, coverageFold.map);
+		for (const [key, daySet] of daysByBucket) {
+			const summary = summarizeCoverage(daySet, coverageFold.map);
 			let b = buckets.get(key);
 			if (!b) {
 				// A bucket with coverage-relevant days but no spend rows (all missing/zero):
 				// materialize it so the chart can render a provenance-only slot.
+				let startDay: string | null = null;
+				for (const d of daySet) if (startDay == null || d < startDay) startDay = d;
 				b = {
 					key,
-					startDay: days.reduce((a, d) => (d < a ? d : a), days[0]),
+					startDay: startDay ?? key,
 					tokens: zeroTokens(),
 					requests: 0,
 					cost: 0,

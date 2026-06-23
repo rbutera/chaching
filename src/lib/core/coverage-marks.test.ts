@@ -26,8 +26,13 @@ describe('coverage marks', () => {
 		expect(barFill(sum('missing'))).not.toBe(barFill(sum('zero')));
 	});
 
-	it('partial bar gets a "so far today" tooltip suffix', () => {
-		expect(tooltipSuffix(sum('partial'))).toBe('so far today');
+	it('partial copy distinguishes today (live tail) from a past gated-partial day', () => {
+		// today: "so far today"; a PAST partial day must NOT claim "today" (design D1).
+		expect(tooltipSuffix(sum('partial'), true)).toBe('so far today');
+		expect(tooltipSuffix(sum('partial'), false)).not.toContain('today');
+		expect(tooltipSuffix(sum('partial'), false)).toContain('partial');
+		expect(ariaProvenance(sum('partial'), true)).toContain('so far today');
+		expect(ariaProvenance(sum('partial'), false)).not.toContain('today');
 	});
 
 	it('frozen $0 day tooltip says "(no usage)", a frozen-with-spend day is unannotated', () => {
@@ -59,10 +64,12 @@ describe('coverage marks', () => {
 	});
 
 	it('coverageSub: partial -> includes-today; gap-only -> gaps; all-frozen -> null', () => {
-		expect(coverageSub({ worst: 'partial', states: { frozen: 6, partial: 1 } })).toBe('includes today (partial)');
+		expect(coverageSub({ worst: 'partial', states: { frozen: 6, partial: 1 } }, true)).toBe('includes today (partial)');
+		// a partial window whose partial day is NOT today reads honestly (no "today" claim).
+		expect(coverageSub({ worst: 'partial', states: { frozen: 6, partial: 1 } }, false)).toBe('includes a partial day');
 		expect(coverageSub({ worst: 'missing', states: { frozen: 5, missing: 2 } })).toBe('gaps in range');
 		expect(coverageSub({ worst: 'frozen', states: { frozen: 7 } })).toBeNull();
 		// partial wins over a coincident gap.
-		expect(coverageSub({ worst: 'missing', states: { partial: 1, missing: 2 } })).toBe('includes today (partial)');
+		expect(coverageSub({ worst: 'missing', states: { partial: 1, missing: 2 } }, true)).toBe('includes today (partial)');
 	});
 });

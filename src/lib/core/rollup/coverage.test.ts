@@ -133,4 +133,35 @@ describe('Rollup coverage classification', () => {
 		const snap = r.snapshot(0, input());
 		expect(snap.coverage[TODAY]).toBe('partial');
 	});
+
+	it('frozen vs zero discriminator is requests>0, NOT cost>0 (unknown-price model counts)', () => {
+		// A frozen day whose only rows are an unknown-price model: cost 0 but requests > 0 ->
+		// real usage -> `frozen`, not `zero`. Pins the requests>0 discriminator.
+		const r = new Rollup();
+		r.setFrozenDays(['2026-06-20']);
+		r.loadAggregates([frozenAgg('2026-06-20', 0, 4, 'some-unknown-model')], []);
+		const snap = r.snapshot(0, input());
+		expect(snap.coverage['2026-06-20']).toBe('frozen');
+	});
+
+	it('drainDelta carries a freshly-recomputed coverage map (today reads partial)', () => {
+		const r = new Rollup();
+		// first row for today arrives as a delta -> coverage[today] must be partial, not absent.
+		r.add(rec(TODAY, 2));
+		const delta = r.drainDelta(0, input());
+		expect(delta).toBeTruthy();
+		expect(delta!.coverage[TODAY]).toBe('partial');
+	});
+
+	it('a day frozen between deltas flips partial -> frozen in the next delta', () => {
+		const r = new Rollup();
+		r.add(rec('2026-06-21', 4));
+		const first = r.drainDelta(0, input({ scanPartial: true }));
+		expect(first!.coverage['2026-06-21']).toBe('partial');
+		// the day is now frozen; a subsequent activity-bearing delta reflects it.
+		r.setFrozenDays(['2026-06-21']);
+		r.add(rec(TODAY, 1)); // make the rollup dirty so drainDelta emits
+		const second = r.drainDelta(0, input({ scanPartial: false }));
+		expect(second!.coverage['2026-06-21']).toBe('frozen');
+	});
 });

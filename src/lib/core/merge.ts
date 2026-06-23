@@ -40,6 +40,10 @@ export function applyDelta(prev: RollupSnapshot, delta: RollupDelta): RollupSnap
 		stats: delta.stats,
 		dayModel: [...dayModel.values()],
 		sessions: [...sessions.values()].sort((a, b) => b.lastTs - a.lastTs),
-		blocks: delta.blocks
+		blocks: delta.blocks,
+		// Full replace: coverage is recomputed by the engine each delta (range-relative, not
+		// mergeable), so the freshly-shipped map supersedes the prior snapshot's wholesale —
+		// today flips missing->partial on its first row, a frozen-mid-run day flips to frozen.
+		coverage: delta.coverage
 	};
 }

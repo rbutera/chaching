@@ -55,12 +55,15 @@ export function barFill(summary: CoverageSummary): BarFill {
 
 /**
  * The tooltip suffix for a bar's coverage. Empty for a plain authoritative frozen day
- * (no noise); a provenance note otherwise (partial today, $0 no-usage, gap).
+ * (no noise); a provenance note otherwise. `isToday` distinguishes the live tail ("so far
+ * today") from a past day left partial by a gated scan ("partial, not final") — both are
+ * `partial` but only today is "today" (design D1: a PAST scanned-but-unfrozen day is also
+ * partial, so the copy must not hard-code "today").
  */
-export function tooltipSuffix(summary: CoverageSummary): string {
+export function tooltipSuffix(summary: CoverageSummary, isToday = false): string {
 	switch (summary.worst) {
 		case 'partial':
-			return 'so far today';
+			return isToday ? 'so far today' : 'partial, not final';
 		case 'missing':
 			return 'no data (gap in range)';
 		case 'zero':
@@ -71,10 +74,10 @@ export function tooltipSuffix(summary: CoverageSummary): string {
 }
 
 /** The provenance phrase folded into a bar's a11y aria-label. Always non-empty. */
-export function ariaProvenance(summary: CoverageSummary): string {
+export function ariaProvenance(summary: CoverageSummary, isToday = false): string {
 	switch (summary.worst) {
 		case 'partial':
-			return 'partial, so far today';
+			return isToday ? 'partial, so far today' : 'partial, not final';
 		case 'missing':
 			return 'no data for this day';
 		case 'zero':
@@ -87,10 +90,14 @@ export function ariaProvenance(summary: CoverageSummary): string {
 /**
  * A short, unobtrusive sub-line for a SummaryCard / hero from a window's coverage summary,
  * or null when the window is fully authoritative (no note needed). Partial wins over a gap
- * note (it is the more common, expected case — "today is still counting").
+ * note (it is the more common, expected case). `includesToday` tells whether the window's
+ * partial day is today (the live tail) vs a past day a gated scan left partial, so the copy
+ * stays honest ("includes today (partial)" vs "includes a partial day").
  */
-export function coverageSub(summary: CoverageSummary): string | null {
-	if ((summary.states.partial ?? 0) > 0) return 'includes today (partial)';
+export function coverageSub(summary: CoverageSummary, includesToday = true): string | null {
+	if ((summary.states.partial ?? 0) > 0) {
+		return includesToday ? 'includes today (partial)' : 'includes a partial day';
+	}
 	if ((summary.states.missing ?? 0) > 0) return 'gaps in range';
 	return null;
 }

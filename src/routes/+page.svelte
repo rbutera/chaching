@@ -36,6 +36,10 @@
 
 	let snap = $derived(feed.snapshot);
 
+	// UTC today (YYYY-MM-DD): the live tail. Matches the engine's isoDayUTC(now()); used to
+	// tell a "so far today" partial bar from a PAST day a gated scan left partial.
+	let todayUTC = $derived(new Date(snap?.generatedAt ?? Date.now()).toISOString().slice(0, 10));
+
 	// hero
 	let hero = $derived(snap ? dash.heroTotals(snap) : null);
 	// suppress the period delta when there's no prior baseline (prior window
@@ -55,6 +59,9 @@
 		snap ? dash.scopedTotals(snap) : { tokens: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 }, cost: 0, requests: 0, costUnknownRequests: 0, coverage: { states: {}, worst: 'frozen' as const } }
 	);
 	let scopedSessions = $derived(snap ? dash.scopedSessions(snap) : []);
+
+	// whether the scoped window's partial day is TODAY (live tail) vs a past gated-partial day
+	let windowIncludesToday = $derived(!!snap && snap.coverage[todayUTC] === 'partial');
 
 	// stacking order = models by cost (scoped)
 	let stackModels = $derived(modelTotals.map((m) => m.model));
@@ -189,7 +196,7 @@
 					label="Total spend (scope)"
 					value={money(scopedTotals.cost)}
 					accent="var(--accent)"
-					sub={coverageSub(scopedTotals.coverage) ?? `${int(scopedTotals.requests)} requests`}
+					sub={coverageSub(scopedTotals.coverage, windowIncludesToday) ?? `${int(scopedTotals.requests)} requests`}
 				/>
 				<SummaryCard
 					label="Total tokens"
@@ -215,7 +222,7 @@
 			<section class="grid">
 				<div class="panel trend-panel">
 					{#if trend.length > 0}
-						<TrendChart buckets={trend} models={stackModels} onPick={onTrendPick} />
+						<TrendChart buckets={trend} models={stackModels} onPick={onTrendPick} today={todayUTC} />
 					{:else}
 						<p class="empty">No data in this scope.</p>
 					{/if}

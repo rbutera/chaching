@@ -264,7 +264,7 @@ class Ingestion {
 		if (this.disposed) return;
 		this.maybeFreezeLive();
 		if (this.rollup.hasDirty()) {
-			const delta = this.rollup.drainDelta();
+			const delta = this.rollup.drainDelta(this.now(), this.coverageInput());
 			if (delta) for (const fn of this.listeners) fn(delta);
 		}
 	}
@@ -321,7 +321,7 @@ class Ingestion {
 		// day mid-run. Freeze it now so it persists even if logs are pruned before restart.
 		this.maybeFreezeLive();
 		if (this.rollup.hasDirty()) {
-			const delta = this.rollup.drainDelta();
+			const delta = this.rollup.drainDelta(this.now(), this.coverageInput());
 			if (delta) for (const fn of this.listeners) fn(delta);
 		}
 	}
@@ -382,15 +382,26 @@ class Ingestion {
 		return () => this.listeners.delete(fn);
 	}
 
-	snapshot(): RollupSnapshot {
-		return this.rollup.snapshot(this.now(), {
+	/**
+	 * The per-day coverage classification facts the rollup can't see (design D2): the
+	 * canonical "today", this run's freeze-gating partial signal, and whether history (and
+	 * so freezing) is enabled. Shared by the snapshot and every delta so the live dashboard's
+	 * provenance stays correct after a delta (today flips missing->partial on its first row;
+	 * a day frozen by maybeFreezeLive() flips partial->frozen).
+	 */
+	private coverageInput() {
+		return {
 			today: isoDayUTC(this.now()),
 			scanPartial: this.scanIsPartial(),
 			// History-disabled degrade rule (design D-risk): with no freeze, nothing is ever
 			// `frozen`/`zero`, so a scanned past day with spend must NOT read `missing`. The
 			// rollup treats available scanned data as authoritative-equivalent for display.
 			historyEnabled: this.resolvedConfig?.history.enabled ?? false
-		});
+		};
+	}
+
+	snapshot(): RollupSnapshot {
+		return this.rollup.snapshot(this.now(), this.coverageInput());
 	}
 
 	setCutover(ts: number | null): void {

@@ -50,7 +50,8 @@ function deltaFrom(snap: RollupSnapshot, extra: DayModelAgg[]): RollupDelta {
 		models: [...new Set(merged.map((g) => g.model))],
 		providers: [...new Set(merged.map((g) => g.provider))],
 		unknownPriceModels: [],
-		stats: snap.stats
+		stats: snap.stats,
+		coverage: snap.coverage
 	};
 }
 

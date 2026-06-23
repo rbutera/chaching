@@ -140,6 +140,15 @@ export interface RollupDelta {
 	providers: string[];
 	unknownPriceModels: string[];
 	stats: RollupSnapshot['stats'];
+	/**
+	 * The freshly-recomputed coverage map. Unlike most of the delta this is a FULL replace
+	 * (not a merge) — coverage is range-relative and cheap (O(days), same order as the
+	 * recomputed `blocks` the delta already carries), so shipping the whole map keeps the
+	 * client's provenance correct after a delta (today flips missing->partial on its first
+	 * row; a day frozen mid-run flips partial->frozen) without the client needing the
+	 * engine-private frozen set / scan signal to recompute.
+	 */
+	coverage: CoverageMap;
 }
 
 export type SSEMessage =

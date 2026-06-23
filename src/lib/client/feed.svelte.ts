@@ -113,7 +113,11 @@ export class FeedStore {
 			stats: delta.stats,
 			dayModel: [...this.dayModelIndex.values()],
 			sessions: [...this.sessionIndex.values()].sort((a, b) => b.lastTs - a.lastTs),
-			blocks
+			blocks,
+			// full replace: the engine recomputes coverage each delta (range-relative, not
+			// mergeable), so the fresh map keeps the dashboard's provenance live (today flips
+			// missing->partial; a frozen-mid-run day flips partial->frozen).
+			coverage: delta.coverage
 		};
 	}
 }

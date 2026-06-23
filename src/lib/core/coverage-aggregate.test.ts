@@ -97,6 +97,17 @@ describe('aggregateByPeriod coverage fold', () => {
 		expect(gap.coverage.worst).toBe('missing');
 	});
 
+	it('a spend day outside the fold day-list is still classified (never silently authoritative)', () => {
+		// defensive: caller passes a window day list that omits a day that DOES have spend.
+		// That day must be classified from the map (here: missing), not left EMPTY_COVERAGE.
+		const grain = [dm('2026-06-22', 5)];
+		const map: CoverageMap = {}; // 22 absent from the map
+		const days: string[] = []; // caller forgot to include 22
+		const buckets = aggregateByPeriod(grain, 'day', null, null, { map, days });
+		const b = buckets.find((x) => x.key === '2026-06-22')!;
+		expect(b.coverage.worst).toBe('missing');
+	});
+
 	it('coverage is filter-invariant: identical across provider filter sets', () => {
 		const grain = [dm('2026-06-22', 5, 'claude'), dm('2026-06-22', 3, 'codex')];
 		const map: CoverageMap = { '2026-06-22': 'frozen' };
