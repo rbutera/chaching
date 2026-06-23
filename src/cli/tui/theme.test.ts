@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { tokens } from '../../lib/brand/tokens.js';
 import {
@@ -127,5 +130,20 @@ describe('bannerLine (inlined logo.txt)', () => {
 		expect(LOGO_FULL).toContain('$$$$$$');
 		const widest = Math.max(...LOGO_FULL.split('\n').map((l) => l.length));
 		expect(widest).toBe(LOGO_FULL_MIN_COLS);
+	});
+
+	it('LOGO_FULL is byte-exact to logo.txt (the read-only source) modulo the trailing newline', () => {
+		// theme.test.ts lives at src/cli/tui/; logo.txt is at the repo root (../../../).
+		const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+		const source = readFileSync(join(repoRoot, 'logo.txt'), 'utf8');
+		// LOGO_FULL strips the single trailing newline the file carries; otherwise identical.
+		expect(LOGO_FULL).toBe(source.replace(/\n$/, ''));
+	});
+
+	it('LOGO_FULL is the 11-line figlet that reads "chaching" with NO tagline (regression: not "chacting")', () => {
+		const lines = LOGO_FULL.split('\n');
+		expect(lines.length).toBe(11);
+		// The mangled variant added a literal tagline line into the art — guard it never returns.
+		expect(LOGO_FULL).not.toContain('the register that counts the cache hits too');
 	});
 });
