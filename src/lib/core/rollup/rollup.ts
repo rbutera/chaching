@@ -7,7 +7,6 @@
 import type {
 	BlockSummary,
 	CoverageMap,
-	DayCoverage,
 	DayModelAgg,
 	RollupDelta,
 	RollupSnapshot,
