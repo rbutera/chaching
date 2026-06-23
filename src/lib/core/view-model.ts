@@ -14,6 +14,7 @@ import {
 	aggregateByPeriod,
 	filterDays,
 	sumGrain,
+	type BucketGrain,
 	type ModelTotal,
 	type PeriodBucket,
 	type ProviderTotal,
@@ -59,18 +60,48 @@ export function scopedGrain(snap: RollupSnapshot, _state: ViewState) {
 	return snap.dayModel;
 }
 
+/** Number of inclusive days in a [from, to] window. */
+function windowDays(from: string, to: string): number {
+	if (to < from) return 0;
+	const a = new Date(from + 'T00:00:00Z').getTime();
+	const b = new Date(to + 'T00:00:00Z').getTime();
+	return Math.round((b - a) / 86400000) + 1;
+}
+
 /**
- * Trend buckets for the chart: one DAY bucket for EVERY calendar day in the
- * current period window, with the model/provider filter applied. Days with no
- * spend are emitted as zero-total buckets so gaps stay visible (a quiet
- * Wednesday reads as a short/absent bar, not a collapsed axis). The buckets
- * carry a per-model breakdown (`byModel`) used for stacking, the hover tooltip,
- * and the click-to-drill day target.
+ * Pick the trend bar grain so a long span stays legible. One bar per day is
+ * right for day/week/month, but an all-time view of 44+ days would render dozens
+ * of unreadable slivers — so we bucket by week past ~45 days and by month past
+ * ~370. The bars then number ~6-12 across any realistic banked history.
+ */
+export function trendGrain(from: string, to: string): BucketGrain {
+	const days = windowDays(from, to);
+	if (days > 370) return 'month';
+	if (days > 45) return 'week';
+	return 'day';
+}
+
+/**
+ * Trend buckets for the chart. For short spans: one DAY bucket for EVERY
+ * calendar day in the period window (zero-total buckets fill gaps so a quiet
+ * Wednesday reads as a short/absent bar, not a collapsed axis). For long spans
+ * (all-time / quarter) the grain steps up to week or month so the chart stays
+ * readable instead of rendering 60+ slivers. Either way the buckets carry a
+ * per-model breakdown (`byModel`) used for stacking, the hover tooltip, and the
+ * click-to-drill target. The model/provider filter is applied throughout.
  */
 export function trend(snap: RollupSnapshot, state: ViewState): PeriodBucket[] {
 	const w = periodWindow(snap, state);
 	const windowed = filterDays(snap.dayModel, w.from, w.to);
-	const present = aggregateByPeriod(windowed, 'day', asFilter(state.modelFilter), asFilter(state.providerFilter));
+	const grain = trendGrain(w.from, w.to);
+	const present = aggregateByPeriod(windowed, grain, asFilter(state.modelFilter), asFilter(state.providerFilter));
+	if (grain !== 'day') {
+		// Coarse grain: aggregateByPeriod already collapses sparse weeks/months and
+		// drops empty ones. A few absent buckets in a long span don't hurt
+		// legibility (the point of bucketing), and zero-filling every calendar
+		// week/month adds little. Return the present buckets in start-day order.
+		return present;
+	}
 	const byDay = new Map(present.map((b) => [b.key, b]));
 	const out: PeriodBucket[] = [];
 	for (let day = w.from; day <= w.to; day = addDaysISO(day, 1)) {
@@ -91,6 +122,61 @@ export function trend(snap: RollupSnapshot, state: ViewState): PeriodBucket[] {
 
 function zeroTokensLocal() {
 	return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 };
+}
+
+/**
+ * The inclusive day range a trend bucket covers, derived from its key shape:
+ * a bare day (`YYYY-MM-DD`) is a single day; an ISO week (`YYYY-Www`) spans its
+ * Monday..Sunday; a month (`YYYY-MM`) spans the 1st..last calendar day. Used so
+ * a click on a coarse (week/month) bar drills the whole bucket, not just its
+ * first day. `startDay` (the earliest day with data in the bucket) is the
+ * fallback range start when present.
+ *
+ * `clamp` (the active period window) bounds the range to the days the bar
+ * actually aggregated: an edge week/month bucket can spill before `clamp.from`
+ * or after `clamp.to` (the window cuts mid-bucket), and the drilled detail must
+ * sum to exactly the bar, not the whole calendar week/month. Without the clamp
+ * the first/last coarse bar would drill days that were never in it.
+ */
+export function bucketDayRange(
+	bucket: PeriodBucket,
+	clamp?: { from: string; to: string }
+): { from: string; to: string } {
+	const { key, startDay } = bucket;
+	let from: string;
+	let to: string;
+	// ISO week key: YYYY-Www -> Monday..Sunday of that ISO week.
+	const week = /^(\d{4})-W(\d{2})$/.exec(key);
+	const month = /^(\d{4})-(\d{2})$/.exec(key);
+	if (week) {
+		const isoYear = Number(week[1]);
+		const isoWeek = Number(week[2]);
+		// Monday of ISO week 1 contains Jan 4th; find it, then add (week-1) weeks.
+		const jan4 = new Date(Date.UTC(isoYear, 0, 4));
+		const jan4Dow = (jan4.getUTCDay() + 6) % 7; // Mon=0
+		const week1Mon = new Date(jan4);
+		week1Mon.setUTCDate(jan4.getUTCDate() - jan4Dow);
+		const mon = new Date(week1Mon);
+		mon.setUTCDate(week1Mon.getUTCDate() + (isoWeek - 1) * 7);
+		from = mon.toISOString().slice(0, 10);
+		to = addDaysISO(from, 6);
+	} else if (month) {
+		// Month key: YYYY-MM -> 1st..last day of the month.
+		const y = Number(month[1]);
+		const m = Number(month[2]);
+		from = `${month[1]}-${month[2]}-01`;
+		const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate(); // day 0 of next month
+		to = `${month[1]}-${month[2]}-${String(lastDay).padStart(2, '0')}`;
+	} else {
+		// Plain day key (or anything else): single day.
+		from = startDay;
+		to = startDay;
+	}
+	if (clamp) {
+		if (from < clamp.from) from = clamp.from;
+		if (to > clamp.to) to = clamp.to;
+	}
+	return { from, to };
 }
 
 /** Per-model totals in scope (drives donut + legend + filter). Provider filter applied. */
@@ -115,31 +201,82 @@ export interface PeriodWindow {
 	label: string;
 }
 
+/** Rolling-window span in days for a fixed-length period, or null for "all". */
+function periodSpan(period: Period): number | null {
+	switch (period) {
+		case 'day':
+			return 1;
+		case 'week':
+			return 7;
+		case 'month':
+			return 30;
+		case 'quarter':
+			return 90;
+		case 'all':
+			return null;
+	}
+}
+
 /**
  * Rolling window for the selected period, anchored at the latest day with data.
- * day = latest day, week = last 7 days, month = last 30 days. Prior = the
+ * day = latest day, week = last 7 days, month = last 30 days, quarter = last 90
+ * days, all = earliest..latest (the full banked history). Prior = the
  * immediately-preceding equal-length window (for the delta). Rolling windows
  * (vs calendar buckets) avoid the "5 days into the month" overlap where the
- * latest week and latest month coincide, and always give Day/Week/Month
- * distinct, meaningful figures.
+ * latest week and latest month coincide, and always give distinct, meaningful
+ * figures.
+ *
+ * For the "all" period there is no meaningful equal-length prior window (it would
+ * predate the data entirely), so the prior collapses onto the day before earliest
+ * — heroTotals then correctly reports `priorHasBaseline=false` and the UI
+ * suppresses the delta.
  */
 export function periodWindow(snap: RollupSnapshot, state: ViewState): PeriodWindow {
 	const to = snap.latestDay ?? snap.earliestDay ?? '1970-01-01';
-	const span = state.period === 'day' ? 1 : state.period === 'week' ? 7 : 30;
+	const span = periodSpan(state.period);
+	if (span === null) {
+		// All-time: span the full data range; prior window is the (data-less) day
+		// before earliest, which heroTotals reads as "no baseline".
+		const from = snap.earliestDay ?? to;
+		const priorTo = addDaysISO(from, -1);
+		return { from, to, priorFrom: priorTo, priorTo, label: 'All time' };
+	}
 	const from = addDaysISO(to, -(span - 1));
 	const priorTo = addDaysISO(from, -1);
 	const priorFrom = addDaysISO(priorTo, -(span - 1));
-	const label = state.period === 'day' ? 'Today' : state.period === 'week' ? 'Last 7 days' : 'Last 30 days';
+	const label =
+		state.period === 'day'
+			? 'Today'
+			: state.period === 'week'
+				? 'Last 7 days'
+				: state.period === 'month'
+					? 'Last 30 days'
+					: 'Last 90 days';
 	return { from, to, priorFrom, priorTo, label };
 }
 
 /**
  * Current-period and prior-period totals for the hero + delta.
  *
- * `priorHasBaseline` is false when the prior window predates our earliest data,
- * i.e. there is genuinely nothing to compare against (as opposed to a real $0
- * prior). The hero uses this to SUPPRESS the period-over-period % rather than
- * show a misleading "new"/percentage when no baseline exists.
+ * `priorHasBaseline` gates whether the period-over-period delta may render. The
+ * comparison is only honest when a GENUINE equal-length prior window of real
+ * data exists. Concretely we require ALL of:
+ *
+ *   1. The data range is known (earliestDay/latestDay are set).
+ *   2. The ENTIRE prior window lies within the days we actually have data for —
+ *      `priorFrom >= earliestDay` AND `priorTo <= latestDay`. A prior window
+ *      that runs off either end of the data (partly/wholly before we started
+ *      logging, or — for a rolling window — past the latest day) is not a full
+ *      baseline; comparing against it manufactures garbage like "+563% vs prior
+ *      $1539".
+ *   3. The prior total is NON-ZERO. A $0 prior makes the percentage meaningless
+ *      (every positive current reads as "new"/∞%) and risks divide-by-zero, so
+ *      we suppress rather than show a misleading figure.
+ *
+ * When any condition fails, `priorHasBaseline` is false and the hero shows an
+ * honest "no prior baseline" state ("—") instead of a percentage. The all-time
+ * window always fails (its prior window predates earliest), which is correct:
+ * there is nothing to compare a full-history total against.
  */
 export function heroTotals(
 	snap: RollupSnapshot,
@@ -148,22 +285,18 @@ export function heroTotals(
 	const modelFilter = asFilter(state.modelFilter);
 	const providerFilter = asFilter(state.providerFilter);
 	const w = periodWindow(snap, state);
-	// No baseline when the entire prior window falls before the earliest day we
-	// have data for (priorTo < earliestDay). A prior window that overlaps our
-	// data but happens to sum to $0 is a real baseline and keeps the delta.
-	const earliest = snap.earliestDay;
-	const priorHasBaseline = earliest != null && w.priorTo >= earliest;
-	return {
-		current: sumGrain(snap.dayModel, { from: w.from, to: w.to, models: modelFilter, providers: providerFilter }),
-		prior: sumGrain(snap.dayModel, {
-			from: w.priorFrom,
-			to: w.priorTo,
-			models: modelFilter,
-			providers: providerFilter
-		}),
-		label: w.label,
-		priorHasBaseline
-	};
+	const current = sumGrain(snap.dayModel, { from: w.from, to: w.to, models: modelFilter, providers: providerFilter });
+	const prior = sumGrain(snap.dayModel, {
+		from: w.priorFrom,
+		to: w.priorTo,
+		models: modelFilter,
+		providers: providerFilter
+	});
+	const { earliestDay, latestDay } = snap;
+	const priorWindowFullyWithinData =
+		earliestDay != null && latestDay != null && w.priorFrom >= earliestDay && w.priorTo <= latestDay;
+	const priorHasBaseline = priorWindowFullyWithinData && prior.cost > 0;
+	return { current, prior, label: w.label, priorHasBaseline };
 }
 
 /**

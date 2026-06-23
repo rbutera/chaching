@@ -4,6 +4,13 @@
 
 import type { DayModelAgg, Period, TokenCounts } from '../types';
 
+/**
+ * The grains the re-aggregation supports as bucket keys. A subset of `Period`:
+ * `quarter`/`all` are window selections (rolling spans), not bucket grains — the
+ * trend renders them as week/month buckets, never a single "all" bucket.
+ */
+export type BucketGrain = Extract<Period, 'day' | 'week' | 'month'>;
+
 export function zeroTokens(): TokenCounts {
 	return { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 };
 }
@@ -37,9 +44,9 @@ function isoWeekKey(day: string): string {
 	return `${isoYear}-W${String(week).padStart(2, '0')}`;
 }
 
-/** The bucket key for a day under a given period granularity. */
-export function periodKey(day: string, period: Period): string {
-	switch (period) {
+/** The bucket key for a day under a given grain. */
+export function periodKey(day: string, grain: BucketGrain): string {
+	switch (grain) {
 		case 'day':
 			return day;
 		case 'week':
@@ -71,7 +78,7 @@ export interface GrainFilter {
 /** Aggregate the (day,provider,model) grain into period buckets, sorted by start day asc. */
 export function aggregateByPeriod(
 	dayModel: DayModelAgg[],
-	period: Period,
+	grain: BucketGrain,
 	modelFilter?: Set<string> | null,
 	providerFilter?: Set<string> | null
 ): PeriodBucket[] {
@@ -80,7 +87,7 @@ export function aggregateByPeriod(
 	for (const dm of dayModel) {
 		if (modelFilter && modelFilter.size > 0 && !modelFilter.has(dm.model)) continue;
 		if (providerFilter && providerFilter.size > 0 && !providerFilter.has(dm.provider)) continue;
-		const key = periodKey(dm.day, period);
+		const key = periodKey(dm.day, grain);
 		let b = buckets.get(key);
 		if (!b) {
 			b = {

@@ -118,4 +118,4 @@ export type SSEMessage =
 	| { type: 'snapshot'; data: RollupSnapshot }
 	| { type: 'delta'; data: RollupDelta };
 
-export type Period = 'day' | 'week' | 'month';
+export type Period = 'day' | 'week' | 'month' | 'quarter' | 'all';

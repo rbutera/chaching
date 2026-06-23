@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { DayModelAgg, RollupSnapshot, TokenCounts } from '../types';
+import type { PeriodBucket } from './aggregate';
+import { pctDelta } from '../format';
 import {
+	addDaysISO,
+	bucketDayRange,
 	defaultViewState,
 	heroTotals,
 	models,
@@ -159,39 +163,185 @@ describe('shared view-model — period derivations', () => {
 	});
 });
 
-describe('shared view-model — no-baseline period delta', () => {
-	it('flags priorHasBaseline=false when the prior window predates the earliest data', () => {
-		// Only the single latest day has data; a Week view looks back 7 days, so
-		// the prior 7-day window (days -13..-7) is entirely before earliestDay.
+describe('shared view-model — honest delta baseline rule', () => {
+	// The rule (v1.4.1): show the delta ONLY when a genuine equal-length prior
+	// window of real data exists — the ENTIRE prior window lies within the days we
+	// have data for [earliestDay, latestDay] AND the prior total is non-zero.
+	// Otherwise priorHasBaseline=false and the UI suppresses the percentage.
+
+	it('full baseline: prior window fully inside data and non-zero → delta shows', () => {
+		// 21 contiguous days of $1/day ending 06-19. Week view: window 06-13..06-19
+		// (prior 06-06..06-12) sits wholly inside the data, prior sums to $7.
+		const grain: DayModelAgg[] = [];
+		for (let i = 0; i < 21; i++) {
+			const d = new Date(Date.UTC(2026, 5, 19));
+			d.setUTCDate(d.getUTCDate() - i);
+			grain.push(dm(d.toISOString().slice(0, 10), 'codex', 'claude-opus-4-8', 1));
+		}
+		const snap = snapFrom(grain);
+		const hero = heroTotals(snap, defaultViewState('week'));
+		expect(hero.priorHasBaseline).toBe(true);
+		expect(hero.current.cost).toBe(7);
+		expect(hero.prior.cost).toBe(7);
+	});
+
+	it('empty/partial prior window (predates earliest) → suppressed', () => {
+		// Only the single latest day has data; a Week view's prior window
+		// (06-06..06-12) is entirely before earliestDay → no baseline.
 		const snap = snapFrom([dm('2026-06-19', 'codex', 'claude-opus-4-8', 10)]);
 		const hero = heroTotals(snap, defaultViewState('week'));
 		expect(hero.priorHasBaseline).toBe(false);
-		expect(hero.prior.cost).toBe(0); // and there genuinely is no prior data
 	});
 
-	it('flags priorHasBaseline=true when the prior window overlaps real data, even if $0', () => {
-		// data on the latest day AND on a day that falls inside the prior window:
-		// the prior window has a real (here $0-for-that-model) baseline.
-		// week ending 06-19: window 06-13..06-19, prior window 06-06..06-12.
-		const snap = snapFrom([
-			dm('2026-06-19', 'codex', 'claude-opus-4-8', 10), // current week
-			dm('2026-06-10', 'codex', 'claude-opus-4-8', 4) // inside the prior week window
-		]);
-		const hero = heroTotals(snap, defaultViewState('week'));
-		expect(hero.priorHasBaseline).toBe(true);
-		expect(hero.prior.cost).toBe(4);
-	});
-
-	it('priorHasBaseline=true for a real $0 prior that still overlaps the data span', () => {
-		// earliest day sits exactly on priorTo: there IS a baseline (it summed to
-		// $0 on the model in scope), distinct from "no data at all".
-		const w = periodWindow(snapFrom([dm('2026-06-19', 'codex', 'claude-opus-4-8', 1)]), defaultViewState('week'));
+	it('prior window that only PARTIALLY overlaps the data span → suppressed', () => {
+		// Data starts mid prior-window: earliest 06-10, prior window 06-06..06-12.
+		// priorFrom (06-06) < earliest (06-10) → the prior window runs off the front
+		// of the data, so it is not a full equal-length baseline. Suppress.
 		const snap = snapFrom([
 			dm('2026-06-19', 'codex', 'claude-opus-4-8', 10),
-			dm(w.priorTo, 'codex', 'claude-opus-4-8', 0) // a real record on priorTo, $0
+			dm('2026-06-10', 'codex', 'claude-opus-4-8', 4) // inside prior window but earliest
 		]);
 		const hero = heroTotals(snap, defaultViewState('week'));
-		expect(hero.priorHasBaseline).toBe(true);
+		expect(hero.priorHasBaseline).toBe(false);
+	});
+
+	it('zero prior (real $0 record, full window inside data) → suppressed, no divide-by-zero', () => {
+		// Prior window fully inside the data but the prior total is $0 → the
+		// percentage would be meaningless / divide-by-zero, so we suppress.
+		const grain: DayModelAgg[] = [
+			dm('2026-06-19', 'codex', 'claude-opus-4-8', 10) // current week
+		];
+		// fill the prior window (06-06..06-12) with real $0 records and the gap
+		// days (06-13..06-18) too so earliestDay <= priorFrom.
+		for (let day = '2026-06-06'; day <= '2026-06-18'; day = addDaysISO(day, 1)) {
+			grain.push(dm(day, 'codex', 'claude-opus-4-8', 0));
+		}
+		const snap = snapFrom(grain);
+		const hero = heroTotals(snap, defaultViewState('week'));
+		expect(hero.prior.cost).toBe(0);
+		expect(hero.priorHasBaseline).toBe(false);
+		// the formatter must also not emit a percentage / Infinity for a $0 prior
+		const delta = pctDelta(hero.current.cost, hero.prior.cost, hero.priorHasBaseline);
+		expect(delta).toBeNull();
+	});
+
+	it('all-time window → no meaningful prior → suppressed', () => {
+		const grain: DayModelAgg[] = [];
+		for (let i = 0; i < 21; i++) {
+			const d = new Date(Date.UTC(2026, 5, 19));
+			d.setUTCDate(d.getUTCDate() - i);
+			grain.push(dm(d.toISOString().slice(0, 10), 'codex', 'claude-opus-4-8', 1));
+		}
+		const snap = snapFrom(grain);
+		const hero = heroTotals(snap, defaultViewState('all'));
+		expect(hero.current.cost).toBe(21); // the whole banked range
+		expect(hero.priorHasBaseline).toBe(false);
+	});
+});
+
+describe('shared view-model — All / Quarter windows + long-span trend grain', () => {
+	// 60 contiguous days of $1/day ending 06-19 (banked history > 45 days).
+	const grain: DayModelAgg[] = [];
+	for (let i = 0; i < 60; i++) {
+		const d = new Date(Date.UTC(2026, 5, 19));
+		d.setUTCDate(d.getUTCDate() - i);
+		grain.push(dm(d.toISOString().slice(0, 10), 'codex', 'claude-opus-4-8', 1));
+	}
+	const snap = snapFrom(grain);
+
+	it('All period spans earliest..latest and totals the full history', () => {
+		const w = periodWindow(snap, defaultViewState('all'));
+		expect(w.from).toBe(snap.earliestDay);
+		expect(w.to).toBe(snap.latestDay);
+		expect(w.label).toBe('All time');
+		expect(scopedTotals(snap, defaultViewState('all')).cost).toBe(60);
+	});
+
+	it('Quarter period is the rolling last 90 days (capped by available data here)', () => {
+		const w = periodWindow(snap, defaultViewState('quarter'));
+		expect(w.to).toBe('2026-06-19');
+		expect(w.from).toBe(addDaysISO('2026-06-19', -89));
+		// only 60 days of data exist, so the quarter total is the full 60
+		expect(scopedTotals(snap, defaultViewState('quarter')).cost).toBe(60);
+	});
+
+	it('long-span trend buckets by WEEK (not 60 daily slivers) and stays legible', () => {
+		const buckets = trend(snap, defaultViewState('all'));
+		// 60 days bucketed by week → roughly 9-10 bars, never 60.
+		expect(buckets.length).toBeLessThanOrEqual(11);
+		expect(buckets.length).toBeGreaterThan(1);
+		// every bucket key is an ISO week, not a bare day
+		for (const b of buckets) expect(b.key).toMatch(/^\d{4}-W\d{2}$/);
+		// the buckets still sum to the full scoped total (no spend lost in bucketing)
+		const sum = buckets.reduce((a, b) => a + b.cost, 0);
+		expect(sum).toBeCloseTo(scopedTotals(snap, defaultViewState('all')).cost, 10);
+	});
+
+	it('short spans still render one bar per calendar day', () => {
+		const weekBuckets = trend(snap, defaultViewState('week'));
+		expect(weekBuckets.length).toBe(7);
+		for (const b of weekBuckets) expect(b.key).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+	});
+});
+
+describe('shared view-model — bucketDayRange (coarse-bar drill range)', () => {
+	it('a day-key bucket drills a single day', () => {
+		const b: PeriodBucket = {
+			key: '2026-06-19',
+			startDay: '2026-06-19',
+			tokens: toks(0),
+			requests: 0,
+			cost: 0,
+			costUnknownRequests: 0,
+			byModel: new Map()
+		};
+		expect(bucketDayRange(b)).toEqual({ from: '2026-06-19', to: '2026-06-19' });
+	});
+
+	it('an ISO-week-key bucket drills Monday..Sunday of that week', () => {
+		// 2026-W25 = 2026-06-15 (Mon) .. 2026-06-21 (Sun)
+		const b: PeriodBucket = {
+			key: '2026-W25',
+			startDay: '2026-06-16',
+			tokens: toks(0),
+			requests: 0,
+			cost: 0,
+			costUnknownRequests: 0,
+			byModel: new Map()
+		};
+		expect(bucketDayRange(b)).toEqual({ from: '2026-06-15', to: '2026-06-21' });
+	});
+
+	it('a month-key bucket drills the 1st..last day of the month', () => {
+		const b: PeriodBucket = {
+			key: '2026-02',
+			startDay: '2026-02-03',
+			tokens: toks(0),
+			requests: 0,
+			cost: 0,
+			costUnknownRequests: 0,
+			byModel: new Map()
+		};
+		expect(bucketDayRange(b)).toEqual({ from: '2026-02-01', to: '2026-02-28' });
+	});
+
+	it('clamps an edge coarse bucket to the active window (no spill beyond the bar)', () => {
+		// A weekly bar at the front of the window: the ISO week is 06-15..06-21 but
+		// the window starts 06-18, so the bar only aggregated 06-18..06-21. The
+		// drill must clamp to the window, not drill the whole calendar week.
+		const b: PeriodBucket = {
+			key: '2026-W25', // 2026-06-15 .. 2026-06-21
+			startDay: '2026-06-18',
+			tokens: toks(0),
+			requests: 0,
+			cost: 0,
+			costUnknownRequests: 0,
+			byModel: new Map()
+		};
+		expect(bucketDayRange(b, { from: '2026-06-18', to: '2026-06-20' })).toEqual({
+			from: '2026-06-18',
+			to: '2026-06-20'
+		});
 	});
 });
 
