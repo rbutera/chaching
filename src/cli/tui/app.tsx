@@ -154,7 +154,11 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 	const savings = useMemo(() => {
 		const w = periodWindow(snapshot, view);
 		let grain = filterDays(snapshot.dayModel, w.from, w.to);
+		// Match the totals/hero scoping exactly: provider AND model filter (the TUI
+		// only mutates the provider filter today, but mirror both so the savings
+		// window can never diverge from the totals window).
 		if (view.providerFilter.size > 0) grain = grain.filter((dm) => view.providerFilter.has(dm.provider));
+		if (view.modelFilter.size > 0) grain = grain.filter((dm) => view.modelFilter.has(dm.model));
 		return cacheCostBreakdown(grain).combined.savedVsUncached;
 	}, [snapshot, view]);
 

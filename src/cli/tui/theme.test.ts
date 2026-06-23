@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { tokens } from '../../lib/brand/tokens.js';
-import { spendLadderColor, bannerLine, color, ACCENT, GOOD } from './theme.js';
+import { spendLadderColor, bannerLine, color, gaugeBar, ACCENT, GOOD } from './theme.js';
 import { LOGO_FULL, LOGO_COMPACT, LOGO_FULL_MIN_COLS } from './banner.js';
 
 describe('spendLadderColor', () => {
@@ -24,6 +24,17 @@ describe('spendLadderColor', () => {
 		process.env.NO_COLOR = '1';
 		expect(spendLadderColor(250)).toBeUndefined();
 		expect(spendLadderColor(5)).toBeUndefined();
+	});
+});
+
+describe('gaugeBar', () => {
+	it('only reads full at f >= 1 (floors incomplete fractions — 0.975 must not fill 20/20)', () => {
+		expect(gaugeBar(0.975, 20)).toBe('█'.repeat(19) + '░');
+		expect(gaugeBar(1, 20)).toBe('█'.repeat(20));
+		expect(gaugeBar(0, 20)).toBe('░'.repeat(20));
+		// clamps out-of-range input
+		expect(gaugeBar(1.5, 10)).toBe('█'.repeat(10));
+		expect(gaugeBar(-0.2, 10)).toBe('░'.repeat(10));
 	});
 });
 

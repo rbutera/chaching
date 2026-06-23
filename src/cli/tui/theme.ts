@@ -15,6 +15,8 @@ import { toAnsiMap } from '../../lib/brand/generate.js';
 import {
 	noColor as _noColor,
 	noArt as _noArt,
+	flourishFor as _flourishFor,
+	BLOCK_FLOURISHES as _BLOCK_FLOURISHES,
 } from '../theme/personality.js';
 import { LOGO_FULL, LOGO_COMPACT, LOGO_FULL_MIN_COLS } from './banner.js';
 
@@ -91,21 +93,31 @@ export const GOOD = ANSI.good.hex;
 export const SPARK_CHARS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'] as const;
 
 /**
- * Map a spend amount to a spend-escalation ladder hue, sourced from the shared
- * token ANSI map (calm → warm → hot → alarm). Used to color the 5h-block flourish
- * so it reads hotter as spend climbs. Returns undefined under NO_COLOR (routed
- * through `color()`), so it strips cleanly to plain text.
+ * The spend-escalation ladder hues, calm → warm → hot → alarm, sourced from the
+ * shared token ANSI map. Ordered low → high so a flourish tier index maps onto a
+ * hue.
+ */
+const SPEND_LADDER = [ANSI.spend.calm, ANSI.spend.warm, ANSI.spend.hot, ANSI.spend.alarm] as const;
+
+/**
+ * Color the 5h-block flourish along the spend-escalation ladder (calm → warm →
+ * hot → alarm), sourced entirely from the shared token ANSI map — no literal hex,
+ * no named ANSI. Returns undefined under NO_COLOR (routed through `color()`), so
+ * it strips cleanly to plain text.
  *
- * Tiers mirror the BLOCK_FLOURISHES thresholds: warm ≥ $10, hot ≥ $75, alarm ≥
- * $200; below $10 reads calm (green). No literal hex, no named ANSI here.
+ * The tier is derived from the SAME `BLOCK_FLOURISHES` ladder the flourish copy
+ * uses (via `flourishFor`), so the color steps in lockstep with the emoji/remark
+ * and can never drift from it: the flourish's tier index is clamped onto the four
+ * ladder hues, so every flourish tier above the zero tier reads hotter than the
+ * one below it.
  */
 export function spendLadderColor(cost: number): string | undefined {
-	const hex =
-		cost >= 200 ? ANSI.spend.alarm.hex
-		: cost >= 75 ? ANSI.spend.hot.hex
-		: cost >= 10 ? ANSI.spend.warm.hex
-		: ANSI.spend.calm.hex;
-	return color(hex);
+	const tier = _flourishFor(cost, _BLOCK_FLOURISHES);
+	const idx = _BLOCK_FLOURISHES.indexOf(tier); // 0 = calm (no flourish) … last = alarm
+	const lastIdx = _BLOCK_FLOURISHES.length - 1;
+	// Map the flourish-tier index (0..lastIdx) onto the 4-hue ladder, clamped.
+	const hueIdx = lastIdx > 0 ? Math.min(SPEND_LADDER.length - 1, Math.round((idx / lastIdx) * (SPEND_LADDER.length - 1))) : 0;
+	return color(SPEND_LADDER[hueIdx].hex);
 }
 
 /**
@@ -127,10 +139,14 @@ export function sparkline(values: number[]): string {
 		.join('');
 }
 
-/** A simple horizontal proportion bar, e.g. for the 5h-window elapsed gauge. */
+/**
+ * A simple horizontal proportion bar, e.g. for the 5h-window elapsed gauge. Floors
+ * incomplete fractions so the bar only reads full (width/width) when the window is
+ * genuinely complete (f >= 1) — a 0.975 fraction must not round up to a full bar.
+ */
 export function gaugeBar(fraction: number, width: number): string {
 	const f = Math.max(0, Math.min(1, fraction));
-	const filled = Math.round(f * width);
+	const filled = f >= 1 ? width : Math.floor(f * width);
 	return '█'.repeat(filled) + '░'.repeat(Math.max(0, width - filled));
 }
 

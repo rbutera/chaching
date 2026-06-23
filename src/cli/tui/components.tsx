@@ -176,10 +176,10 @@ export function TrendSparkline({ buckets, periodLabel }: { buckets: PeriodBucket
 	);
 }
 
-/** Local two-digit HH:MM (UTC) for a block close time. */
+/** Two-digit HH:MM in the user's LOCAL timezone for a block close time. */
 function hhmm(ts: number): string {
 	const d = new Date(ts);
-	return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+	return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 /**
