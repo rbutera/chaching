@@ -1,8 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import type { TokenCounts, UsageRecord } from '../../../types';
 import { isoDayUTC } from '../../ingest/parse';
+import { costFromPriceEntry } from '../../pricing/cost';
 import { resolveModelsDevPrice } from '../../pricing/modelsdev';
-import type { PriceEntry } from '../../pricing/overrides';
 
 // The current OpenCode schema keeps per-message usage in the `message` table; the
 // `session` table no longer carries token/cost/model columns. Each `message.data`
@@ -67,8 +67,11 @@ function rowToRecord(row: OpenCodeMessageRow): UsageRecord | null {
 	const cacheWrite = numberValue(cache.write);
 	const cacheRead = numberValue(cache.read);
 
-	// skip rows whose mapped tokens are all zero
-	if (input + output + reasoning + cacheWrite + cacheRead === 0) return null;
+	const blob = numberValue(data.cost) > 0 ? numberValue(data.cost) : 0;
+
+	// skip rows whose mapped tokens are all zero ONLY when there is no positive
+	// blob cost to bill — a tokenless-but-billed row is real spend we must keep.
+	if (input + output + reasoning + cacheWrite + cacheRead === 0 && blob <= 0) return null;
 
 	const tokens: TokenCounts = {
 		input,
@@ -91,6 +94,14 @@ function rowToRecord(row: OpenCodeMessageRow): UsageRecord | null {
 	const modelID = stringOrNull(data.modelID) ?? 'unknown';
 	const providerID = stringOrNull(data.providerID) ?? '';
 
+	// Reconcile the resolver estimate against the blob's own cost, sharing the one
+	// cost formula in cost.ts. A positive resolver estimate wins; else a positive
+	// blob cost wins; else fall through to the estimate (0 for a genuinely-free
+	// model, null for an unknown model — never a faked $0).
+	const price = resolveModelsDevPrice(providerID, modelID);
+	const est = price ? costFromPriceEntry(price, tokens) : null;
+	const cost = est != null && est > 0 ? est : blob > 0 ? blob : est;
+
 	return {
 		key: `opencode:${row.id}`,
 		provider: 'opencode',
@@ -105,31 +116,8 @@ function rowToRecord(row: OpenCodeMessageRow): UsageRecord | null {
 		sessionId: row.session_id,
 		project,
 		isSidechain: false,
-		cost: computeCost(providerID, modelID, tokens, numberValue(data.cost))
+		cost
 	};
-}
-
-// Resolve a price from models.dev and compute per-token cost (same formula as
-// cost.ts). When the resolver is null, fall back to the blob's own cost only when
-// it is positive; otherwise null (unknown — never a faked $0).
-function computeCost(
-	providerID: string,
-	modelID: string,
-	tokens: TokenCounts,
-	blobCost: number
-): number | null {
-	const price = resolveModelsDevPrice(providerID, modelID);
-	if (price) return costFromEntry(price, tokens);
-	return blobCost > 0 ? blobCost : null;
-}
-
-function costFromEntry(price: PriceEntry, tokens: TokenCounts): number {
-	return (
-		tokens.input * price.input_cost_per_token +
-		tokens.output * price.output_cost_per_token +
-		tokens.cacheCreation * price.cache_creation_input_token_cost +
-		tokens.cacheRead * price.cache_read_input_token_cost
-	);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

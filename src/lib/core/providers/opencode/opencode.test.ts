@@ -72,6 +72,44 @@ const BYO_COST = {
 	finish: 'tool-calls'
 };
 
+// Assistant row with ALL-ZERO mapped tokens, NO error, but a positive blob cost —
+// real billed spend (a subscription/tool round with usage stripped) we must keep.
+const TOKENLESS_BILLED = {
+	parentID: 'msg_parent',
+	role: 'assistant',
+	mode: 'worker',
+	agent: 'worker',
+	path: { cwd: '/Users/dev/x', root: '/' },
+	cost: 0.0031,
+	tokens: { input: 0, output: 0, reasoning: 0, cache: { write: 0, read: 0 } },
+	modelID: 'gpt-5.5',
+	providerID: 'openai',
+	time: { created: 1781887200000, completed: 1781887205000 },
+	finish: 'stop'
+};
+
+// A genuinely-free models.dev model (input:0/output:0 in the snapshot) under the
+// `opencode` provider. With blob cost 0 the resolver yields a real $0; with a
+// positive blob cost the blob wins over the $0 estimate.
+const FREE_ZERO = {
+	parentID: 'msg_parent',
+	role: 'assistant',
+	mode: 'worker',
+	agent: 'worker',
+	path: { cwd: '/Users/dev/x', root: '/' },
+	cost: 0,
+	tokens: { input: 1000, output: 500, reasoning: 0, cache: { write: 0, read: 0 } },
+	modelID: 'ring-2.6-1t-free',
+	providerID: 'opencode',
+	time: { created: 1781887300000, completed: 1781887305000 },
+	finish: 'stop'
+};
+
+const FREE_WITH_BLOB = {
+	...FREE_ZERO,
+	cost: 0.0009
+};
+
 interface Insert {
 	id: string;
 	session_id: string;
@@ -116,6 +154,17 @@ describe('opencode SQLite provider', () => {
 		expect(rec.tokens.cacheCreation).toBe(OPENAI_TOKENS.tokens.cache.write);
 		expect(rec.tokens.cacheRead).toBe(OPENAI_TOKENS.tokens.cache.read);
 		expect(rec.timestamp).toBe(OPENAI_TOKENS.time.completed);
+
+		// cost is the resolver estimate using REAL gpt-5.5 rates from the snapshot
+		// (per-million / 1e6): input 5, output 30, cache_read 0.5, no cache_write.
+		const inRate = 5 / 1e6;
+		const outRate = 30 / 1e6;
+		const cacheReadRate = 0.5 / 1e6;
+		const expectedCost =
+			OPENAI_TOKENS.tokens.input * inRate +
+			(OPENAI_TOKENS.tokens.output + OPENAI_TOKENS.tokens.reasoning) * outRate +
+			OPENAI_TOKENS.tokens.cache.read * cacheReadRate;
+		expect(rec.cost).toBeCloseTo(expectedCost);
 	});
 
 	it('prices a zero-cost cursor-acp Anthropic row via the resolver (cost > 0, not 0) (3.3)', async () => {
@@ -170,6 +219,34 @@ describe('opencode SQLite provider', () => {
 
 		expect(byKey.get('opencode:msg_unk0')?.cost).toBeNull();
 		expect(byKey.get('opencode:msg_unkpos')?.cost).toBe(0.0042);
+	});
+
+	it('keeps an all-zero-token assistant row that carries a positive blob cost (cost === data.cost)', async () => {
+		const dbPath = await buildDb([
+			{ id: 'msg_billed', session_id: 'ses_billed', data: JSON.stringify(TOKENLESS_BILLED) }
+		]);
+
+		const records = await readOpenCodeSessions(dbPath);
+
+		expect(records).toHaveLength(1);
+		const rec = records[0];
+		expect(rec.key).toBe('opencode:msg_billed');
+		expect(rec.cost).toBe(TOKENLESS_BILLED.cost);
+	});
+
+	it('prices a free model at $0 when the blob cost is 0, and lets a positive blob cost win', async () => {
+		const dbPath = await buildDb([
+			{ id: 'msg_free0', session_id: 'ses_free', data: JSON.stringify(FREE_ZERO) },
+			{ id: 'msg_freeblob', session_id: 'ses_free', data: JSON.stringify(FREE_WITH_BLOB) }
+		]);
+
+		const records = await readOpenCodeSessions(dbPath);
+		const byKey = new Map(records.map((r) => [r.key, r]));
+
+		// free model, no blob -> a real $0 estimate (NOT null)
+		expect(byKey.get('opencode:msg_free0')?.cost).toBe(0);
+		// free model, positive blob -> blob wins over the $0 estimate
+		expect(byKey.get('opencode:msg_freeblob')?.cost).toBe(FREE_WITH_BLOB.cost);
 	});
 
 	it('emits per-message records with distinct keys for two messages in one session (3.6)', async () => {

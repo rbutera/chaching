@@ -139,21 +139,18 @@ function resolveUncached(model: string): PriceEntry | null {
 }
 
 /**
- * Compute the USD cost of one usage record. Returns null when the model has no
- * known price (so the caller can count it as unknown rather than silently $0).
+ * Pure per-token math for a resolved price entry. Shared by computeCost and the
+ * OpenCode provider so there is exactly ONE cost formula in the codebase.
  *
  * cache-creation is split into 1h vs 5m where the price entry distinguishes them;
  * otherwise the single cache-creation rate is applied to the whole creation count.
  */
-export function computeCost(
-	model: string,
+export function costFromPriceEntry(
+	price: PriceEntry,
 	tokens: TokenCounts,
 	cacheCreation1h = 0,
 	cacheCreation5m = 0
-): number | null {
-	const price = resolvePrice(model);
-	if (!price) return null;
-
+): number {
 	let cacheCreationCost: number;
 	const oneHrRate = price.cache_creation_input_token_cost_above_1hr;
 	if (oneHrRate != null && (cacheCreation1h > 0 || cacheCreation5m > 0)) {
@@ -173,6 +170,21 @@ export function computeCost(
 		cacheCreationCost +
 		tokens.cacheRead * price.cache_read_input_token_cost
 	);
+}
+
+/**
+ * Compute the USD cost of one usage record. Returns null when the model has no
+ * known price (so the caller can count it as unknown rather than silently $0).
+ */
+export function computeCost(
+	model: string,
+	tokens: TokenCounts,
+	cacheCreation1h = 0,
+	cacheCreation5m = 0
+): number | null {
+	const price = resolvePrice(model);
+	if (!price) return null;
+	return costFromPriceEntry(price, tokens, cacheCreation1h, cacheCreation5m);
 }
 
 /** True if we have a price for this model. */
