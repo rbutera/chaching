@@ -54,4 +54,29 @@ describe('client-bundle safety', () => {
 			/from\s+['"][^'"]*\/cache-breakdown['"]/
 		);
 	});
+
+	// The models.dev resolver is node-only (file IO via node:fs / node:url, like
+	// cost.ts). The browser price path must stay limited to pricing-client.ts —
+	// the resolver and its file-IO imports must never reach the client bundle.
+	it('modelsdev.ts is node-only file-IO and the client price path never imports it', () => {
+		// Sanity: the resolver really is the node-only kind we must keep out of the client.
+		const resolver = stripComments(read('./modelsdev.ts'));
+		expect(resolver, 'modelsdev must use node:fs').toMatch(/from\s+['"]node:fs['"]/);
+		expect(resolver, 'modelsdev must use node:url').toMatch(/from\s+['"]node:url['"]/);
+
+		// The browser-facing price path is pricing-client.ts — it must NOT import the
+		// node resolver (static OR dynamic, with or without a .ts/.js extension).
+		const client = stripComments(read('../../pricing-client.ts'));
+		expect(client, 'pricing-client must not import modelsdev').not.toMatch(
+			/from\s+['"][^'"]*\/modelsdev(?:\.[tj]s)?['"]/
+		);
+		expect(client, 'pricing-client must not dynamic-import modelsdev').not.toMatch(
+			/import\(\s*['"][^'"]*\/modelsdev(?:\.[tj]s)?['"]\s*\)/
+		);
+		// And it stays node-free itself (no file-IO machinery sneaking in via the resolver).
+		expect(client, 'pricing-client must not import node:fs').not.toMatch(/from\s+['"]node:fs['"]/);
+		expect(client, 'pricing-client must not import node:url').not.toMatch(
+			/from\s+['"]node:url['"]/
+		);
+	});
 });
