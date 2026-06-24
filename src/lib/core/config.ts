@@ -92,6 +92,10 @@ export interface chachingConfig {
 	server: {
 		host: string;
 		port: number;
+		/** Public origin for the web server (adapter-node ORIGIN), e.g. when behind a
+		 *  reverse proxy: "https://chaching.example.com". Empty = let the adapter infer
+		 *  it. The ORIGIN env var, if set, wins over this. */
+		origin: string;
 	};
 	history: HistoryConfig;
 	providers: {
@@ -134,7 +138,7 @@ export function configFilePath(input: ConfigPathInput = {}): string {
 export function defaultConfig(): chachingConfig {
 	return {
 		cutoverTs: null,
-		server: { host: DEFAULT_HOST, port: DEFAULT_PORT },
+		server: { host: DEFAULT_HOST, port: DEFAULT_PORT, origin: '' },
 		history: { enabled: true, dbPath: DEFAULT_HISTORY_DB_PATH },
 		providers: {
 			claude: {
@@ -164,7 +168,8 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 		cutoverTs: numberOrNull(root.cutoverTs),
 		server: {
 			host: stringOr(server.host, defaults.server.host),
-			port: positiveIntOr(server.port, defaults.server.port)
+			port: positiveIntOr(server.port, defaults.server.port),
+			origin: stringOr(server.origin, defaults.server.origin)
 		},
 		history: {
 			enabled: booleanOr(history.enabled, defaults.history.enabled),

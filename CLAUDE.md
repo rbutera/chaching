@@ -84,6 +84,7 @@ Claude/Codex cost is always **computed** (`tokens × per-token price`), never re
 - `satori` and `@resvg/resvg-js` are kept **external** in both tsup and adapter-node (they're `optionalDependencies` + listed in `dependencies` so adapter-node externalizes the native binding). They must remain runtime-resolved, never bundled — a CLI-only install can skip the native renderer.
 - Svelte is in **forced runes mode** (`svelte.config.js`) for all non-`node_modules` files.
 - Vitest defaults to the `node` environment for speed; component tests opt into jsdom per-file with `// @vitest-environment jsdom`.
+- **Serve base path vs origin.** A subpath mount (`/chaching`) is SvelteKit `kit.paths.base`, baked in at **build time** from `CHACHING_BASE_PATH` (via `normalizeBasePath` in `src/lib/core/base-path.js` — kept as plain `.js` because `svelte.config.js` loads as raw Node ESM and can't import a `.ts`). The web client must therefore call internal endpoints through `resolve()` from `$app/paths` (e.g. `resolve('/api/feed')`), never a bare `/api/...`. The public **origin** is separate and runtime: adapter-node's `ORIGIN` env (or `server.origin` config, applied in `serve.ts`). Assets resolve relatively (SvelteKit `paths.relative` default), so a subpath build needs no asset-URL baking.
 
 ## Conventions
 

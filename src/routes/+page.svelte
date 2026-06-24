@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { resolve } from '$app/paths';
 	import { FeedStore } from '$lib/client/feed.svelte';
 	import { Dashboard } from '$lib/client/dashboard.svelte';
 	import PeriodSwitcher from '$lib/components/PeriodSwitcher.svelte';
@@ -59,7 +60,7 @@
 
 	async function loadPublicConfig() {
 		try {
-			const res = await fetch('/api/config');
+			const res = await fetch(resolve('/api/config'));
 			if (res.ok) config = (await res.json()) as PublicchachingConfig;
 		} catch {
 			/* config stays null → cards fall back to defaults */
@@ -124,7 +125,7 @@
 		qs.set('period', dash.period);
 		if (focusedDay) qs.set('day', focusedDay);
 		for (const p of dash.providerFilter) qs.append('provider', p);
-		return `/api/receipt.png?${qs.toString()}`;
+		return `${resolve('/api/receipt.png')}?${qs.toString()}`;
 	});
 
 	function openReceipt(): void {
@@ -260,7 +261,7 @@
 			};
 		}
 		try {
-			const res = await fetch('/api/config', {
+			const res = await fetch(resolve('/api/config'), {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ provider, subscription: { tier, monthlyUsd } })
@@ -379,7 +380,7 @@
 
 	async function saveCutover(value: string) {
 		const ts = value ? Date.parse(value + 'T00:00:00Z') : null;
-		await fetch('/api/config', {
+		await fetch(resolve('/api/config'), {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ cutoverTs: ts })

@@ -12,7 +12,7 @@ import { createEngine, runOnce } from './engine';
 function disabledConfig(): chachingConfig {
 	return {
 		cutoverTs: null,
-		server: { host: '127.0.0.1', port: 5178 },
+		server: { host: '127.0.0.1', port: 5178, origin: '' },
 		history: { enabled: false, dbPath: '' },
 		providers: {
 			claude: { enabled: false, roots: [], subscription: { ...DEFAULT_SUBSCRIPTION } },

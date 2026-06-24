@@ -11,6 +11,7 @@ import type {
 	SessionSummary,
 	SSEMessage
 } from '$lib/types';
+import { resolve } from '$app/paths';
 
 const KEY_SEP = '\u001f';
 
@@ -56,7 +57,7 @@ export class FeedStore {
 	private connect(): void {
 		this.conn = this.snapshot ? 'connecting' : 'connecting';
 		try {
-			this.es = new EventSource('/api/feed');
+			this.es = new EventSource(resolve('/api/feed'));
 		} catch {
 			this.conn = 'error';
 			return;

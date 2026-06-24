@@ -10,20 +10,21 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { noArt, accent, dim } from '../theme/personality.js';
 import { bannerLine } from '../tui/theme.js';
+import { normalizeBasePath } from '../../lib/core/base-path.js';
 
 function configPath(): string {
 	const configHome = process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), '.config');
 	return join(configHome, 'chaching', 'config.json');
 }
 
-async function serverConfig(): Promise<{ host?: string; port?: number }> {
+async function serverConfig(): Promise<{ host?: string; port?: number; origin?: string }> {
 	try {
 		const raw = await readFile(configPath(), 'utf8');
 		const parsed = JSON.parse(raw) as unknown;
 		return typeof parsed === 'object' && parsed !== null && 'server' in parsed
 			&& typeof (parsed as Record<string, unknown>).server === 'object'
 			&& (parsed as Record<string, unknown>).server !== null
-			? (parsed as Record<string, unknown>).server as { host?: string; port?: number }
+			? (parsed as Record<string, unknown>).server as { host?: string; port?: number; origin?: string }
 			: {};
 	} catch {
 		return {};
@@ -60,6 +61,12 @@ export async function runServe(): Promise<void> {
 
 	process.env.HOST ??= configHost;
 
+	// Public origin (adapter-node ORIGIN), e.g. behind a reverse proxy. An explicit
+	// ORIGIN env wins; otherwise fall back to the config's `server.origin` if set.
+	if ((process.env.ORIGIN == null || process.env.ORIGIN === '') && server.origin) {
+		process.env.ORIGIN = server.origin;
+	}
+
 	// Honour an explicit PORT, otherwise start at the configured port and walk up
 	// to the first free one so `serve` never dies on "address in use".
 	if (process.env.PORT == null) {
@@ -73,10 +80,15 @@ export async function runServe(): Promise<void> {
 
 	const host = process.env.HOST;
 	const port = process.env.PORT;
-	// The URL we print + open. A wildcard bind (0.0.0.0/::) has no meaningful "open"
-	// target, so we surface localhost for the human-facing link.
+	// Base path (subpath) is baked in at build time; reflect it in the printed link so
+	// the URL is actually reachable when chaching was built with CHACHING_BASE_PATH.
+	const basePath = normalizeBasePath(process.env.CHACHING_BASE_PATH);
+	// The URL we print + open. Prefer an explicit public ORIGIN; otherwise build from
+	// host:port. A wildcard bind (0.0.0.0/::) has no meaningful "open" target, so we
+	// surface localhost for the human-facing link.
 	const displayHost = host === '0.0.0.0' || host === '::' ? 'localhost' : host;
-	const url = `http://${displayHost}:${port}`;
+	const origin = process.env.ORIGIN?.replace(/\/+$/, '') || `http://${displayHost}:${port}`;
+	const url = `${origin}${basePath}`;
 
 	printBanner(url);
 

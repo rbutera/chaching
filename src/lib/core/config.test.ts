@@ -35,7 +35,7 @@ describe('config', () => {
 		});
 
 		expect(cfg.cutoverTs).toBe(123);
-		expect(cfg.server).toEqual({ host: '127.0.0.1', port: 9999 });
+		expect(cfg.server).toEqual({ host: '127.0.0.1', port: 9999, origin: '' });
 		expect(cfg.providers.claude).toEqual({
 			enabled: false,
 			roots: ['~/claude-data'],

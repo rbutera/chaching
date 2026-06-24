@@ -1,4 +1,12 @@
 import adapter from '@sveltejs/adapter-node';
+import { normalizeBasePath } from './src/lib/core/base-path.js';
+
+// Base path (subpath) is baked in at BUILD time — SvelteKit has no runtime base.
+// Serve chaching under a subpath by building with CHACHING_BASE_PATH set, e.g.
+//   CHACHING_BASE_PATH=/chaching pnpm build
+// The runtime public origin is separate and IS configurable at runtime via the
+// adapter-node ORIGIN env var (or the `server.origin` config field).
+const base = normalizeBasePath(process.env.CHACHING_BASE_PATH);
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -13,7 +21,10 @@ const config = {
 		// lazy render import resolves at runtime instead of being bundled. They remain
 		// `optionalDependencies` too, so a CLI-only install can still skip the native
 		// renderer.
-		adapter: adapter()
+		adapter: adapter(),
+		// Subpath mount (e.g. behind a reverse proxy at /chaching). Empty = root.
+		// Build-time only; see CHACHING_BASE_PATH above.
+		paths: { base }
 	}
 };
 

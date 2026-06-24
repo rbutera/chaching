@@ -61,7 +61,7 @@ async function makeRoot(days: DayLine[]): Promise<string> {
 function cfg(root: string, dbPath: string): chachingConfig {
 	return {
 		cutoverTs: null,
-		server: { host: '127.0.0.1', port: 5178 },
+		server: { host: '127.0.0.1', port: 5178, origin: '' },
 		history: { enabled: true, dbPath },
 		providers: {
 			claude: { enabled: true, roots: [root], subscription: { ...DEFAULT_SUBSCRIPTION } },

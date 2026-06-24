@@ -21,11 +21,16 @@ cp config.example.json "${XDG_CONFIG_HOME:-$HOME/.config}/chaching/config.json"
 ```json
 "server": {
 	"host": "0.0.0.0",
-	"port": 5178
+	"port": 5178,
+	"origin": ""
 }
 ```
 
 The `chaching` CLI uses these values unless `HOST` or `PORT` is already set in the environment.
+
+`origin` is the public base URL for the web server when it sits behind a reverse proxy, e.g. `"https://chaching.example.com"` — it populates adapter-node's `ORIGIN` so absolute links/redirects are correct. The `ORIGIN` environment variable, if set, wins over this. Leave it `""` to let the adapter infer the origin from the request.
+
+**Subpath (base path) is build-time, not config.** To mount the dashboard under a path like `https://example.com/chaching/`, build with `CHACHING_BASE_PATH=/chaching pnpm build` (SvelteKit bakes the base path into the bundle — there is no runtime base-path setting). The published npm package is built at the root. `chaching serve` reads `CHACHING_BASE_PATH` only to print the correct link.
 
 ## History
 

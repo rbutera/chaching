@@ -159,6 +159,11 @@ chaching serve
 # → http://0.0.0.0:5178
 ```
 
+**Behind a reverse proxy.** Two knobs, because they're different things:
+
+- **Public origin** (runtime): set `ORIGIN` (or `server.origin` in the config) to the externally-visible URL so absolute links are correct, e.g. `ORIGIN=https://chaching.example.com chaching serve`. `HOST` and `PORT` are honoured too.
+- **Subpath / base path** (build time): to mount under a path like `https://example.com/chaching/`, build with `CHACHING_BASE_PATH` set — `CHACHING_BASE_PATH=/chaching pnpm build`, then `chaching serve`. SvelteKit bakes the base path into the bundle (there is no runtime base path), so this needs a build from source; the published npm package is built at the root. `serve` reflects the configured base/origin in the link it prints.
+
 What's in there:
 
 - **Calendar heatmap** over every day you've ever banked, shaded by spend. Click a cell (or arrow through days) to pin the whole dashboard to that day.
