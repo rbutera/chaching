@@ -176,11 +176,43 @@ describe('opencode SQLite provider', () => {
 
 		expect(records).toHaveLength(1);
 		const rec = records[0];
-		// stays provider: opencode (cursor-acp attribution is a later change)
-		expect(rec.provider).toBe('opencode');
+		// cursor-acp usage (Opus via the opencode-cursor bridge) is attributed to the
+		// `cursor` provider, priced via the resolver's Anthropic catalog.
+		expect(rec.provider).toBe('cursor');
 		expect(rec.model).toBe('claude-opus-4-8');
 		expect(typeof rec.cost).toBe('number');
 		expect(rec.cost).toBeGreaterThan(0);
+	});
+
+	it('attributes cursor-acp to the cursor provider while openai stays opencode (3 - #3)', async () => {
+		const dbPath = await buildDb([
+			{ id: 'msg_oa', session_id: 'ses_x', data: JSON.stringify(OPENAI_TOKENS) },
+			{ id: 'msg_ca', session_id: 'ses_x', data: JSON.stringify(CURSOR_ACP_TOKENS) }
+		]);
+
+		const records = await readOpenCodeSessions(dbPath);
+		const byKey = new Map(records.map((r) => [r.key, r]));
+
+		expect(byKey.get('opencode:msg_oa')?.provider).toBe('opencode');
+		expect(byKey.get('opencode:msg_ca')?.provider).toBe('cursor');
+	});
+
+	it('attributes a normalized cursor-acp model (opus-4.6) to cursor with Anthropic pricing (#3)', async () => {
+		const OPUS_46 = {
+			...CURSOR_ACP_TOKENS,
+			modelID: 'opus-4.6',
+			tokens: { input: 1000, output: 100, reasoning: 0, cache: { write: 0, read: 0 } }
+		};
+		const dbPath = await buildDb([
+			{ id: 'msg_o46', session_id: 'ses_y', data: JSON.stringify(OPUS_46) }
+		]);
+
+		const records = await readOpenCodeSessions(dbPath);
+		expect(records).toHaveLength(1);
+		const rec = records[0];
+		expect(rec.provider).toBe('cursor');
+		// Anthropic Opus input rate is $5/Mtok ⇒ 1000·5e-6 + 100·25e-6 = 0.0075.
+		expect(rec.cost).toBeCloseTo(1000 * 5e-6 + 100 * 25e-6, 9);
 	});
 
 	it('skips aborted/zero-token rows and malformed JSON, keeping valid rows (3.4)', async () => {

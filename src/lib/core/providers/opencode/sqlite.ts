@@ -104,7 +104,7 @@ function rowToRecord(row: OpenCodeMessageRow): UsageRecord | null {
 
 	return {
 		key: `opencode:${row.id}`,
-		provider: 'opencode',
+		provider: providerForRecord(providerID),
 		timestamp,
 		day: isoDayUTC(timestamp),
 		model: modelID,
@@ -118,6 +118,17 @@ function rowToRecord(row: OpenCodeMessageRow): UsageRecord | null {
 		isSidechain: false,
 		cost
 	};
+}
+
+/**
+ * OpenCode usage reached via the opencode-cursor bridge is tagged `providerID:
+ * "cursor-acp"` (Anthropic models proxied through Cursor). Attribute it to the
+ * `cursor` provider so the dashboard/receipt provider breakdown is truthful; all
+ * other OpenCode usage stays under `opencode`. Pricing is unchanged — the
+ * resolver already maps `cursor-acp` onto the Anthropic catalog.
+ */
+function providerForRecord(providerID: string): string {
+	return providerID === 'cursor-acp' ? 'cursor' : 'opencode';
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
