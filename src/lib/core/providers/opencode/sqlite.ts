@@ -1,111 +1,150 @@
 import { DatabaseSync } from 'node:sqlite';
 import type { TokenCounts, UsageRecord } from '../../../types';
 import { isoDayUTC } from '../../ingest/parse';
+import { resolveModelsDevPrice } from '../../pricing/modelsdev';
+import type { PriceEntry } from '../../pricing/overrides';
 
-interface OpenCodeSessionRow {
+// The current OpenCode schema keeps per-message usage in the `message` table; the
+// `session` table no longer carries token/cost/model columns. Each `message.data`
+// is a JSON blob — assistant blobs carry role, modelID, providerID, tokens
+// {input, output, reasoning, cache:{write, read}}, cost, path {cwd, root}, agent,
+// time {created, completed}, and (when aborted/errored) an `error` field.
+//
+// We emit ONE UsageRecord per surviving assistant message, priced via the
+// models.dev resolver and the same per-token math cost.ts uses. `data.cost` is 0
+// for the bulk of rows (Zen/subscription), so we ignore it unless the resolver is
+// null AND it is a positive fallback. ALL rows are `provider: "opencode"` here —
+// cursor-acp attribution is a separate change.
+
+interface OpenCodeMessageRow {
 	id: string;
-	path: string | null;
-	agent: string | null;
-	model: string | null;
-	cost: number;
-	tokens_input: number;
-	tokens_output: number;
-	tokens_reasoning: number;
-	tokens_cache_read: number;
-	tokens_cache_write: number;
+	session_id: string;
 	time_created: number;
 	time_updated: number;
-}
-
-interface OpenCodeModelInfo {
-	id?: string;
-	providerID?: string;
-	variant?: string;
+	data: string;
 }
 
 export async function readOpenCodeSessions(dbPath: string): Promise<UsageRecord[]> {
 	const db = new DatabaseSync(dbPath, { readOnly: true });
 	try {
-		const rows = db.prepare(`SELECT id, path, agent, model, cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, time_created, time_updated FROM session`).all().map(parseRow);
-		return rows.map(rowToRecord);
+		const rows = db
+			.prepare(`SELECT id, session_id, time_created, time_updated, data FROM message`)
+			.all() as unknown as OpenCodeMessageRow[];
+		const records: UsageRecord[] = [];
+		for (const row of rows) {
+			const rec = rowToRecord(row);
+			if (rec) records.push(rec);
+		}
+		return records;
 	} finally {
 		db.close();
 	}
 }
 
-function parseRow(row: Record<string, unknown>): OpenCodeSessionRow {
-	return {
-		id: stringValue(row.id, 'unknown'),
-		path: nullableString(row.path),
-		agent: nullableString(row.agent),
-		model: nullableString(row.model),
-		cost: numberValue(row.cost),
-		tokens_input: numberValue(row.tokens_input),
-		tokens_output: numberValue(row.tokens_output),
-		tokens_reasoning: numberValue(row.tokens_reasoning),
-		tokens_cache_read: numberValue(row.tokens_cache_read),
-		tokens_cache_write: numberValue(row.tokens_cache_write),
-		time_created: numberValue(row.time_created),
-		time_updated: numberValue(row.time_updated)
-	};
-}
+function rowToRecord(row: OpenCodeMessageRow): UsageRecord | null {
+	const raw = typeof row.data === 'string' ? row.data : null;
+	if (!raw) return null;
 
-function rowToRecord(row: OpenCodeSessionRow): UsageRecord {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		return null;
+	}
+	if (typeof parsed !== 'object' || parsed === null) return null;
+	const data = parsed as Record<string, unknown>;
+
+	// keep only assistant messages
+	if (data.role !== 'assistant') return null;
+	// skip aborted/errored rows
+	if (data.error != null) return null;
+
+	const tok = asRecord(data.tokens);
+	const cache = asRecord(tok.cache);
+	const input = numberValue(tok.input);
+	const output = numberValue(tok.output);
+	const reasoning = numberValue(tok.reasoning);
+	const cacheWrite = numberValue(cache.write);
+	const cacheRead = numberValue(cache.read);
+
+	// skip rows whose mapped tokens are all zero
+	if (input + output + reasoning + cacheWrite + cacheRead === 0) return null;
+
 	const tokens: TokenCounts = {
-		input: row.tokens_input,
-		output: row.tokens_output + row.tokens_reasoning,
-		cacheCreation: row.tokens_cache_write,
-		cacheRead: row.tokens_cache_read
+		input,
+		output: output + reasoning,
+		cacheCreation: cacheWrite,
+		cacheRead
 	};
+
+	const time = asRecord(data.time);
+	const timestamp =
+		numberOrNull(time.completed) ??
+		numberOrNull(time.created) ??
+		numberOrNull(row.time_updated) ??
+		numberValue(row.time_created);
+
+	const path = asRecord(data.path);
+	const project =
+		stringOrNull(path.cwd) ?? stringOrNull(data.agent) ?? 'opencode';
+
+	const modelID = stringOrNull(data.modelID) ?? 'unknown';
+	const providerID = stringOrNull(data.providerID) ?? '';
+
 	return {
 		key: `opencode:${row.id}`,
 		provider: 'opencode',
-		timestamp: row.time_updated,
-		day: isoDayUTC(row.time_updated),
-		model: modelLabel(row.model),
+		timestamp,
+		day: isoDayUTC(timestamp),
+		model: modelID,
 		tokens,
 		cacheCreation1h: 0,
 		cacheCreation5m: 0,
 		webSearchRequests: 0,
 		webFetchRequests: 0,
-		sessionId: row.id,
-		project: row.path ?? row.agent ?? 'opencode',
+		sessionId: row.session_id,
+		project,
 		isSidechain: false,
-		cost: row.cost
+		cost: computeCost(providerID, modelID, tokens, numberValue(data.cost))
 	};
 }
 
-function modelLabel(raw: string | null): string {
-	if (!raw) return 'unknown';
-	try {
-		const parsed: unknown = JSON.parse(raw);
-		const info = modelInfo(parsed);
-		if (info.id && info.providerID) return `${info.providerID}/${info.id}`;
-		if (info.id) return info.id;
-		return raw;
-	} catch {
-		return raw;
-	}
+// Resolve a price from models.dev and compute per-token cost (same formula as
+// cost.ts). When the resolver is null, fall back to the blob's own cost only when
+// it is positive; otherwise null (unknown — never a faked $0).
+function computeCost(
+	providerID: string,
+	modelID: string,
+	tokens: TokenCounts,
+	blobCost: number
+): number | null {
+	const price = resolveModelsDevPrice(providerID, modelID);
+	if (price) return costFromEntry(price, tokens);
+	return blobCost > 0 ? blobCost : null;
 }
 
-function modelInfo(value: unknown): OpenCodeModelInfo {
+function costFromEntry(price: PriceEntry, tokens: TokenCounts): number {
+	return (
+		tokens.input * price.input_cost_per_token +
+		tokens.output * price.output_cost_per_token +
+		tokens.cacheCreation * price.cache_creation_input_token_cost +
+		tokens.cacheRead * price.cache_read_input_token_cost
+	);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
 	if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
-	const record = value as Record<string, unknown>;
-	return {
-		id: typeof record.id === 'string' ? record.id : undefined,
-		providerID: typeof record.providerID === 'string' ? record.providerID : undefined,
-		variant: typeof record.variant === 'string' ? record.variant : undefined
-	};
-}
-
-function stringValue(value: unknown, fallback: string): string {
-	return typeof value === 'string' && value.length > 0 ? value : fallback;
-}
-
-function nullableString(value: unknown): string | null {
-	return typeof value === 'string' ? value : null;
+	return value as Record<string, unknown>;
 }
 
 function numberValue(value: unknown): number {
 	return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function numberOrNull(value: unknown): number | null {
+	return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function stringOrNull(value: unknown): string | null {
+	return typeof value === 'string' && value.length > 0 ? value : null;
 }
