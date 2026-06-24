@@ -1,5 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { resolveModelsDevPrice, getModelsDevMeta } from './modelsdev';
+import { resolveModelsDevPrice, getModelsDevMeta, normalizeModelID } from './modelsdev';
+
+// Directly exercise normalization so a regression can't hide behind the family
+// fallback (same-family ids resolve to the same rates either way).
+describe('normalizeModelID', () => {
+	it('rewrites bare family-version ids to canonical claude-<family>-<version>', () => {
+		expect(normalizeModelID('opus-4.6')).toBe('claude-opus-4-6');
+		expect(normalizeModelID('sonnet-4.5')).toBe('claude-sonnet-4-5');
+		expect(normalizeModelID('haiku-4.5')).toBe('claude-haiku-4-5');
+	});
+
+	it('rewrites version-first ids (claude-4.5-sonnet) to family-first', () => {
+		expect(normalizeModelID('claude-4.5-sonnet')).toBe('claude-sonnet-4-5');
+	});
+
+	it('strips a leading provider prefix', () => {
+		expect(normalizeModelID('anthropic/opus-4.6')).toBe('claude-opus-4-6');
+	});
+
+	it('returns null when nothing changes', () => {
+		expect(normalizeModelID('claude-opus-4-8')).toBeNull();
+		expect(normalizeModelID('gpt-5.4')).toBeNull();
+	});
+});
 
 describe('resolveModelsDevPrice', () => {
 	it('prices an Anthropic model via the opencode (Zen) catalog with full rates', () => {

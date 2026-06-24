@@ -13,8 +13,9 @@ import { resolveModelsDevPrice } from '../../pricing/modelsdev';
 // We emit ONE UsageRecord per surviving assistant message, priced via the
 // models.dev resolver and the same per-token math cost.ts uses. `data.cost` is 0
 // for the bulk of rows (Zen/subscription), so we ignore it unless the resolver is
-// null AND it is a positive fallback. ALL rows are `provider: "opencode"` here —
-// cursor-acp attribution is a separate change.
+// null AND it is a positive fallback. Rows tagged `providerID: "cursor-acp"`
+// (Anthropic models via the opencode-cursor bridge) are attributed to the
+// `cursor` provider; all other rows are `provider: "opencode"`.
 
 interface OpenCodeMessageRow {
 	id: string;

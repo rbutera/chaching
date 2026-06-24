@@ -163,8 +163,9 @@ function asEntry(cost: ModelCost | undefined): PriceEntry | null {
 // "claude-<family>-<version-with-dashes>" form (e.g. "claude-opus-4-6"):
 //   - bare      "opus-4.6"      -> "claude-opus-4-6"
 //   - version-first "claude-4.5-sonnet" -> "claude-sonnet-4-5"
-// Returns null if unchanged.
-function normalizeModelID(modelID: string): string | null {
+// Returns null if unchanged. Exported for direct unit testing — the family
+// fallback would otherwise mask a normalization regression for same-family ids.
+export function normalizeModelID(modelID: string): string | null {
 	let id = modelID;
 	const slash = id.lastIndexOf('/');
 	if (slash !== -1) id = id.slice(slash + 1);

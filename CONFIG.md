@@ -86,7 +86,9 @@ Codex usage is read from local JSONL session files. chaching uses `last_token_us
 }
 ```
 
-OpenCode usage is read from the local SQLite session table through Node's built-in `node:sqlite` module. chaching requires Node `>=24.16.0` for this provider.
+OpenCode usage is read from the local OpenCode SQLite database (the `message` table) through Node's built-in `node:sqlite` module — one record per assistant message. chaching requires Node `>=24.16.0` for this provider. Because OpenCode reports `cost: 0` for Zen/Go/subscription usage, cost is computed from the vendored [models.dev](https://models.dev) price map (`static/pricing/modelsdev-prices.json`), not trusted; genuinely-free models price at `$0`, unpriced models are flagged unknown (never a faked `$0`).
+
+Usage reached through the [opencode-cursor](https://github.com/Nomadcxx/opencode-cursor) bridge (tagged `providerID: cursor-acp` in the OpenCode DB) is attributed to the **Cursor** provider, not OpenCode — see below.
 
 ### Cursor
 
@@ -99,7 +101,12 @@ OpenCode usage is read from the local SQLite session table through Node's built-
 }
 ```
 
-Cursor is disabled by default because it uses the Cursor Admin API. Set `enabled` to `true` and provide an admin API token to poll `POST https://api.cursor.com/teams/filtered-usage-events`. `chargedCents` is treated as the authoritative cost. Cursor events do not provide local project/session attribution, so chaching groups them by Cursor user or service account.
+chaching has **two** Cursor sources:
+
+1. **Local, via the opencode-cursor bridge** (no config, no token). If you use Cursor models through [opencode-cursor](https://github.com/Nomadcxx/opencode-cursor), that usage is already in the OpenCode DB (`providerID: cursor-acp`) and is attributed to the Cursor provider automatically, priced from the models.dev map. This needs nothing turned on beyond the OpenCode provider.
+2. **The Cursor Admin API** (the block above, disabled by default). Set `enabled` to `true` and provide an admin token to poll `POST https://api.cursor.com/teams/filtered-usage-events`. `chargedCents` is authoritative. Cursor events carry no local project/session attribution, so chaching groups them by Cursor user or service account.
+
+> **Use one Cursor source, not both.** The bridge-local records (key `opencode:<id>`) and Admin-API records (key `cursor:<ts>:<owner>:<model>`) have non-colliding keys, so they do **not** dedup against each other — enabling both will double-count the same Cursor usage. If you use the opencode-cursor bridge, leave the Admin API disabled.
 
 ## Subscription subsidisation
 

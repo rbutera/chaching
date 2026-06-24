@@ -45,8 +45,8 @@ npx vitest                            # watch mode
 Each provider ingests into the same `Rollup` via `UsageRecord`s, de-duplicated by `rec.key`:
 - **claude** — tails `~/.claude` + `~/.config/claude` `**/*.jsonl`; dedup key `message.id:requestId`. The only *tailed/watched* provider.
 - **codex** — reads `~/.codex/sessions/**` JSONL; uses `last_token_usage` (not cumulative) to avoid double-counting turn snapshots.
-- **opencode** — reads `~/.local/share/opencode/opencode.db` via `node:sqlite`.
-- **cursor** — the only network call: `POST api.cursor.com/teams/filtered-usage-events`, requires an admin token, polled on an interval. Treats `chargedCents` as authoritative.
+- **opencode** — reads the OpenCode DB's `message` table via `node:sqlite` (one record per assistant message; the old `session`-column schema is gone). OpenCode reports `cost: 0` for Zen/Go/subscription usage, so cost is **computed** from the vendored models.dev map (`resolveModelsDevPrice`), not trusted — falling back to the DB `cost` only when the resolver is unknown and that cost is positive, else `null`.
+- **cursor** — two sources: (1) **local** via the opencode-cursor bridge — OpenCode rows tagged `providerID: cursor-acp` are attributed to the `cursor` provider (priced through models.dev's Anthropic catalog); (2) the **optional** Cursor Admin API (`POST api.cursor.com/teams/filtered-usage-events`, the only network call, admin token, polled, `chargedCents` authoritative). The two have non-colliding dedup keys, so enabling both double-counts — use one.
 
 Provider ingest failures are recorded in `ProviderStatus`, never thrown — they degrade coverage instead of crashing.
 
@@ -60,7 +60,9 @@ Days are classified `frozen` / `partial` (today, or this run had errors) / `miss
 
 ### Pricing (`src/lib/core/pricing/`)
 
-Claude/Codex cost is always **computed** (`tokens × per-token price`), never read from a cost field. Resolution order (first hit wins): hand-maintained `overrides.ts` → vendored LiteLLM snapshot (`static/pricing/litellm-prices.json`) → normalised/family key → **unknown → null** (flagged, never silently zero). OpenCode/Cursor report their own cost and are trusted as-is.
+Claude/Codex cost is always **computed** (`tokens × per-token price`), never read from a cost field. Resolution order (first hit wins): hand-maintained `overrides.ts` → vendored LiteLLM snapshot (`static/pricing/litellm-prices.json`) → normalised/family key → **unknown → null** (flagged, never silently zero).
+
+**Two price maps, two resolvers.** `cost.ts` (LiteLLM + overrides) prices Claude/Codex by model id. `modelsdev.ts` (`resolveModelsDevPrice(providerID, modelID)`) prices OpenCode/Zen/Go/Cursor-ACP from the vendored `static/pricing/modelsdev-prices.json` (models.dev), per-million→per-token, provider-aware so cache economics stay accurate (Anthropic catalogs carry `cache_write`; OpenAI doesn't). It maps `cursor-acp`→anthropic, normalises ids like `opus-4.6`→`claude-opus-4-6`, prefers canonical catalogs over aggregator catalogs in cross-catalog fallback, and returns `null` when truly unknown. Both resolvers feed the **single** per-token formula `costFromPriceEntry` (exported from `cost.ts`) — don't re-implement it. Refresh the models.dev snapshot with `scripts/gen-modelsdev-prices.ts`. Genuinely-free models price at `$0` (intentional, distinct from `null` unknown).
 
 - **Client/server split is enforced**: `src/lib/pricing-client.ts` is plain constants with **no Node imports** so the full price table stays out of the browser bundle. It *mirrors* `overrides.ts`/the snapshot — keep them in sync. `client-safety.test.ts` guards this.
 - To add a missing model, add an exact-id row to `overrides.ts` (wins over the snapshot). Refresh the snapshot with the `jq` pipeline in `README.md` ("Refresh the price map").

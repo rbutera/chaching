@@ -221,10 +221,10 @@ Two consequences worth knowing:
 |---|---|---|
 | **Claude Code** | `~/.claude/projects/**/*.jsonl` and `~/.config/claude/projects/**/*.jsonl` | De-duplicated by `message.id:requestId`. ~30-day log retention (history DB outlives it). |
 | **Codex** | `~/.codex/sessions/**` (JSONL) | Uses `last_token_usage`, not cumulative totals, so repeated turn snapshots don't double-count. |
-| **OpenCode** | `~/.local/share/opencode/opencode.db` (SQLite) | Read via `node:sqlite`. |
-| **Cursor** | Cursor Admin API (`POST api.cursor.com/teams/filtered-usage-events`) | Needs an admin token (`CURSOR_ADMIN_API_TOKEN` or via `chaching init`). `chargedCents` is treated as authoritative. |
+| **OpenCode** | `~/.local/share/opencode/opencode.db` (SQLite) | Read via `node:sqlite`, one record per assistant `message`. OpenCode reports `cost: 0` for Zen/Go/subscription usage, so cost is computed from a vendored [models.dev](https://models.dev) price map (cache rates included) rather than trusted. |
+| **Cursor** | Local via the [opencode-cursor](https://github.com/Nomadcxx/opencode-cursor) bridge (`providerID: cursor-acp` in the OpenCode DB), **or** the Cursor Admin API (`POST api.cursor.com/teams/filtered-usage-events`). | The bridge path is fully local and needs no token — Anthropic models used through Cursor land in the OpenCode DB and are attributed to the Cursor provider. The Admin API is an optional alternate source for non-bridge usage (needs `CURSOR_ADMIN_API_TOKEN` or `chaching init`; `chargedCents` authoritative). **Enable only one** — they don't dedup against each other, so running both double-counts. |
 
-Everything local is read-only. **Cursor is the only provider that makes a network call**, and only if you turn it on.
+Everything local is read-only. **The Cursor Admin API is the only provider path that makes a network call**, and only if you turn it on; the opencode-cursor bridge path is local.
 
 ---
 
@@ -268,7 +268,8 @@ tailscale serve --https=443 off   # stop sharing
 **These are estimates, not invoices.** Provider token counts are best-effort; rounding and sampling happen at the source. chaching would rather tell you "I don't know" than quietly lie with a $0.
 
 - **Claude / Codex cost** = tokens (input / output / cache-creation / cache-read) times per-token price. Prices resolve in order: hand-maintained overrides, a vendored LiteLLM snapshot (`static/pricing/litellm-prices.json`), family fallback, then "unknown" (flagged, never silently zero).
-- **OpenCode and Cursor** report their own cost; chaching trusts them rather than re-pricing.
+- **OpenCode / Cursor-via-bridge cost** is computed, not trusted: OpenCode reports `cost: 0` for Zen/Go/subscription usage, so chaching prices each model from a vendored [models.dev](https://models.dev) snapshot (`static/pricing/modelsdev-prices.json`), provider-aware so cache economics stay accurate (Anthropic models — via any path — bill cache writes; OpenAI models don't). Genuinely-free models price at `$0`; anything unpriced is flagged unknown, never a faked `$0`. The Cursor Admin API path still trusts its own `chargedCents`.
+- **Cache reads are billed (at a discount), not free** — including OpenAI/Codex (~10% of input). Only cache *writes* differ: Anthropic bills them, OpenAI doesn't.
 - **Reasoning tokens** fold into `output_tokens` in the Claude logs. No separate breakdown.
 - **Work vs personal** isn't in any log. The optional cutover timestamp is a user-set approximation, nothing more.
 - **Coverage is explicit.** Frozen days are authoritative, today is marked partial, gaps are marked missing. The UI never dresses up "incomplete" as "you spent less."
@@ -340,6 +341,15 @@ curl -s https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_
 ```
 
 For a model LiteLLM doesn't have yet, add an exact-id row to `src/lib/core/pricing/overrides.ts` — it wins over the snapshot.
+
+The second snapshot is `static/pricing/modelsdev-prices.json` (the OpenCode Zen/Go catalogs plus OpenAI/Anthropic/zai/Google, used to price OpenCode and Cursor-via-bridge usage). Refresh it with:
+
+```sh
+pnpm tsx scripts/gen-modelsdev-prices.ts
+# offline / sandboxed: fetch on a networked host, then transform locally
+# ssh <host> 'curl -s https://models.dev/api.json' > raw.json
+# MODELSDEV_RAW=raw.json pnpm tsx scripts/gen-modelsdev-prices.ts
+```
 
 ---
 
