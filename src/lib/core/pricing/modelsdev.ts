@@ -8,7 +8,8 @@
 // Resolution order (first hit wins):
 //   1. map providerID -> models.dev catalog key, look up modelID exactly
 //   2. normalise the id (strip provider prefix, opus-4.6 -> claude-opus-4-6) and retry
-//   3. search ALL catalogs by exact then normalised id
+//   3. search ALL catalogs by exact then normalised id (canonical vendor
+//      catalogs first, aggregator/discount catalogs last)
 //   4. family fallback by id pattern (opus/sonnet/haiku) -> anthropic catalog
 //   5. unknown -> null (NOT zero) so the caller can flag it honestly.
 //
@@ -111,6 +112,19 @@ const PROVIDER_CATALOGS: Record<string, string[]> = {
 	google: ['google']
 };
 
+// Catalog order for the cross-catalog fallback (step 3). Canonical vendor
+// catalogs (list price) come first; aggregator/discount catalogs (opencode Zen,
+// zai) come last, so a duplicate id resolves to the canonical list price rather
+// than a discounted rate. Any catalog not named here is searched afterwards.
+const CROSS_CATALOG_ORDER = [
+	'anthropic',
+	'openai',
+	'google',
+	'opencode',
+	'opencode-go',
+	'zai'
+] as const;
+
 const priceCache = new Map<string, PriceEntry | null>();
 
 /**
@@ -130,6 +144,10 @@ export function resolveModelsDevPrice(providerID: string, modelID: string): Pric
 // Require at least input+output present to count as a usable entry (mirror cost.ts).
 function asEntry(cost: ModelCost | undefined): PriceEntry | null {
 	if (!cost) return null;
+	// Presence check (`== null`), NOT a positivity guard (`> 0`), ON PURPOSE: the
+	// snapshot's genuinely-free models (the "*-free" ids with input:0/output:0)
+	// must resolve to a real $0 PriceEntry, not null. Returning null would wrongly
+	// flag a free model as "unknown price" (cost honesty cuts both ways).
 	if (cost.input == null || cost.output == null) return null;
 	return {
 		input_cost_per_token: cost.input / 1e6,
@@ -141,17 +159,26 @@ function asEntry(cost: ModelCost | undefined): PriceEntry | null {
 }
 
 // Normalise a model id: strip a leading provider prefix (e.g. "anthropic/")
-// and rewrite bare "opus-4.6"/"sonnet-4.5"/"haiku-4.5" style ids to the
-// canonical "claude-opus-4-6"/"claude-sonnet-4-5"/"claude-haiku-4-5" form
-// (dot -> dash in the version, prepend claude-). Returns null if unchanged.
+// and rewrite a few Anthropic id shapes to the canonical
+// "claude-<family>-<version-with-dashes>" form (e.g. "claude-opus-4-6"):
+//   - bare      "opus-4.6"      -> "claude-opus-4-6"
+//   - version-first "claude-4.5-sonnet" -> "claude-sonnet-4-5"
+// Returns null if unchanged.
 function normalizeModelID(modelID: string): string | null {
 	let id = modelID;
 	const slash = id.lastIndexOf('/');
 	if (slash !== -1) id = id.slice(slash + 1);
 
+	// "opus-4.6" / "sonnet-4.5" / "haiku-4.5" -> "claude-opus-4-6" etc.
 	const family = id.match(/^(opus|sonnet|haiku)-(\d+(?:\.\d+)*)$/i);
 	if (family) {
 		id = `claude-${family[1].toLowerCase()}-${family[2].replace(/\./g, '-')}`;
+	}
+
+	// "claude-4.5-sonnet" (version BEFORE family) -> "claude-sonnet-4-5".
+	const versionFirst = id.match(/^claude-(\d+(?:[.-]\d+)*)-(opus|sonnet|haiku)$/i);
+	if (versionFirst) {
+		id = `claude-${versionFirst[2].toLowerCase()}-${versionFirst[1].replace(/\./g, '-')}`;
 	}
 
 	return id !== modelID ? id : null;
@@ -181,22 +208,36 @@ function resolveUncached(providerID: string, modelID: string): PriceEntry | null
 		}
 	}
 
-	// 3. search ALL catalogs by exact then normalised id
+	// 3. search ALL catalogs by exact then normalised id. CANONICAL vendor
+	// catalogs (list price) are tried BEFORE aggregator/discount catalogs, so an
+	// id present in several catalogs (e.g. "gpt-5" in both openai and the opencode
+	// Zen catalog) resolves to the canonical list price, not the discounted rate.
+	// Exact id is still preferred over normalised within that ordering.
 	const snap = loadSnapshot();
-	for (const key of Object.keys(snap.providers)) {
+	const seen = new Set<string>(CROSS_CATALOG_ORDER);
+	const searchOrder = [
+		...CROSS_CATALOG_ORDER,
+		...Object.keys(snap.providers).filter((k) => !seen.has(k))
+	];
+	for (const key of searchOrder) {
 		const e = lookupIn(key, modelID);
 		if (e) return e;
 	}
 	if (normalized) {
-		for (const key of Object.keys(snap.providers)) {
+		for (const key of searchOrder) {
 			const e = lookupIn(key, normalized);
 			if (e) return e;
 		}
 	}
 
-	// 4. family fallback by id pattern -> anthropic catalog's representative entry
+	// 4. family fallback by id pattern -> anthropic catalog's representative entry.
+	// Prefer an EXPLICIT representative id per family (mirrors cost.ts) so the rate
+	// is deterministic; only if that id is absent do we fall back to the first
+	// /family/i match (which is order-dependent on catalog insertion order).
 	const anthropic = snap.providers.anthropic?.models ?? {};
-	const familyHit = (re: RegExp): PriceEntry | null => {
+	const familyHit = (representative: string, re: RegExp): PriceEntry | null => {
+		const explicit = asEntry(anthropic[representative]?.cost);
+		if (explicit) return explicit;
 		for (const id of Object.keys(anthropic)) {
 			if (re.test(id)) {
 				const e = asEntry(anthropic[id]?.cost);
@@ -206,15 +247,15 @@ function resolveUncached(providerID: string, modelID: string): PriceEntry | null
 		return null;
 	};
 	if (/opus/i.test(modelID)) {
-		const e = familyHit(/opus/i);
+		const e = familyHit('claude-opus-4-8', /opus/i);
 		if (e) return e;
 	}
 	if (/sonnet/i.test(modelID)) {
-		const e = familyHit(/sonnet/i);
+		const e = familyHit('claude-sonnet-4-6', /sonnet/i);
 		if (e) return e;
 	}
 	if (/haiku/i.test(modelID)) {
-		const e = familyHit(/haiku/i);
+		const e = familyHit('claude-haiku-4-5', /haiku/i);
 		if (e) return e;
 	}
 

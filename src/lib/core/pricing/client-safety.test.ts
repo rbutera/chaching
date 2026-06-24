@@ -78,5 +78,15 @@ describe('client-bundle safety', () => {
 		expect(client, 'pricing-client must not import node:url').not.toMatch(
 			/from\s+['"]node:url['"]/
 		);
+
+		// The client dashboard store must not import the node resolver either
+		// (static OR dynamic, with or without a .ts/.js extension).
+		const dash = stripComments(read('../../client/dashboard.svelte.ts'));
+		expect(dash, 'dashboard must not import modelsdev').not.toMatch(
+			/from\s+['"][^'"]*\/modelsdev(?:\.[tj]s)?['"]/
+		);
+		expect(dash, 'dashboard must not dynamic-import modelsdev').not.toMatch(
+			/import\(\s*['"][^'"]*\/modelsdev(?:\.[tj]s)?['"]\s*\)/
+		);
 	});
 });
