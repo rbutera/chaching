@@ -199,6 +199,11 @@ export function ModelBreakdown({ models, topN }: { models: ModelTotal[]; topN: n
 	);
 }
 
+/** Fixed-width column cell: names longer than `width` get an ellipsis instead of breaking alignment. */
+function truncatePad(s: string, width: number): string {
+	return (s.length > width ? s.slice(0, width - 1) + '…' : s).padEnd(width);
+}
+
 /**
  * The `by project` breakdown — same `●`-led shape as ModelBreakdown, showing which
  * repo/client is eating the money (glow-up idea #1). Top N by cost; the dot takes the
@@ -211,11 +216,11 @@ export function ProjectBreakdown({ projects, topN }: { projects: ProjectTotal[];
 	const more = Math.max(0, projects.length - top.length);
 	return (
 		<Box flexDirection="column">
-			<Text color={color(DIM)}>{`BY PROJECT (top ${top.length})`}</Text>
+			<Text color={color(DIM)}>{`BY PROJECT (top ${top.length}) · whole sessions in window`}</Text>
 			{top.map((p) => (
-				<Text key={p.project === '' ? '(unknown)' : p.project} dimColor={p.isUnknown}>
+				<Text key={p.isUnknown ? 'unknown' : `project:${p.project}`} dimColor={p.isUnknown}>
 					<Text color={color(p.isUnknown ? DIM : providerColorName(p.providers[0] ?? ''))}>{'● '}</Text>
-					<Text>{p.display.padEnd(16)}</Text>
+					<Text>{truncatePad(p.display, 16)}</Text>
 					<Text bold>{money(p.cost).padStart(10)}</Text>
 					<Text color={color(DIM)}>{`  ${compactTokens(totalTokens(p.tokens)).padStart(7)} tok  ${int(p.sessionCount).padStart(4)} sess`}</Text>
 				</Text>

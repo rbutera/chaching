@@ -523,9 +523,10 @@ export function aggregateProjects(sessions: SessionSummary[]): ProjectTotal[] {
 	for (const s of sessions) {
 		const key = normalizeProjectKey(s.project);
 		const isUnknown = key === '';
-		// A sentinel distinct from any real path so the unknown bucket can never collide
-		// with a project literally named after the sentinel.
-		const groupKey = isUnknown ? ' unknown' : key;
+		// A leading-space sentinel: normalizeProjectKey trims every real key, so no real
+		// project can ever start with a space and the unknown bucket can never collide
+		// with a project literally named after it.
+		const groupKey = isUnknown ? ' unknown' : key;
 		let acc = byKey.get(groupKey);
 		if (!acc) {
 			acc = {

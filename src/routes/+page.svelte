@@ -650,9 +650,13 @@
 			<section class="by-project-sec" aria-label="Spend by project">
 				<div class="panel">
 					<h2 class="panel-title"><span>by project</span></h2>
+					<!-- Session-derived (design D3 overlap rule): whole sessions that touch the
+					     window count in full, so this panel reconciles to the session total, not
+					     the day-grain cards above. The caption keeps that honest. -->
+					<p class="proj-caption">whole sessions overlapping this window</p>
 					{#if projectTotals.length > 0}
 						<ul class="project-list">
-							{#each projectTop as p (p.project === '' ? '(unknown)' : p.project)}
+							{#each projectTop as p (p.isUnknown ? 'unknown' : `project:${p.project}`)}
 								<li class:unknown={p.isUnknown} title={p.isUnknown ? 'Sessions with no recorded project' : p.project}>
 									<span class="proj-name">{p.display}</span>
 									<span class="proj-figs">
@@ -1178,6 +1182,14 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		color: var(--text);
+		/* flex children default to min-width:auto, which defeats the ellipsis */
+		min-width: 0;
+	}
+	.proj-caption {
+		margin: -0.35rem 0 0.5rem;
+		font-family: var(--font-mono);
+		font-size: 0.68rem;
+		color: var(--text-dim);
 	}
 	.proj-figs {
 		display: flex;

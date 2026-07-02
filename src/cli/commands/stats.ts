@@ -223,10 +223,12 @@ function printHuman(snapshot: RollupSnapshot, flags: StatsFlags): void {
 	if (byProject.length > 0) {
 		const shown = byProject.slice(0, TOP_PROJECTS);
 		console.log('');
-		console.log(`  By project (top ${Math.min(TOP_PROJECTS, byProject.length)}):`);
+		console.log(`  By project (top ${Math.min(TOP_PROJECTS, byProject.length)}, whole sessions in window):`);
 		for (const p of shown) {
 			const toks = p.tokens.input + p.tokens.output + p.tokens.cacheCreation + p.tokens.cacheRead;
-			console.log(`    ${p.display.padEnd(20)} ${money(p.cost).padStart(10)}  ${compactTokens(toks).padStart(7)} tokens  ${int(p.sessionCount).padStart(4)} sess`);
+			// truncate BEFORE padEnd so a long path can't break column alignment
+			const name = p.display.length > 20 ? p.display.slice(0, 19) + '…' : p.display;
+			console.log(`    ${name.padEnd(20)} ${money(p.cost).padStart(10)}  ${compactTokens(toks).padStart(7)} tokens  ${int(p.sessionCount).padStart(4)} sess`);
 		}
 		if (byProject.length > shown.length) {
 			console.log(`    …and ${byProject.length - shown.length} more`);
