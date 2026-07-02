@@ -119,3 +119,32 @@ describe('HistoryStore', () => {
 		b.close();
 	});
 });
+
+describe('HistoryStore.openReadOnly — diagnostic reads must not mutate', () => {
+	it('does NOT create the db (or parent dirs) when the file is absent', async () => {
+		const dbPath = await tmpDb();
+		const missing = join(dbPath, '..', 'nope', 'history.db');
+		const store = new HistoryStore();
+		expect(() => store.openReadOnly(missing)).toThrow();
+		const { existsSync } = await import('node:fs');
+		expect(existsSync(missing)).toBe(false);
+		store.close();
+	});
+
+	it('reads frozen days from an existing db and rejects writes', async () => {
+		const dbPath = await tmpDb();
+		const writer = new HistoryStore();
+		writer.open(dbPath);
+		writer.freezeDays(new Set(['2026-06-01']), [agg('2026-06-01', 'claude-opus-4-8', 3, 12)], []);
+		writer.close();
+
+		const ro = new HistoryStore();
+		ro.openReadOnly(dbPath);
+		expect([...ro.frozenDays()]).toEqual(['2026-06-01']);
+		// the read-only connection must refuse mutation
+		expect(() =>
+			ro.freezeDays(new Set(['2026-06-02']), [agg('2026-06-02', 'claude-opus-4-8', 1, 5)], [])
+		).toThrow();
+		ro.close();
+	});
+});

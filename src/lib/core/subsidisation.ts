@@ -100,6 +100,10 @@ export interface BurnPace {
  *
  * GUARD (b) sample size: `elapsedDays < 3` extrapolates a whole month from a
  * 1-2 day sample, which fabricates precision the data doesn't support.
+ *
+ * GUARD (c) unknown-priced spend: an MTD request whose model has no known
+ * price contributes $0 to `mtdCost`, so the projection would silently
+ * understate the pace while rendering as a precise figure. Suppress instead.
  */
 export function burnPace(
 	dayModel: DayModelAgg[],
@@ -117,10 +121,11 @@ export function burnPace(
 	const daysInMonth = new Date(
 		Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)
 	).getUTCDate();
-	const mtdCost = sumGrain(dayModel, { from, to }).cost;
-	const projectedCost = (mtdCost / elapsedDays) * daysInMonth;
+	const mtd = sumGrain(dayModel, { from, to });
+	if (mtd.costUnknownRequests > 0) return null; // guard (c)
+	const projectedCost = (mtd.cost / elapsedDays) * daysInMonth;
 
-	return { mtdCost, elapsedDays, daysInMonth, projectedCost };
+	return { mtdCost: mtd.cost, elapsedDays, daysInMonth, projectedCost };
 }
 
 export interface MonthlyBurn {

@@ -244,4 +244,14 @@ describe('burnPace', () => {
 		expect(p!.daysInMonth).toBe(28);
 		expect(p!.projectedCost).toBeCloseTo(140, 6); // 70 / 14 * 28
 	});
+	it('guard (c): any unknown-priced request in the MTD window suppresses the pace', () => {
+		const now = new Date('2026-06-15T12:00:00Z');
+		const grain = dailyGrain('2026-06-01', '2026-06-15', 10);
+		// one mid-month day carries a request chaching could not price — its real
+		// cost is unknown, so a precise projection would silently understate.
+		grain[7] = { ...grain[7], costUnknownRequests: 1 };
+		expect(burnPace(grain, fullMtdCoverage(now), now)).toBeNull();
+		// control: same shape without the unknown request projects normally
+		expect(burnPace(dailyGrain('2026-06-01', '2026-06-15', 10), fullMtdCoverage(now), now)).not.toBeNull();
+	});
 });

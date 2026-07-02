@@ -23,6 +23,19 @@ const SCHEMA_VERSION = 1;
 export class HistoryStore {
 	private db: DatabaseSync | null = null;
 
+	/**
+	 * Open an EXISTING DB strictly read-only: no mkdir, no PRAGMA, no schema DDL.
+	 * For diagnostic reads (`chaching doctor`) that must not mutate anything —
+	 * `open()` would set WAL mode and run `CREATE TABLE IF NOT EXISTS` even on an
+	 * existing file. Throws when the file is absent/unreadable (a read-only
+	 * connection to a WAL db can also fail while no writer holds the -shm);
+	 * callers catch and report honestly rather than fall back to a writable open.
+	 */
+	openReadOnly(dbPath: string): void {
+		if (this.db) return;
+		this.db = new DatabaseSync(dbPath, { readOnly: true });
+	}
+
 	/** Open (and create + migrate) the DB at `dbPath`. Creates parent dirs. */
 	open(dbPath: string): void {
 		if (this.db) return;

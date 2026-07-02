@@ -506,11 +506,14 @@ function readHistoryHealth(
 	const dbExists = existsSync(dbPath);
 	let frozenDayCount = 0;
 	let latestFrozenDay: string | null = null;
-	// Only OPEN an existing db — open() would otherwise create schema as a side effect.
+	// Strictly read-only: a diagnostic must not mutate the db. openReadOnly does no
+	// mkdir/PRAGMA/DDL (open() would set WAL mode and run CREATE TABLE IF NOT EXISTS
+	// even on an existing file). If the read-only connect fails (e.g. WAL db with no
+	// live writer holding the -shm), the catch reports honestly instead of writing.
 	if (enabled && dbExists) {
 		const store = new HistoryStore();
 		try {
-			store.open(dbPath);
+			store.openReadOnly(dbPath);
 			const days = [...store.frozenDays()];
 			frozenDayCount = days.length;
 			for (const d of days) {

@@ -118,3 +118,22 @@ describe('pricing parity — OpenAI/Codex family ids vs resolvePriceClient', () 
 		});
 	}
 });
+
+describe('resolvePriceClient — negative + family-intent cases (review hardening)', () => {
+	it('returns null for foreign / unknown model families (never a fabricated rate)', () => {
+		for (const id of ['gemini-2.5-pro', 'grok-4', 'mistral-large-2', 'deepseek-r2', 'llama-4-70b']) {
+			expect(resolvePriceClient(id), id).toBeNull();
+		}
+	});
+
+	it('documents family-tier intent for codex variants of the gpt-5 point releases', () => {
+		// A -codex suffix rides its generation's tier (same as the server family map).
+		expect(resolvePriceClient('gpt-5.5-codex')).toEqual(resolvePriceClient('gpt-5.5'));
+		expect(resolvePriceClient('gpt-5.4-codex')).toEqual(resolvePriceClient('gpt-5.4'));
+		// KNOWN LIMITATION (latent, no such id ships today): a future generation-specific
+		// codex-mini (e.g. gpt-5.4-codex-mini) currently falls through to the base
+		// codex-mini tier. The snapshot-iteration suites above fail CI the moment such
+		// an id lands in the snapshot with its own rate — revisit the ordering then.
+		expect(resolvePriceClient('gpt-5.4-codex-mini')).toEqual(resolvePriceClient('gpt-5-codex-mini'));
+	});
+});
