@@ -50,3 +50,50 @@ describe('codex provider parser', () => {
 		expect(rec?.tokens).toEqual({ input: 3318, output: 1544, cacheCreation: 0, cacheRead: 89984 });
 	});
 });
+
+describe('readCodexRecords — incremental modifiedSince', () => {
+	it('parses only mtime-fresh files when modifiedSince is set, everything otherwise', async () => {
+		const { mkdtemp, mkdir, writeFile, utimes, rm } = await import('node:fs/promises');
+		const { tmpdir } = await import('node:os');
+		const { join } = await import('node:path');
+		const { readCodexRecords } = await import('./local');
+
+		const root = await mkdtemp(join(tmpdir(), 'chaching-codex-inc-'));
+		try {
+			await mkdir(join(root, '2026/07/01'), { recursive: true });
+			const usage = (ts: string) =>
+				[
+					line({ timestamp: ts, type: 'turn_context', payload: { model: 'gpt-5.5' } }),
+					line({
+						timestamp: ts,
+						type: 'event_msg',
+						payload: {
+							type: 'token_count',
+							info: {
+								total_token_usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 110 },
+								last_token_usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 110 }
+							}
+						}
+					})
+				].join('\n');
+
+			const oldFile = join(root, '2026/07/01/rollout-old.jsonl');
+			const newFile = join(root, '2026/07/01/rollout-new.jsonl');
+			await writeFile(oldFile, usage('2026-07-01T08:00:00.000Z'));
+			await writeFile(newFile, usage('2026-07-01T09:00:00.000Z'));
+			// backdate the old file well past any margin
+			const old = (Date.now() - 3 * 3600_000) / 1000;
+			await utimes(oldFile, old, old);
+
+			const full = await readCodexRecords(root);
+			expect(full.files.length).toBe(2);
+			expect(full.records.length).toBe(2);
+
+			const incremental = await readCodexRecords(root, { modifiedSince: Date.now() - 3600_000 });
+			expect(incremental.files).toEqual([newFile]);
+			expect(incremental.records.length).toBe(1);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+});

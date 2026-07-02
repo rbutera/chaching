@@ -102,3 +102,65 @@ describe('core engine (no SvelteKit)', () => {
 		expect(activeHandleCount()).toBeLessThanOrEqual(before);
 	});
 });
+
+describe('codex liveness — a session written AFTER the cold scan reaches the rollup', () => {
+	it('pollLocalProviders() ingests new codex files and fans a delta', async () => {
+		const { writeFile } = await import('node:fs/promises');
+		const root = await mkdtemp(join(tmpdir(), 'chaching-codex-live-'));
+		tmpRoots.push(root);
+		await mkdir(join(root, '2026/07/02'), { recursive: true });
+
+		const cfg = disabledConfig();
+		cfg.providers.codex = { enabled: true, root, subscription: { ...DEFAULT_SUBSCRIPTION } };
+
+		const engine = createEngine(cfg);
+		try {
+			await engine.ensureStarted();
+			expect(engine.snapshot().dayModel.length).toBe(0); // cold scan saw an empty tree
+
+			// a codex turn lands while the process is running
+			const session = [
+				JSON.stringify({
+					timestamp: '2026-07-02T09:00:00.000Z',
+					type: 'turn_context',
+					payload: { model: 'gpt-5.5' }
+				}),
+				JSON.stringify({
+					timestamp: '2026-07-02T09:00:01.000Z',
+					type: 'event_msg',
+					payload: {
+						type: 'token_count',
+						info: {
+							total_token_usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 110 },
+							last_token_usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 110 }
+						}
+					}
+				})
+			].join('\n');
+			await writeFile(join(root, '2026/07/02/rollout-live.jsonl'), session);
+
+			let deltas = 0;
+			engine.subscribe(() => deltas++);
+
+			// Drive the poll body directly (the production interval is 15s — white-box
+			// call keeps the test instant; the interval wiring is covered by dispose tests).
+			await (engine as unknown as { pollLocalProviders(c: typeof cfg): Promise<void> }).pollLocalProviders(cfg);
+
+			const snap = engine.snapshot();
+			const codexRows = snap.dayModel.filter((dm) => dm.provider === 'codex');
+			expect(codexRows.length).toBe(1);
+			expect(codexRows[0].model).toBe('gpt-5.5');
+			expect(codexRows[0].day).toBe('2026-07-02');
+			expect(deltas).toBe(1);
+
+			// idempotent: a second poll re-reads the same file (inside the margin) but
+			// dedup keeps the rollup unchanged and no delta fires.
+			await (engine as unknown as { pollLocalProviders(c: typeof cfg): Promise<void> }).pollLocalProviders(cfg);
+			expect(engine.snapshot().dayModel.filter((dm) => dm.provider === 'codex').length).toBe(1);
+			expect(engine.snapshot().dayModel.filter((dm) => dm.provider === 'codex')[0].requests).toBe(1);
+			expect(deltas).toBe(1);
+		} finally {
+			engine.dispose();
+		}
+	});
+});

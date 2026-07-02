@@ -34,7 +34,7 @@ npx vitest                            # watch mode
 
 ### One engine, two consumers
 
-`src/lib/core/engine.ts` is the framework-free ingestion engine and the heart of the app. It runs **one cold scan per engine** (stream every enabled provider's source to EOF, parse, de-dup, build an in-memory `Rollup` keyed by `(day, provider, model)`), then tails Claude Code logs via `fs.watch` + an mtime-poll fallback, fanning `RollupDelta`s to subscribers.
+`src/lib/core/engine.ts` is the framework-free ingestion engine and the heart of the app. It runs **one cold scan per engine** (stream every enabled provider's source to EOF, parse, de-dup, build an in-memory `Rollup` keyed by `(day, provider, model)`), then keeps every provider live: Claude Code logs are tailed via `fs.watch` + an mtime-poll fallback; codex + opencode are re-polled every 15s (codex re-parses only mtime-fresh session files, opencode re-reads only when the db/-wal mtime moved — dedup makes the overlap safe); cursor polls its Admin API. Deltas fan out to subscribers as `RollupDelta`s.
 
 - `createEngine()` → live engine (watchers + Cursor polling); used by `chaching serve` and the TUI.
 - `runOnce()` → single cold scan, snapshot, dispose (no lingering timers); used by `stats` and `receipt`.
@@ -43,9 +43,9 @@ npx vitest                            # watch mode
 ### Providers (`src/lib/core/providers/`)
 
 Each provider ingests into the same `Rollup` via `UsageRecord`s, de-duplicated by `rec.key`:
-- **claude** — tails `~/.claude` + `~/.config/claude` `**/*.jsonl`; dedup key `message.id:requestId`. The only *tailed/watched* provider.
-- **codex** — reads `~/.codex/sessions/**` JSONL; uses `last_token_usage` (not cumulative) to avoid double-counting turn snapshots.
-- **opencode** — reads the OpenCode DB's `message` table via `node:sqlite` (one record per assistant message; the old `session`-column schema is gone). OpenCode reports `cost: 0` for Zen/Go/subscription usage, so cost is **computed** from the vendored models.dev map (`resolveModelsDevPrice`), not trusted — falling back to the DB `cost` only when the resolver is unknown and that cost is positive, else `null`.
+- **claude** — tails `~/.claude` + `~/.config/claude` `**/*.jsonl`; dedup key `message.id:requestId`. The only *line-tailed* provider.
+- **codex** — reads `~/.codex/sessions/**` JSONL; uses `last_token_usage` (not cumulative) to avoid double-counting turn snapshots. Long-running processes re-poll incrementally (mtime-fresh files only) every 15s.
+- **opencode** — reads the OpenCode DB's `message` table via `node:sqlite` (one record per assistant message; the old `session`-column schema is gone). Long-running processes re-read the db on the 15s local poll, but only when the db/-wal mtime moved. OpenCode reports `cost: 0` for Zen/Go/subscription usage, so cost is **computed** from the vendored models.dev map (`resolveModelsDevPrice`), not trusted — falling back to the DB `cost` only when the resolver is unknown and that cost is positive, else `null`.
 - **cursor** — two sources: (1) **local** via the opencode-cursor bridge — OpenCode rows tagged `providerID: cursor-acp` are attributed to the `cursor` provider (priced through models.dev's Anthropic catalog); (2) the **optional** Cursor Admin API (`POST api.cursor.com/teams/filtered-usage-events`, the only network call, admin token, polled, `chargedCents` authoritative). The two have non-colliding dedup keys, so enabling both double-counts — use one.
 
 Provider ingest failures are recorded in `ProviderStatus`, never thrown — they degrade coverage instead of crashing.

@@ -1,7 +1,9 @@
 // Framework-free ingestion engine. ONE cold scan per engine (not per request),
-// then fs.watch (recursive) + mtime-poll fallback to tail new lines. Maintains the
-// Rollup and fans deltas out to subscribers. Both the SvelteKit server and the CLI
-// consume this in-process.
+// then per-provider liveness: claude is tailed via fs.watch (recursive) + an
+// mtime-poll fallback; codex + opencode are re-polled incrementally on an interval
+// (mtime-gated, dedup makes overlap safe); cursor polls its Admin API. Maintains
+// the Rollup and fans deltas out to subscribers. Both the SvelteKit server and the
+// CLI consume this in-process.
 
 import { watch, type FSWatcher } from 'node:fs';
 import { sep } from 'node:path';
@@ -21,6 +23,15 @@ import type { RollupDelta, RollupSnapshot, UsageRecord } from '../types';
 
 const MTIME_POLL_MS = 4000; // fallback poll cadence
 const DELTA_DEBOUNCE_MS = 400; // coalesce bursts of file changes into one delta
+// Codex/OpenCode re-poll cadence. These providers have no tail path (codex rewrites
+// whole-turn snapshots, opencode is a SQLite db), so a long-running serve/TUI would
+// otherwise show them frozen at cold-scan time forever. 15s keeps "live" honest
+// without meaningful I/O: codex re-parses only mtime-fresh files, opencode re-reads
+// only when the db (or its -wal) mtime moved.
+const LOCAL_PROVIDER_POLL_MS = 15_000;
+// Re-read margin for the codex incremental scan: mtime granularity + writes that
+// land while a scan is in flight. Overlap is free (dedup), a miss is not.
+const CODEX_RESCAN_MARGIN_MS = 60_000;
 
 type DeltaListener = (delta: RollupDelta) => void;
 
@@ -49,6 +60,15 @@ class Ingestion {
 	private mtimes = new Map<string, number>();
 	private pollTimer: NodeJS.Timeout | null = null;
 	private cursorTimer: NodeJS.Timeout | null = null;
+	private localProviderTimer: NodeJS.Timeout | null = null;
+	private localPollInFlight = false;
+	/** codex session files already counted in stats.filesScanned (re-polls don't re-count) */
+	private codexSeenFiles = new Set<string>();
+	/** incremental floor for the next codex re-poll (wall clock, NOT the `now` seam) */
+	private codexScanSince = 0;
+	/** opencode source stamp (db + -wal mtime) at last ingest; re-ingest only on change */
+	private opencodeSourceMtime = -1;
+	private opencodeCounted = false;
 	private deltaTimer: NodeJS.Timeout | null = null;
 	private listeners = new Set<DeltaListener>();
 	private ready: Promise<void> | null = null;
@@ -137,7 +157,10 @@ class Ingestion {
 		this.freezeNewDays(cfg);
 
 		this.coldScanMs = Date.now() - t0;
-		if (this.watchEnabled && !this.disposed) this.startWatching();
+		if (this.watchEnabled && !this.disposed) {
+			this.startWatching();
+			this.startLocalProviderPolling(cfg);
+		}
 	}
 
 	/** Open the history DB and seed the rollup with frozen aggregates + sessions. */
@@ -197,11 +220,19 @@ class Ingestion {
 		}
 	}
 
-	private async ingestCodex(root: string): Promise<void> {
+	private async ingestCodex(root: string, modifiedSince?: number): Promise<void> {
 		try {
-			const result = await readCodexRecords(root);
-			for (let i = 0; i < result.filesScanned; i++) this.rollup.markFileScanned();
+			// Wall clock on purpose: mtimes are wall-clock facts, so the incremental
+			// floor must not run through the `now` seam tests fake for "today".
+			const scanStart = Date.now();
+			const result = await readCodexRecords(root, { modifiedSince });
+			for (const file of result.files) {
+				if (this.codexSeenFiles.has(file)) continue;
+				this.codexSeenFiles.add(file);
+				this.rollup.markFileScanned();
+			}
 			this.addProviderRecords(result.records);
+			this.codexScanSince = scanStart - CODEX_RESCAN_MARGIN_MS;
 			const [firstError] = result.errors;
 			if (firstError) this.providerStatus.recordMessage('codex', firstError);
 			else this.providerStatus.clear('codex');
@@ -213,14 +244,31 @@ class Ingestion {
 
 	private async ingestOpenCode(dbPath: string): Promise<void> {
 		try {
-			this.rollup.markFileScanned();
+			// Stamp BEFORE reading: a write that lands mid-read moves the mtime past
+			// this stamp, so the next poll re-ingests it (dedup absorbs the overlap).
+			const stamp = await this.opencodeSourceStamp(dbPath);
+			if (!this.opencodeCounted) {
+				this.rollup.markFileScanned();
+				this.opencodeCounted = true;
+			}
 			const records = await readOpenCodeSessions(dbPath);
 			this.addProviderRecords(records);
+			this.opencodeSourceMtime = stamp;
 			this.providerStatus.clear('opencode');
 		} catch (error) {
 			this.providerStatus.recordError('opencode', error);
 			return;
 		}
+	}
+
+	/** Latest mtime across the OpenCode db and its WAL (WAL writes may not touch the db file). */
+	private async opencodeSourceStamp(dbPath: string): Promise<number> {
+		let latest = -1;
+		for (const p of [dbPath, `${dbPath}-wal`]) {
+			const m = await safeMtime(p);
+			if (m != null && m > latest) latest = m;
+		}
+		return latest;
 	}
 
 	private async ingestCursor(adminApiToken: string, email: string | null): Promise<void> {
@@ -249,6 +297,46 @@ class Ingestion {
 				continue;
 			}
 			this.rollup.add(rec);
+		}
+	}
+
+	/**
+	 * Liveness for the cold-scan-only local providers (codex sessions, opencode db).
+	 * Unlike claude there is no line-tail path — codex rewrites whole-turn snapshot
+	 * lines and opencode is a SQLite db — so a long-running serve/TUI re-polls them:
+	 * codex re-parses only mtime-fresh session files (dedup absorbs overlap),
+	 * opencode re-reads only when the db/-wal mtime moved.
+	 */
+	private startLocalProviderPolling(cfg: chachingConfig): void {
+		if (this.localProviderTimer) return;
+		if (!cfg.providers.codex.enabled && !cfg.providers.opencode.enabled) return;
+		this.localProviderTimer = setInterval(
+			() => void this.pollLocalProviders(cfg),
+			LOCAL_PROVIDER_POLL_MS
+		);
+		if (this.localProviderTimer.unref) this.localProviderTimer.unref();
+	}
+
+	private async pollLocalProviders(cfg: chachingConfig): Promise<void> {
+		if (this.disposed || this.localPollInFlight) return;
+		this.localPollInFlight = true;
+		try {
+			if (cfg.providers.codex.enabled) {
+				await this.ingestCodex(expandPath(cfg.providers.codex.root), this.codexScanSince);
+			}
+			if (cfg.providers.opencode.enabled) {
+				const dbPath = expandPath(cfg.providers.opencode.dbPath);
+				const stamp = await this.opencodeSourceStamp(dbPath);
+				if (stamp > this.opencodeSourceMtime) await this.ingestOpenCode(dbPath);
+			}
+			if (this.disposed) return;
+			this.maybeFreezeLive();
+			if (this.rollup.hasDirty()) {
+				const delta = this.rollup.drainDelta(this.now(), this.coverageInput());
+				if (delta) for (const fn of this.listeners) fn(delta);
+			}
+		} finally {
+			this.localPollInFlight = false;
 		}
 	}
 
@@ -426,6 +514,10 @@ class Ingestion {
 		if (this.cursorTimer) {
 			clearInterval(this.cursorTimer);
 			this.cursorTimer = null;
+		}
+		if (this.localProviderTimer) {
+			clearInterval(this.localProviderTimer);
+			this.localProviderTimer = null;
 		}
 		if (this.deltaTimer) {
 			clearTimeout(this.deltaTimer);
