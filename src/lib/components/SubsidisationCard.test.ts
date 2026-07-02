@@ -61,15 +61,49 @@ describe('SubsidisationCard', () => {
 		expect(document.body.textContent).not.toContain('NaN');
 	});
 
-	it('shows "under-using your plan" when the fee exceeds the burn', () => {
-		// huge fees so the small per-provider burns can't cover them
+	it('mid-month, a fee the pace cannot cover reads "on pace to under-use" (projection-based verdict)', () => {
+		// huge fees so the small per-provider burns can't cover them even projected
 		const config = {
 			claude: enabled('custom', 100000),
 			codex: enabled('custom', 100000)
 		};
+		const rollup = buildSubsidisation(grain, config, NOW); // June 15 — mid-month
+		render(SubsidisationCard, { rollup, config, onTierChange: vi.fn() });
+		expect(document.body.textContent).toContain('on pace to under-use');
+		expect(document.body.textContent).toContain('projected');
+		// the raw MTD "(under-using)" verdict is gone
+		expect(document.body.textContent).not.toContain('(under-using)');
+	});
+
+	it('1-2 days into the month, an unearned fee reads "too early to call" — no verdict, no projection', () => {
+		const config = {
+			claude: enabled('custom', 100000),
+			codex: enabled('custom', 100000)
+		};
+		const earlyGrain = [agg('2026-06-01', 'claude', 'claude-opus-4-8', 50)];
+		const rollup = buildSubsidisation(earlyGrain, config, new Date('2026-06-02T12:00:00Z'));
+		render(SubsidisationCard, { rollup, config, onTierChange: vi.fn() });
+		expect(document.body.textContent).toContain('too early to call');
+		expect(document.body.textContent).not.toContain('under-use');
+		expect(document.body.textContent).not.toContain('projected');
+	});
+
+	it('names the calendar window: month, day-of-month, days-in-month', () => {
+		setup();
+		expect(document.body.textContent).toContain('June so far · day 15 of 30');
+	});
+
+	it('a mid-month pace that covers the fee reads "on pace to earn it back", never "(under-using)"', () => {
+		// codex burn 400 on Jun 5; by Jun 15 the projection is 400/(15/30) = 800 > fee 500,
+		// while MTD 400 < 500 — the OLD card would have said "(under-using)" here.
+		const config = {
+			claude: enabled('custom', 99),
+			codex: enabled('custom', 500)
+		};
 		const rollup = buildSubsidisation(grain, config, NOW);
 		render(SubsidisationCard, { rollup, config, onTierChange: vi.fn() });
-		expect(document.body.textContent).toContain('under-using your plan');
+		expect(document.body.textContent).toContain('on pace to earn it back');
+		expect(document.body.textContent).not.toContain('(under-using)');
 	});
 
 	it('selecting a preset emits onTierChange with the preset id + fee', async () => {
