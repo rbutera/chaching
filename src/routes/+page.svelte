@@ -22,6 +22,8 @@
 	import Divider from '$lib/components/ds/Divider.svelte';
 	import type { SubsidisedProvider } from '$lib/core/subsidisation';
 	import type { PublicchachingConfig } from '$lib/core/config';
+	// Baked at build time (Vite JSON import) — the header version badge.
+	import { version } from '../../package.json';
 	import {
 		money,
 		compactTokens,
@@ -410,6 +412,7 @@
 	<header class="topbar">
 		<div class="brand">
 			<h1 class="brand-title"><BrandMark size={24} wordmark title="chaching" /></h1>
+			<span class="ver" title="chaching version">v{version}</span>
 			<p class="tagline">local AI token spend</p>
 		</div>
 		<div class="topbar-right">
@@ -716,6 +719,15 @@
 		font-family: var(--font-mono);
 		font-size: 0.75rem;
 		color: var(--text-dim);
+	}
+	.ver {
+		font-family: var(--font-mono);
+		font-size: 0.7rem;
+		color: var(--text-dim);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-pill, 999px);
+		padding: 0.05rem 0.45rem;
+		opacity: 0.8;
 	}
 	.conn {
 		display: inline-flex;
