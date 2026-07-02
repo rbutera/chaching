@@ -8,8 +8,8 @@
 // no `fileURLToPath`, no `cost.ts`). The full Node price table (LiteLLM snapshot +
 // file resolution) stays out of the browser bundle — see client-safety.test.ts.
 //
-// Per-token USD. Claude: Opus $5/$25, Sonnet $3/$15, Haiku $1/$5 (cache-write = 5m
-// rate). OpenAI/Codex families: rates from the vendored LiteLLM snapshot as of
+// Per-token USD. Claude: Fable/Mythos $10/$50, Opus $5/$25, Sonnet $3/$15, Haiku
+// $1/$5 (cache-write = 5m rate). OpenAI/Codex families: rates from the vendored LiteLLM snapshot as of
 // 2026-06. OpenAI has no separate cache-WRITE rate (you're not billed to create a
 // cache entry), so cacheCreation === input for those — matching the server table,
 // where the snapshot carries no cache-creation cost for these ids.
@@ -21,7 +21,9 @@ export interface ClientPrice {
 	cacheRead: number;
 }
 
-// ── Claude (mirror src/lib/core/pricing/overrides.ts) ───────────────────────────
+// ── Claude (mirror src/lib/core/pricing/overrides.ts + the LiteLLM snapshot) ────
+// Fable 5 / Mythos 5 sit above Opus: $10/$50 per MTok, cache-write (5m) $12.50, read $1.
+const FABLE: ClientPrice = { input: 1e-5, output: 5e-5, cacheCreation: 1.25e-5, cacheRead: 1e-6 };
 const OPUS: ClientPrice = { input: 5e-6, output: 2.5e-5, cacheCreation: 6.25e-6, cacheRead: 5e-7 };
 const SONNET: ClientPrice = { input: 3e-6, output: 1.5e-5, cacheCreation: 3.75e-6, cacheRead: 3e-7 };
 const HAIKU: ClientPrice = { input: 1e-6, output: 5e-6, cacheCreation: 1.25e-6, cacheRead: 1e-7 };
@@ -46,7 +48,8 @@ const CODEX_MINI: ClientPrice = { input: 1.5e-6, output: 6e-6, cacheCreation: 1.
  * most-specific-first. Unknown ids → null (the UI flags "price unknown").
  */
 export function resolvePriceClient(model: string): ClientPrice | null {
-	// Claude families
+	// Claude families. Fable/Mythos first — nothing else matches those names.
+	if (/fable|mythos/i.test(model)) return FABLE;
 	if (/opus/i.test(model)) return OPUS;
 	if (/sonnet/i.test(model)) return SONNET;
 	if (/haiku/i.test(model)) return HAIKU;
