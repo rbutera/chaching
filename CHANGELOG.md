@@ -2,6 +2,12 @@
 
 All notable changes to chaching. Follows [semver](https://semver.org/); dates are UTC.
 
+## 1.10.1 — 2026-07-02
+
+### Fixed
+
+- **Subscription-subsidy card no longer passes judgment on a 2-day sample.** Early in a calendar month the card showed figures like "Codex $11.69 value · $0.00 (under-using)" beside rolling-30-day charts showing $224 — correct numbers, misleading framing. The basis line now names the window ("July so far · day 2 of 31"), verdicts ride the full-month projection ("on pace to earn it back · projected 0.9×" / "on pace to under-use") instead of the raw month-to-date, and with fewer than 3 elapsed days the card says "too early to call" rather than judging at all. The card stays calendar-month anchored by design — it reconciles against a monthly fee.
+
 ## 1.10.0 — 2026-07-02
 
 ### Added
