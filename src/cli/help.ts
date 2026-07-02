@@ -51,6 +51,7 @@ Usage:
   chaching serve         Start the web dashboard server
   chaching init          Run the setup wizard (re-runnable)
   chaching provider      Manage providers (add | enable | disable)
+  chaching doctor        Diagnose why a provider isn't counting (health, staleness, pricing)
 
 Flags (global):
   --version, -v          Print version and exit
@@ -69,8 +70,12 @@ Flags for receipt:
   --png [path]             Write a shareable PNG (default: ./chaching-receipt-<period>.png)
   --redact                 Scrub usernames/hosts/paths before sharing (default: shown)
 
+Flags for doctor:
+  --json                   Machine-readable report model to stdout (art-free)
+
 Examples:
   chaching stats --period week --provider codex
+  chaching doctor                  # per-provider health + staleness + pricing
   chaching stats --json | jq .totals.cost
   chaching receipt                 # this month (default)
   chaching receipt --period all

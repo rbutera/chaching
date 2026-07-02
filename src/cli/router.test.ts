@@ -94,6 +94,35 @@ describe('subcommand routing', () => {
 		const { code } = await runCli(['provider', 'nope']);
 		expect(code).not.toBe(0);
 	});
+
+	it('doctor subcommand dispatches and prints diagnostics', async () => {
+		const { stdout, code } = await runCli(['doctor']);
+		// exit 0 (healthy/warn) or 1 (a FAIL check) — both are valid runs, never a crash.
+		expect([0, 1]).toContain(code);
+		// Sections are always printed regardless of health.
+		expect(stdout).toContain('Provider:');
+		expect(stdout).toContain('History');
+		expect(stdout).toContain('Pricing coverage');
+	});
+
+	it('doctor --json emits a parseable report model', async () => {
+		const { stdout, code } = await runCli(['doctor', '--json']);
+		expect([0, 1]).toContain(code);
+		const parsed = JSON.parse(stdout) as { sections: unknown[]; overall: string };
+		expect(Array.isArray(parsed.sections)).toBe(true);
+		expect(['OK', 'WARN', 'FAIL']).toContain(parsed.overall);
+	});
+
+	it('doctor rejects unknown flags and exits non-zero', async () => {
+		const { code, stderr } = await runCli(['doctor', '--oops']);
+		expect(code).not.toBe(0);
+		expect(stderr).toContain('unknown flag');
+	});
+
+	it('doctor is listed in --help', async () => {
+		const { stdout } = await runCli(['--help']);
+		expect(stdout).toContain('doctor');
+	});
 });
 
 // ── stats: human output ───────────────────────────────────────────────────────

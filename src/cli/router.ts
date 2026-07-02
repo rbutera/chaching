@@ -1,5 +1,5 @@
 // Subcommand router — hand-rolled per design decision D3.
-// Surface: chaching [stats|receipt|serve|init|provider|--version|--help]
+// Surface: chaching [stats|receipt|serve|init|provider|doctor|--version|--help]
 // Unknown subcommands → usage + exit(1).
 
 import { runStats, type StatsFlags } from './commands/stats.js';
@@ -7,6 +7,7 @@ import { runReceipt, type ReceiptFlags } from './commands/receipt.js';
 import { runServe } from './commands/serve.js';
 import { runInit } from './commands/init.js';
 import { runProvider } from './commands/provider.js';
+import { runDoctor } from './commands/doctor.js';
 import { printUsage, printVersion } from './help.js';
 import { configFilePath } from '../lib/core/config.js';
 import { existsSync } from 'node:fs';
@@ -68,6 +69,11 @@ export async function run(argv: string[]): Promise<void> {
 
 		case 'provider':
 			await runProvider(rest);
+			return;
+
+		case 'doctor':
+			// Merge global flags (like --no-art) that appeared before the subcommand.
+			await runDoctor([...globalArgs, ...rest]);
 			return;
 
 		default:
