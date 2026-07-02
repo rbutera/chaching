@@ -173,6 +173,15 @@ export interface SubsidisationRollup {
 		mtd: Subsidisation;
 		projected: Subsidisation;
 	};
+	/**
+	 * The window facts, so the UI can say WHICH month and how deep into it we are
+	 * ("July so far · 2 days in"). Early-month MTD figures are tiny next to the
+	 * page's rolling-30-day charts, and a naked "under-using" verdict from a 1-2
+	 * day sample is misleading — the card gates its wording on `elapsedDays`.
+	 */
+	monthLabel: string;
+	elapsedDays: number;
+	daysInMonth: number;
 }
 
 /**
@@ -216,6 +225,12 @@ export function buildSubsidisation(
 	const combinedBurnMTD = enabled.reduce((sum, p) => sum + p.monthly.burnMTD, 0);
 	const combinedMonthly = monthlyBurn(combinedBurnMTD, now);
 
+	const monthLabel = now.toLocaleDateString('en-GB', { month: 'long', timeZone: 'UTC' });
+	const elapsedDays = now.getUTCDate();
+	const daysInMonth = new Date(
+		Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)
+	).getUTCDate();
+
 	return {
 		providers,
 		combined: {
@@ -226,6 +241,9 @@ export function buildSubsidisation(
 				apiEquivalentUsd: combinedMonthly.burnProjected,
 				monthlyUsd: combinedFee
 			})
-		}
+		},
+		monthLabel,
+		elapsedDays,
+		daysInMonth
 	};
 }

@@ -46,6 +46,11 @@
 
 	let enabledProviders = $derived(rollup.providers.filter((p) => p.enabled));
 
+	// A 1-2 day sample can't support an "(under-using)" verdict or a projection —
+	// same ≥3-day discipline as burnPace guard (b). The MTD figures stay (facts);
+	// only the forward-looking wording is gated.
+	let earlyMonth = $derived(rollup.elapsedDays < 3);
+
 	function presetsFor(provider: SubsidisedProvider): SubscriptionPreset[] {
 		return SUBSCRIPTION_PRESETS[provider];
 	}
@@ -71,7 +76,7 @@
 	<div class="head">
 		<div>
 			<h2 id="subsidy-heading" class="title">Subscription subsidy</h2>
-			<p class="basis">this month so far · vs your flat monthly fee</p>
+			<p class="basis">{rollup.monthLabel} so far · day {rollup.elapsedDays} of {rollup.daysInMonth} · vs your flat monthly fee</p>
 			{#if burnPace}
 				<p class="pace">
 					on pace for ~<span class="num">{money(burnPace.projectedCost)}</span> this month
@@ -92,12 +97,19 @@
 		<p class="headline-net">
 			{#if rollup.combined.mtd.netSubsidyUsd >= 0}
 				<span class="net-pos">net subsidy +{money(rollup.combined.mtd.netSubsidyUsd)}</span>
+			{:else if earlyMonth}
+				<!-- 1-2 days in, fee not yet earned back: expected, not a verdict -->
+				<span class="net-dim">fee not earned back yet — too early to call</span>
+			{:else if (rollup.combined.projected.multiple ?? 1) >= 1}
+				<span class="net-dim">on pace to earn the fee back</span>
 			{:else}
-				<span class="net-neg">under-using your plan · {money(rollup.combined.mtd.netSubsidyUsd)}</span>
+				<span class="net-neg">on pace to under-use · {money(rollup.combined.mtd.netSubsidyUsd)} so far</span>
 			{/if}
-			<span class="projected">
-				· projected <span class="num">{fmtMultiple(rollup.combined.projected.multiple)}</span>
-			</span>
+			{#if !earlyMonth}
+				<span class="projected">
+					· projected <span class="num">{fmtMultiple(rollup.combined.projected.multiple)}</span>
+				</span>
+			{/if}
 		</p>
 	</div>
 
@@ -111,11 +123,15 @@
 					<span class="prov-mult num">{fmtMultiple(p.mtd.multiple)}</span>
 				</div>
 				<div class="prov-detail">
-					<span class="num">{money(p.mtd.apiEquivalentUsd)}</span> value ·
+					<span class="num">{money(p.mtd.apiEquivalentUsd)}</span> value so far ·
 					{#if p.mtd.netSubsidyUsd >= 0}
 						<span class="net-pos">+{money(p.mtd.netSubsidyUsd)} subsidy</span>
+					{:else if earlyMonth}
+						<span class="net-dim">too early to call</span>
+					{:else if (p.projected.multiple ?? 1) >= 1}
+						<span class="net-dim">on pace to earn it back · projected <span class="num">{fmtMultiple(p.projected.multiple)}</span></span>
 					{:else}
-						<span class="net-neg">{money(p.mtd.netSubsidyUsd)} (under-using)</span>
+						<span class="net-neg">on pace to under-use · projected <span class="num">{fmtMultiple(p.projected.multiple)}</span></span>
 					{/if}
 				</div>
 				<div class="switcher">
@@ -217,6 +233,9 @@
 	}
 	.net-neg {
 		color: var(--warn);
+	}
+	.net-dim {
+		color: var(--text-dim);
 	}
 	.projected {
 		color: var(--fg-dim);

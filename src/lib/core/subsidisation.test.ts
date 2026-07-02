@@ -255,3 +255,23 @@ describe('burnPace', () => {
 		expect(burnPace(dailyGrain('2026-06-01', '2026-06-15', 10), fullMtdCoverage(now), now)).not.toBeNull();
 	});
 });
+
+describe('buildSubsidisation — window facts for the card label', () => {
+	const config = {
+		claude: { enabled: true, tier: 'max20', monthlyUsd: 200 },
+		codex: { enabled: true, tier: 'pro20', monthlyUsd: 200 }
+	};
+
+	it('reports month label, elapsed days, and days-in-month (UTC)', () => {
+		const r = buildSubsidisation([], config, new Date('2026-07-02T09:00:00Z'));
+		expect(r.monthLabel).toBe('July');
+		expect(r.elapsedDays).toBe(2);
+		expect(r.daysInMonth).toBe(31);
+	});
+
+	it('handles February correctly', () => {
+		const r = buildSubsidisation([], config, new Date('2027-02-14T09:00:00Z'));
+		expect(r.monthLabel).toBe('February');
+		expect(r.daysInMonth).toBe(28);
+	});
+});
