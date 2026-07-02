@@ -195,11 +195,11 @@ describe('shared view-model — period derivations', () => {
 	});
 });
 
-describe('shared view-model — honest delta baseline rule', () => {
-	// The rule (v1.4.1): show the delta ONLY when a genuine equal-length prior
-	// window of real data exists — the ENTIRE prior window lies within the days we
-	// have data for [earliestDay, latestDay] AND the prior total is non-zero.
-	// Otherwise priorHasBaseline=false and the UI suppresses the percentage.
+describe('shared view-model — delta baseline rule', () => {
+	// The rule (2026-07-02 product decision): a day with no recorded data counts
+	// as $0 spend — it never voids the comparison. The delta renders whenever the
+	// prior window has ANY recorded spend; the only suppression is a $0 prior
+	// (meaningless percentage / divide-by-zero).
 
 	it('full baseline: prior window fully inside data and non-zero → delta shows', () => {
 		// 21 contiguous days of $1/day ending 06-19. Week view: window 06-13..06-19
@@ -217,24 +217,26 @@ describe('shared view-model — honest delta baseline rule', () => {
 		expect(hero.prior.cost).toBe(7);
 	});
 
-	it('empty/partial prior window (predates earliest) → suppressed', () => {
+	it('a $0 prior window (no recorded spend at all) → suppressed', () => {
 		// Only the single latest day has data; a Week view's prior window
-		// (06-06..06-12) is entirely before earliestDay → no baseline.
+		// (06-06..06-12) has no recorded spend → nothing to compare against.
 		const snap = snapFrom([dm('2026-06-19', 'codex', 'claude-opus-4-8', 10)]);
 		const hero = heroTotals(snap, defaultViewState('week'));
 		expect(hero.priorHasBaseline).toBe(false);
 	});
 
-	it('prior window that only PARTIALLY overlaps the data span → suppressed', () => {
-		// Data starts mid prior-window: earliest 06-10, prior window 06-06..06-12.
-		// priorFrom (06-06) < earliest (06-10) → the prior window runs off the front
-		// of the data, so it is not a full equal-length baseline. Suppress.
+	it('gap days inside the prior window count as $0 — the delta still shows', () => {
+		// Prior window 06-06..06-12 has recorded spend on ONE day only; the other
+		// six days are quiet (weekends, sick days). The comparison uses the
+		// recorded sums as-is instead of voiding the window.
 		const snap = snapFrom([
 			dm('2026-06-19', 'codex', 'claude-opus-4-8', 10),
-			dm('2026-06-10', 'codex', 'claude-opus-4-8', 4) // inside prior window but earliest
+			dm('2026-06-10', 'codex', 'claude-opus-4-8', 4)
 		]);
 		const hero = heroTotals(snap, defaultViewState('week'));
-		expect(hero.priorHasBaseline).toBe(false);
+		expect(hero.priorHasBaseline).toBe(true);
+		expect(hero.prior.cost).toBe(4);
+		expect(hero.current.cost).toBe(10);
 	});
 
 	it('zero prior (real $0 record, full window inside data) → suppressed, no divide-by-zero', () => {

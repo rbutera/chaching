@@ -486,11 +486,11 @@
 								<span class="sub">vs prior {money(hero?.prior.cost ?? 0)}</span>
 							</span>
 						{:else if !focusedDay && hero && !hero.priorHasBaseline}
-							<!-- honest-baseline rule: say WHY there's no comparison instead of
-							     silently omitting it (the prior window has gap days or predates
-							     the banked history, so a % against it would be fabricated). -->
-							<span class="delta none" title="The prior window has days with no banked data, so a comparison against it would be misleading. It appears once a full prior window is covered.">
-								no full prior-window data yet
+							<!-- Baseline rule (2026-07-02): gap days count as $0, so the only
+							     unrenderable comparison is a prior window with NO recorded
+							     spend at all (a % of zero is meaningless). Say why. -->
+							<span class="delta none" title="The equal-length window before this one has no recorded spend, so there is nothing to compare against yet.">
+								no prior spend to compare
 							</span>
 						{/if}
 					</div>

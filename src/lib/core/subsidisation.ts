@@ -7,8 +7,8 @@
 // labelled "projected" figure scales month-to-date up by the elapsed fraction of
 // the month (design D5). $0 (Free) tiers are handled without divide-by-zero.
 
-import type { CoverageMap, DayModelAgg } from '../types';
-import { dayCoverageState, sumGrain } from './aggregate';
+import type { DayModelAgg } from '../types';
+import { sumGrain } from './aggregate';
 
 /** Providers whose API-equivalent cost chaching computes → subsidisation applies. */
 export const SUBSIDISED_PROVIDERS = ['claude', 'codex'] as const;
@@ -67,13 +67,6 @@ export function fractionOfMonthElapsed(now: Date = new Date()): number {
 	return daysElapsed / daysInMonth;
 }
 
-/** One day past `day` (YYYY-MM-DD, UTC). Local to avoid coupling this module to view-model.ts. */
-function nextDayISO(day: string): string {
-	const d = new Date(day + 'T00:00:00Z');
-	d.setUTCDate(d.getUTCDate() + 1);
-	return d.toISOString().slice(0, 10);
-}
-
 export interface BurnPace {
 	/** month-to-date cost, [month-start, today] inclusive (UTC) */
 	mtdCost: number;
@@ -92,37 +85,27 @@ export interface BurnPace {
  * return `null` rather than a fabricated figure, and the caller must render
  * nothing when that happens.
  *
- * GUARD (a) coverage: if any elapsed-MTD day is `missing` (a gap chaching has
- * no opinion about — pruned logs, or chaching wasn't running), an unknown
- * chunk of real spend could be absent from `mtdCost`, and projecting off an
- * understated MTD would understate the whole-month pace. `partial` (today's
- * live tail) is fine — it's meant to be counted as-is, not a gap.
- *
- * GUARD (b) sample size: `elapsedDays < 3` extrapolates a whole month from a
+ * GUARD (a) sample size: `elapsedDays < 3` extrapolates a whole month from a
  * 1-2 day sample, which fabricates precision the data doesn't support.
  *
- * GUARD (c) unknown-priced spend: an MTD request whose model has no known
+ * GUARD (b) unknown-priced spend: an MTD request whose model has no known
  * price contributes $0 to `mtdCost`, so the projection would silently
  * understate the pace while rendering as a precise figure. Suppress instead.
+ *
+ * There is deliberately NO coverage guard: a day with no recorded data counts
+ * as $0 (a weekend, a sick day), not as grounds to suppress the pace (product
+ * decision, 2026-07-02 — same rule as the hero delta).
  */
-export function burnPace(
-	dayModel: DayModelAgg[],
-	coverage: CoverageMap,
-	now: Date = new Date()
-): BurnPace | null {
+export function burnPace(dayModel: DayModelAgg[], now: Date = new Date()): BurnPace | null {
 	const elapsedDays = now.getUTCDate();
 	if (elapsedDays < 3) return null;
 
 	const { from, to } = monthToDateRange(now);
-	for (let day = from; day <= to; day = nextDayISO(day)) {
-		if (dayCoverageState(day, coverage) === 'missing') return null;
-	}
-
 	const daysInMonth = new Date(
 		Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)
 	).getUTCDate();
 	const mtd = sumGrain(dayModel, { from, to });
-	if (mtd.costUnknownRequests > 0) return null; // guard (c)
+	if (mtd.costUnknownRequests > 0) return null; // guard (b)
 	const projectedCost = (mtd.cost / elapsedDays) * daysInMonth;
 
 	return { mtdCost: mtd.cost, elapsedDays, daysInMonth, projectedCost };

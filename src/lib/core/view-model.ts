@@ -356,20 +356,15 @@ export function heroTotals(
 		providers: providerFilter,
 		coverage: { map: snap.coverage, days: enumerateDays(w.priorFrom, w.priorTo) }
 	});
-	// Honest baseline, now reading the ONE typed coverage source (design D5): the prior
-	// window is a valid comparison only when EVERY day in it is authoritative (`frozen` or
-	// `zero`) AND the prior cost is non-zero. A `partial`/`missing` prior day suppresses the
-	// delta. This is strictly more honest than the old `earliestDay`/`latestDay` bounds
-	// check and stays identical for the existing all-frozen-past fixtures.
-	const priorHasBaseline = priorIsAuthoritative(prior.coverage.states) && prior.cost > 0;
+	// Baseline rule (product decision, 2026-07-02): a day with no recorded data is
+	// evidence of $0 spend (a weekend, a sick day), NOT grounds to void the whole
+	// window — the recorded sums ARE the comparison. The delta renders whenever the
+	// prior window has any recorded spend; the only suppression left is a $0 prior
+	// (every positive current would read as ∞/"new", and it divides by zero).
+	// (This replaces the earlier every-day-authoritative gate, which suppressed the
+	// month delta for anyone whose banked history contained quiet days.)
+	const priorHasBaseline = prior.cost > 0;
 	return { current, prior, label: w.label, priorHasBaseline };
-}
-
-/** True when a window's coverage states are entirely authoritative (only frozen / zero). */
-function priorIsAuthoritative(states: Partial<Record<DayCoverage, number>>): boolean {
-	const total = (states.frozen ?? 0) + (states.zero ?? 0) + (states.partial ?? 0) + (states.missing ?? 0);
-	if (total === 0) return false; // an empty / data-less prior window is no baseline
-	return (states.partial ?? 0) === 0 && (states.missing ?? 0) === 0;
 }
 
 /**

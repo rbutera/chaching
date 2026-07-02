@@ -10,10 +10,10 @@
 // a monthly statement. The month-over-month delta is gated on a genuine prior-
 // month baseline exactly like the dashboard's `priorHasBaseline` (cost honesty).
 
-import type { CoverageMap, DayCoverage, DayModelAgg, RollupSnapshot } from '../../lib/types.js';
+import type { DayModelAgg, RollupSnapshot } from '../../lib/types.js';
 import { aggregateByModel, filterDays, sumGrain, totalTokens } from '../../lib/core/aggregate.js';
 import { cacheCostBreakdown } from '../../lib/core/pricing/cache-breakdown.js';
-import { aggregateProjects, enumerateDays, inWindow } from '../../lib/core/view-model.js';
+import { aggregateProjects, inWindow } from '../../lib/core/view-model.js';
 import {
 	buildSubsidisation,
 	type ProviderSubsidisationConfig,
@@ -78,22 +78,6 @@ function monthLabelOf(month: string): string {
 		timeZone: 'UTC'
 	});
 	return `${name} ${y}`;
-}
-
-/**
- * Is a fully-past calendar-month window an authoritative baseline? True only when
- * EVERY day in it is authoritative (`frozen` or `zero`) — a `partial` (today's
- * live tail) or `missing` (retention gap / before we started logging) day fails.
- * Mirrors `heroTotals`' private `priorIsAuthoritative` so the wrapped delta gate
- * matches the dashboard's exactly.
- */
-function monthIsAuthoritative(days: string[], coverage: CoverageMap): boolean {
-	if (days.length === 0) return false;
-	for (const day of days) {
-		const state: DayCoverage = coverage[day] ?? 'missing';
-		if (state !== 'frozen' && state !== 'zero') return false;
-	}
-	return true;
 }
 
 /** Deterministic FNV-1a hash of a seed → 16 hex chars (barcode/ref source). */
@@ -237,11 +221,13 @@ export function buildWrapped(snapshot: RollupSnapshot, opts: BuildWrappedOptions
 	const priorTo = monthToDate
 		? `${priorMonth}-${String(Math.min(Number(to.slice(-2)), Number(priorFullTo.slice(-2)))).padStart(2, '0')}`
 		: priorFullTo;
-	const priorDays = enumerateDays(priorFrom, priorTo);
 	const priorTotals = sumGrain(snapshot.dayModel, { from: priorFrom, to: priorTo });
 	let momDelta: WrappedMomDelta | null = null;
+	// Baseline rule (product decision, 2026-07-02, matching the dashboard hero): a
+	// day with no recorded data counts as $0 — it does not void the comparison. The
+	// delta renders whenever the prior span has recorded spend and neither side
+	// carries unknown-priced requests (which WOULD mis-state the arithmetic).
 	if (
-		monthIsAuthoritative(priorDays, snapshot.coverage) &&
 		priorTotals.cost > 0 &&
 		priorTotals.costUnknownRequests === 0 &&
 		totals.costUnknownRequests === 0

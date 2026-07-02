@@ -243,10 +243,10 @@ describe('buildWrapped — month-over-month delta gating (honesty rule)', () => 
 		expect(m.momDelta).toBeNull();
 	});
 
-	it('SUPPRESSES the delta when a prior-month day is missing (not fully covered)', () => {
+	it('a gap day inside the prior span counts as $0 — the delta still renders (2026-07-02 rule)', () => {
 		const grain = [...julyGrain, ...junePriorGrain];
-		// cover all of June EXCEPT one day INSIDE the like-for-like window (1-15)
-		// → that day is `missing` → not authoritative.
+		// one quiet day inside the like-for-like window (1-15) has no coverage at
+		// all — a weekend/sick day, not lost data. The recorded sums compare as-is.
 		const coverage = {
 			...coverAll('2026-06-01', '2026-06-30', 'frozen'),
 			...coverAll('2026-07-01', '2026-07-15', 'partial')
@@ -254,7 +254,8 @@ describe('buildWrapped — month-over-month delta gating (honesty rule)', () => 
 		delete coverage['2026-06-10'];
 		const snap = snapFrom(grain, { coverage });
 		const m = buildWrapped(snap, { now: NOW });
-		expect(m.momDelta).toBeNull();
+		expect(m.momDelta).not.toBeNull();
+		expect(m.momDelta?.priorCost).toBeCloseTo(10, 10);
 	});
 
 	it('SUPPRESSES the delta when the prior month had zero spend', () => {
@@ -265,11 +266,12 @@ describe('buildWrapped — month-over-month delta gating (honesty rule)', () => 
 		expect(m.momDelta).toBeNull();
 	});
 
-	it('SUPPRESSES the delta when there is no coverage for the prior month at all', () => {
+	it('renders the delta from recorded sums even with an empty coverage map (gaps are $0s)', () => {
 		const grain = [...julyGrain, ...junePriorGrain];
 		const snap = snapFrom(grain, { coverage: {} });
 		const m = buildWrapped(snap, { now: NOW });
-		expect(m.momDelta).toBeNull();
+		expect(m.momDelta).not.toBeNull();
+		expect(m.momDelta?.priorCost).toBeCloseTo(10, 10);
 	});
 });
 

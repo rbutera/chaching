@@ -315,6 +315,6 @@ export class Dashboard {
 	 * the caller must render nothing in that case.
 	 */
 	burnPace(snap: RollupSnapshot, now: Date = new Date(snap.generatedAt || Date.now())): BurnPace | null {
-		return coreBurnPace(snap.dayModel, snap.coverage, now);
+		return coreBurnPace(snap.dayModel, now);
 	}
 }

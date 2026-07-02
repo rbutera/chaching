@@ -8,7 +8,7 @@ import {
 	monthToDateRange,
 	type ProviderSubsidisationConfig
 } from './subsidisation';
-import type { CoverageMap, DayModelAgg } from '../types';
+import type { DayModelAgg } from '../types';
 
 function agg(day: string, provider: string, model: string, cost: number): DayModelAgg {
 	return {
@@ -171,14 +171,6 @@ describe('burnPace', () => {
 		return out;
 	}
 
-	/** Full month-to-date coverage: frozen for every elapsed day except `now`'s day, which reads partial. */
-	function fullMtdCoverage(now: Date): CoverageMap {
-		const { from, to } = monthToDateRange(now);
-		const map: CoverageMap = {};
-		for (const day of daysInclusive(from, to)) map[day] = day === to ? 'partial' : 'frozen';
-		return map;
-	}
-
 	/** Flat $10/day grain across [from, to], one row per day. */
 	function dailyGrain(from: string, to: string, perDay: number): DayModelAgg[] {
 		return daysInclusive(from, to).map((day) => agg(day, 'claude', 'claude-opus-4-8', perDay));
@@ -187,7 +179,7 @@ describe('burnPace', () => {
 	it('projects mtdCost / elapsedDays * daysInMonth for a clean mid-month sample', () => {
 		const now = new Date('2026-06-15T12:00:00Z'); // 15th of a 30-day month
 		const grain = dailyGrain('2026-06-01', '2026-06-15', 10); // 15 days x $10 = $150 MTD
-		const p = burnPace(grain, fullMtdCoverage(now), now);
+		const p = burnPace(grain, now);
 		expect(p).not.toBeNull();
 		expect(p!.mtdCost).toBe(150);
 		expect(p!.elapsedDays).toBe(15);
@@ -201,37 +193,31 @@ describe('burnPace', () => {
 			...dailyGrain('2026-06-01', '2026-06-15', 10),
 			agg('2026-05-30', 'claude', 'claude-opus-4-8', 9999) // previous month, must be ignored
 		];
-		const p = burnPace(grain, fullMtdCoverage(now), now);
+		const p = burnPace(grain, now);
 		expect(p!.mtdCost).toBe(150);
 	});
 
-	it('honesty guard (a): a missing day inside the elapsed MTD range suppresses the projection', () => {
+	it('days with no recorded data count as $0 — they never suppress the pace (2026-07-02 rule)', () => {
 		const now = new Date('2026-06-15T12:00:00Z');
-		const grain = dailyGrain('2026-06-01', '2026-06-15', 10);
-		const coverage = fullMtdCoverage(now);
-		delete coverage['2026-06-07']; // a gap the data layer has no opinion about -> missing
-		expect(burnPace(grain, coverage, now)).toBeNull();
+		// spend on only 5 of the 15 elapsed days; the 10 quiet days dilute the pace
+		const grain = dailyGrain('2026-06-01', '2026-06-05', 30); // $150 over 15 elapsed days
+		const p = burnPace(grain, now);
+		expect(p).not.toBeNull();
+		expect(p!.mtdCost).toBe(150);
+		expect(p!.projectedCost).toBeCloseTo(300, 6); // 150 / 15 * 30 — quiet days are zeros
 	});
 
-	it("honesty guard (a): today reading 'partial' (the live tail) does NOT suppress", () => {
-		const now = new Date('2026-06-15T12:00:00Z');
-		const grain = dailyGrain('2026-06-01', '2026-06-15', 10);
-		const coverage = fullMtdCoverage(now);
-		expect(coverage['2026-06-15']).toBe('partial');
-		expect(burnPace(grain, coverage, now)).not.toBeNull();
-	});
-
-	it('honesty guard (b): elapsedDays < 3 suppresses even with full coverage', () => {
+	it('guard (a): elapsedDays < 3 suppresses', () => {
 		const day1 = new Date('2026-06-01T12:00:00Z');
 		const day2 = new Date('2026-06-02T12:00:00Z');
-		expect(burnPace(dailyGrain('2026-06-01', '2026-06-01', 10), fullMtdCoverage(day1), day1)).toBeNull();
-		expect(burnPace(dailyGrain('2026-06-01', '2026-06-02', 10), fullMtdCoverage(day2), day2)).toBeNull();
+		expect(burnPace(dailyGrain('2026-06-01', '2026-06-01', 10), day1)).toBeNull();
+		expect(burnPace(dailyGrain('2026-06-01', '2026-06-02', 10), day2)).toBeNull();
 	});
 
 	it('month boundary: the 3rd of the month is the first day that renders', () => {
 		const day3 = new Date('2026-06-03T12:00:00Z');
 		const grain = dailyGrain('2026-06-01', '2026-06-03', 10); // $30 MTD over 3 days
-		const p = burnPace(grain, fullMtdCoverage(day3), day3);
+		const p = burnPace(grain, day3);
 		expect(p).not.toBeNull();
 		expect(p!.elapsedDays).toBe(3);
 		expect(p!.projectedCost).toBeCloseTo(300, 6); // 30 / 3 * 30
@@ -240,19 +226,19 @@ describe('burnPace', () => {
 	it('handles a short (28-day February) month correctly', () => {
 		const now = new Date('2027-02-14T12:00:00Z'); // 2027 is not a leap year
 		const grain = dailyGrain('2027-02-01', '2027-02-14', 5); // 14 x $5 = $70 MTD
-		const p = burnPace(grain, fullMtdCoverage(now), now);
+		const p = burnPace(grain, now);
 		expect(p!.daysInMonth).toBe(28);
 		expect(p!.projectedCost).toBeCloseTo(140, 6); // 70 / 14 * 28
 	});
-	it('guard (c): any unknown-priced request in the MTD window suppresses the pace', () => {
+	it('guard (b): any unknown-priced request in the MTD window suppresses the pace', () => {
 		const now = new Date('2026-06-15T12:00:00Z');
 		const grain = dailyGrain('2026-06-01', '2026-06-15', 10);
 		// one mid-month day carries a request chaching could not price — its real
 		// cost is unknown, so a precise projection would silently understate.
 		grain[7] = { ...grain[7], costUnknownRequests: 1 };
-		expect(burnPace(grain, fullMtdCoverage(now), now)).toBeNull();
+		expect(burnPace(grain, now)).toBeNull();
 		// control: same shape without the unknown request projects normally
-		expect(burnPace(dailyGrain('2026-06-01', '2026-06-15', 10), fullMtdCoverage(now), now)).not.toBeNull();
+		expect(burnPace(dailyGrain('2026-06-01', '2026-06-15', 10), now)).not.toBeNull();
 	});
 });
 

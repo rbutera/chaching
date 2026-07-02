@@ -171,7 +171,7 @@ describe('view-model coverage integration', () => {
 		expect(hero.priorHasBaseline).toBe(true);
 	});
 
-	it('honest baseline: a partial/missing day in the prior window -> false (suppress)', () => {
+	it('baseline rule (2026-07-02): a partial/missing prior day does NOT suppress — gaps count as $0', () => {
 		const grain: DayModelAgg[] = [];
 		const coverage: CoverageMap = {};
 		for (let d = 9; d <= 23; d++) {
@@ -179,11 +179,12 @@ describe('view-model coverage integration', () => {
 			grain.push(dm(day, 3));
 			coverage[day] = d === 23 ? 'partial' : 'frozen';
 		}
-		// poison one prior-window day (06-12) to partial.
+		// one prior-window day (06-12) reads partial — a quiet/imperfect day is
+		// still evidence, not grounds to void the comparison.
 		coverage['2026-06-12'] = 'partial';
 		const snap = snapFrom(grain, coverage);
 		const hero = heroTotals(snap, defaultViewState('week'));
-		expect(hero.priorHasBaseline).toBe(false);
+		expect(hero.priorHasBaseline).toBe(true);
 	});
 
 	it('trend day buckets carry per-day coverage incl. missing for gap days', () => {
