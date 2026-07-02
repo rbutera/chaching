@@ -2,6 +2,12 @@
 
 All notable changes to chaching. Follows [semver](https://semver.org/); dates are UTC.
 
+## 1.12.0 — 2026-07-02
+
+### Changed
+
+- **Days with no recorded data count as $0 — they no longer void comparisons.** The period delta on the dashboard hero, the month-over-month delta in `chaching wrapped`, and the burn-pace projection previously suppressed themselves if any day in the window lacked banked data. Quiet days (weekends, holidays, sick days) are evidence of zero spend, not lost data, so the recorded sums now compare as-is. The only remaining suppressions: a prior window with no recorded spend at all (a percentage of zero is meaningless), fewer than 3 elapsed days for the pace projection, and unknown-priced requests (which genuinely mis-state the arithmetic).
+
 ## 1.11.0 — 2026-07-02
 
 ### Changed
