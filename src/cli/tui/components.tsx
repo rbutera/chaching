@@ -11,6 +11,7 @@ import { Box, Text } from 'ink';
 import type { BlockSummary } from '../../lib/types.js';
 import type { ModelTotal, PeriodBucket, ProviderTotal, Totals } from '../../lib/core/aggregate.js';
 import { totalTokens } from '../../lib/core/aggregate.js';
+import type { ProjectTotal } from '../../lib/core/view-model.js';
 import { compactTokens, int, money, modelLabel, providerLabel } from '../../lib/format.js';
 import {
 	ACCENT,
@@ -194,6 +195,32 @@ export function ModelBreakdown({ models, topN }: { models: ModelTotal[]; topN: n
 					requests={m.requests}
 				/>
 			))}
+		</Box>
+	);
+}
+
+/**
+ * The `by project` breakdown — same `●`-led shape as ModelBreakdown, showing which
+ * repo/client is eating the money (glow-up idea #1). Top N by cost; the dot takes the
+ * project's top-provider hue. Session count sits where requests do in the sibling
+ * sections, since "how many sessions" is the meaningful project figure.
+ */
+export function ProjectBreakdown({ projects, topN }: { projects: ProjectTotal[]; topN: number }) {
+	const top = projects.slice(0, topN);
+	if (top.length === 0) return null;
+	const more = Math.max(0, projects.length - top.length);
+	return (
+		<Box flexDirection="column">
+			<Text color={color(DIM)}>{`BY PROJECT (top ${top.length})`}</Text>
+			{top.map((p) => (
+				<Text key={p.project === '' ? '(unknown)' : p.project} dimColor={p.isUnknown}>
+					<Text color={color(p.isUnknown ? DIM : providerColorName(p.providers[0] ?? ''))}>{'● '}</Text>
+					<Text>{p.display.padEnd(16)}</Text>
+					<Text bold>{money(p.cost).padStart(10)}</Text>
+					<Text color={color(DIM)}>{`  ${compactTokens(totalTokens(p.tokens)).padStart(7)} tok  ${int(p.sessionCount).padStart(4)} sess`}</Text>
+				</Text>
+			))}
+			{more > 0 ? <Text color={color(DIM)}>{`  +${more} more`}</Text> : null}
 		</Box>
 	);
 }

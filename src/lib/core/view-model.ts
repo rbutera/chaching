@@ -7,7 +7,7 @@
 // the web and TUI can never drift. The Svelte class and the React root are both
 // thin shells that hold state and call into here.
 
-import type { DayCoverage, Period, RollupSnapshot, SessionSummary } from '../types';
+import type { DayCoverage, Period, RollupSnapshot, SessionSummary, TokenCounts } from '../types';
 import {
 	aggregateByModel,
 	aggregateByProvider,
@@ -15,12 +15,14 @@ import {
 	dayCoverageState,
 	filterDays,
 	sumGrain,
+	zeroTokens,
 	type BucketGrain,
 	type ModelTotal,
 	type PeriodBucket,
 	type ProviderTotal,
 	type Totals
 } from './aggregate';
+import { shortProject } from '../format';
 
 /**
  * One calendar day in the banked range, for the calendar heatmap (design D1). `coverage`
@@ -443,6 +445,136 @@ export function allSessions(snap: RollupSnapshot, state: ViewState): SessionSumm
 		if (providerFilter && !providerFilter.has(s.provider)) return false;
 		return true;
 	});
+}
+
+// ---------------------------------------------------------------------------
+// chaching-by-project: per-project spend attribution (glow-up idea #1). Derived
+// from the PERIOD-SCOPED session index (`scopedSessions`), so it follows the
+// Day/Week/Month/Quarter selector, the model + provider filters, AND a pinned
+// focusedDay through the one shared lineage — never a second scoping path that
+// could drift. Shared + framework-free so the web panel, the TUI section, and
+// the `stats` block all read the SAME aggregation (design D4).
+// ---------------------------------------------------------------------------
+
+/** Display label for the empty/unknown-project bucket (never dropped — cost honesty). */
+export const UNKNOWN_PROJECT_LABEL = '(unknown)';
+
+/** Per-project spend total in scope. `project` is the full (normalized) path — the dedup key
+ *  AND the tooltip value; `display` is the last meaningful path segment for the row label. */
+export interface ProjectTotal {
+	/** normalized full project value: the group/dedup key and the tooltip. '' for the unknown bucket. */
+	project: string;
+	/** short display name: the last path segment, or `(unknown)` for the empty/unknown bucket. */
+	display: string;
+	tokens: TokenCounts;
+	cost: number;
+	requests: number;
+	/** number of scoped sessions attributed to this project. */
+	sessionCount: number;
+	/** contributing providers, by descending cost within the project (drives "top provider"). */
+	providers: string[];
+	/** true for the literal empty/unknown bucket (so a consumer can style it apart). */
+	isUnknown: boolean;
+}
+
+function addTokensInto(into: TokenCounts, from: TokenCounts): void {
+	into.input += from.input;
+	into.output += from.output;
+	into.cacheCreation += from.cacheCreation;
+	into.cacheRead += from.cacheRead;
+}
+
+/**
+ * Normalize a session's project string to its group/dedup key: trim, and drop trailing
+ * slashes so `/a/web` and `/a/web/` are the SAME project. Deliberately conservative — we
+ * never lowercase or fuzzy-merge, so two distinct full paths that happen to share a last
+ * segment (`/a/web` vs `/b/web`) stay separate rows. Empty/whitespace or the literal
+ * `unknown` placeholder collapse to `''` (the unknown bucket).
+ */
+function normalizeProjectKey(project: string): string {
+	const t = (project ?? '').trim().replace(/\/+$/, '');
+	if (t === '' || t.toLowerCase() === 'unknown') return '';
+	return t;
+}
+
+/**
+ * Aggregate an already-scoped session list into per-project totals, sorted by cost desc.
+ * `Σ result.cost` equals the input session total exactly — the empty/unknown bucket is
+ * folded in under a literal `(unknown)` row rather than dropped (cost honesty: the panel
+ * must reconcile to the whole). Grouping is by the NORMALIZED FULL path, so identical
+ * projects across providers merge but same-basename-different-path projects do not.
+ *
+ * The pure core shared by the web panel, the TUI section, and the `stats` block (design D4):
+ * each face scopes its own session list (rolling window vs stats' calendar window) then folds
+ * through this one aggregator, so the attribution math can never drift between them.
+ */
+export function aggregateProjects(sessions: SessionSummary[]): ProjectTotal[] {
+	interface Acc {
+		project: string;
+		display: string;
+		isUnknown: boolean;
+		tokens: TokenCounts;
+		cost: number;
+		requests: number;
+		sessionCount: number;
+		providerCost: Map<string, number>;
+	}
+	const byKey = new Map<string, Acc>();
+	for (const s of sessions) {
+		const key = normalizeProjectKey(s.project);
+		const isUnknown = key === '';
+		// A sentinel distinct from any real path so the unknown bucket can never collide
+		// with a project literally named after the sentinel.
+		const groupKey = isUnknown ? ' unknown' : key;
+		let acc = byKey.get(groupKey);
+		if (!acc) {
+			acc = {
+				project: key,
+				display: isUnknown ? UNKNOWN_PROJECT_LABEL : shortProject(key),
+				isUnknown,
+				tokens: zeroTokens(),
+				cost: 0,
+				requests: 0,
+				sessionCount: 0,
+				providerCost: new Map()
+			};
+			byKey.set(groupKey, acc);
+		}
+		addTokensInto(acc.tokens, s.tokens);
+		acc.cost += s.cost;
+		acc.requests += s.requests;
+		acc.sessionCount += 1;
+		acc.providerCost.set(s.provider, (acc.providerCost.get(s.provider) ?? 0) + s.cost);
+	}
+	const out: ProjectTotal[] = [...byKey.values()].map((acc) => ({
+		project: acc.project,
+		display: acc.display,
+		tokens: acc.tokens,
+		cost: acc.cost,
+		requests: acc.requests,
+		sessionCount: acc.sessionCount,
+		providers: [...acc.providerCost.entries()]
+			.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+			.map(([p]) => p),
+		isUnknown: acc.isUnknown
+	}));
+	// Cost desc; deterministic tiebreak so equal-cost projects order stably.
+	out.sort(
+		(a, b) =>
+			b.cost - a.cost ||
+			b.sessionCount - a.sessionCount ||
+			(a.display < b.display ? -1 : a.display > b.display ? 1 : 0)
+	);
+	return out;
+}
+
+/**
+ * Per-project totals over the PERIOD-SCOPED session index (`scopedSessions`): follows the
+ * Day/Week/Month/Quarter selector, the model + provider filters, and a pinned focusedDay
+ * through the one shared lineage. `Σ projectTotals.cost` equals the scoped session total.
+ */
+export function projectTotals(snap: RollupSnapshot, state: ViewState): ProjectTotal[] {
+	return aggregateProjects(scopedSessions(snap, state));
 }
 
 /** UTC `YYYY-MM-DD` for "now" (the live-tail day). Injectable for deterministic tests. */

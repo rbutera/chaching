@@ -9,7 +9,7 @@
 import type { Period, RollupSnapshot, SessionSummary } from '$lib/types';
 import type { ModelTotal, PeriodBucket, ProviderTotal, Totals } from '$lib/core/aggregate';
 import * as vm from '$lib/core/view-model';
-import type { DayCell } from '$lib/core/view-model';
+import type { DayCell, ProjectTotal } from '$lib/core/view-model';
 import {
 	cacheCostBreakdownWith,
 	type CacheCostBreakdownResult
@@ -209,6 +209,15 @@ export class Dashboard {
 
 	providers(snap: RollupSnapshot): ProviderTotal[] {
 		return vm.providers(snap, this.state());
+	}
+
+	/**
+	 * Per-project spend totals in scope (drives the by-project panel). Derived from the
+	 * scoped session index, so it follows the period selector, the model + provider
+	 * filters, and a pinned focusedDay through the same lineage as `scopedSessions`.
+	 */
+	projectTotals(snap: RollupSnapshot): ProjectTotal[] {
+		return vm.projectTotals(snap, this.state());
 	}
 
 	periodWindow(snap: RollupSnapshot): vm.PeriodWindow {

@@ -14,6 +14,7 @@ import {
 	heroTotals,
 	models,
 	periodWindow,
+	projectTotals,
 	providers,
 	scopedTotals,
 	trend,
@@ -27,6 +28,7 @@ import {
 	CapBlock,
 	HelpFooter,
 	ModelBreakdown,
+	ProjectBreakdown,
 	ProviderBreakdown,
 	ProviderFilterRow,
 	SummaryCards,
@@ -37,6 +39,7 @@ import {
 const MIN_COLUMNS = 40;
 const MIN_ROWS = 12;
 const TOP_MODELS = 6;
+const TOP_PROJECTS = 5;
 
 /** Roll-up tween config: a few short frames, bounded so it never blocks input. */
 const ROLLUP_FRAMES = 6;
@@ -193,6 +196,7 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 	const totals = useMemo(() => scopedTotals(snapshot, view), [snapshot, view]);
 	const hero = useMemo(() => heroTotals(snapshot, view), [snapshot, view]);
 	const modelTotals = useMemo(() => models(snapshot, view), [snapshot, view]);
+	const projectList = useMemo(() => projectTotals(snapshot, view), [snapshot, view]);
 	const buckets = useMemo(() => trend(snapshot, view), [snapshot, view]);
 	const activeBlock = useMemo(() => snapshot.blocks.find((b) => b.isActive) ?? null, [snapshot]);
 
@@ -294,6 +298,7 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 					<Box marginTop={1} gap={3} flexWrap="wrap">
 						<ProviderBreakdown providers={providerList} filter={view.providerFilter} />
 						<ModelBreakdown models={modelTotals} topN={TOP_MODELS} />
+						<ProjectBreakdown projects={projectList} topN={TOP_PROJECTS} />
 					</Box>
 
 					<Box marginTop={1}>

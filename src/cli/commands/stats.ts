@@ -28,6 +28,7 @@ import {
 	filterDays,
 	sumGrain
 } from '../../lib/core/aggregate.js';
+import { aggregateProjects, inWindow } from '../../lib/core/view-model.js';
 import { money, compactTokens, providerLabel, modelLabel, int } from '../../lib/format.js';
 import type { Period, RollupSnapshot } from '../../lib/types.js';
 import {
@@ -41,6 +42,7 @@ import {
 } from '../theme/personality.js';
 
 const TOP_MODELS = 8;
+const TOP_PROJECTS = 8;
 
 export interface StatsFlags {
 	period?: Period;
@@ -148,6 +150,15 @@ function printHuman(snapshot: RollupSnapshot, flags: StatsFlags): void {
 	const totals = sumGrain(grain);
 	const byProvider = aggregateByProvider(grain);
 	const byModel = aggregateByModel(grain).slice(0, TOP_MODELS);
+	// By project: window the session index to the SAME period + provider filter the rest of
+	// this command uses (its calendar range, not the dashboard's rolling window), then fold
+	// through the shared aggregator so the attribution matches the web + TUI math (design D4).
+	const scopedSessions = snapshot.sessions.filter((s) => {
+		if (from && to && !inWindow(s, from, to)) return false;
+		if (providerFilter && !providerFilter.has(s.provider)) return false;
+		return true;
+	});
+	const byProject = aggregateProjects(scopedSessions);
 
 	const totalToks = totals.tokens.input + totals.tokens.output
 		+ totals.tokens.cacheCreation + totals.tokens.cacheRead;
@@ -206,6 +217,19 @@ function printHuman(snapshot: RollupSnapshot, flags: StatsFlags): void {
 		for (const m of byModel) {
 			const toks = m.tokens.input + m.tokens.output + m.tokens.cacheCreation + m.tokens.cacheRead;
 			console.log(`    ${modelLabel(m.model).padEnd(20)} ${money(m.cost).padStart(10)}  ${compactTokens(toks).padStart(7)} tokens  ${int(m.requests).padStart(6)} req`);
+		}
+	}
+
+	if (byProject.length > 0) {
+		const shown = byProject.slice(0, TOP_PROJECTS);
+		console.log('');
+		console.log(`  By project (top ${Math.min(TOP_PROJECTS, byProject.length)}):`);
+		for (const p of shown) {
+			const toks = p.tokens.input + p.tokens.output + p.tokens.cacheCreation + p.tokens.cacheRead;
+			console.log(`    ${p.display.padEnd(20)} ${money(p.cost).padStart(10)}  ${compactTokens(toks).padStart(7)} tokens  ${int(p.sessionCount).padStart(4)} sess`);
+		}
+		if (byProject.length > shown.length) {
+			console.log(`    …and ${byProject.length - shown.length} more`);
 		}
 	}
 

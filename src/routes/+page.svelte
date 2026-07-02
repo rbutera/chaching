@@ -190,6 +190,12 @@
 		snap ? (focusedDay ? dash.focusedModels(snap, focusedDay) : dash.models(snap)) : []
 	);
 	let providerTotals = $derived(snap ? dash.providers(snap) : []);
+	// Per-project spend (scoped): which repo/client is eating the money. Follows the same
+	// period + filter + focusedDay scoping as the session list (design D4 shared lineage).
+	let projectTotals = $derived(snap ? dash.projectTotals(snap) : []);
+	const PROJECT_TOP_N = 8;
+	let projectTop = $derived(projectTotals.slice(0, PROJECT_TOP_N));
+	let projectMore = $derived(Math.max(0, projectTotals.length - PROJECT_TOP_N));
 	let scopedTotals = $derived(
 		snap
 			? focusedDay
@@ -636,6 +642,32 @@
 								{/each}
 							</ul>
 						</div>
+					{/if}
+				</div>
+			</section>
+
+			<!-- REGION 7b · BY PROJECT (which repo/client is eating the money) -->
+			<section class="by-project-sec" aria-label="Spend by project">
+				<div class="panel">
+					<h2 class="panel-title"><span>by project</span></h2>
+					{#if projectTotals.length > 0}
+						<ul class="project-list">
+							{#each projectTop as p (p.project === '' ? '(unknown)' : p.project)}
+								<li class:unknown={p.isUnknown} title={p.isUnknown ? 'Sessions with no recorded project' : p.project}>
+									<span class="proj-name">{p.display}</span>
+									<span class="proj-figs">
+										<span class="num">{money(p.cost)}</span>
+										<span class="proj-sub">{compactTokens(totalTokens(p.tokens))} tok</span>
+										<span class="proj-sub">{int(p.sessionCount)} {p.sessionCount === 1 ? 'session' : 'sessions'}</span>
+									</span>
+								</li>
+							{/each}
+						</ul>
+						{#if projectMore > 0}
+							<p class="proj-more">+{projectMore} more</p>
+						{/if}
+					{:else}
+						<p class="empty">No sessions in this scope.</p>
 					{/if}
 				</div>
 			</section>
@@ -1115,6 +1147,58 @@
 	.blk-sub {
 		color: var(--text-dim);
 		font-size: 0.72rem;
+	}
+
+	/* REGION 7b · BY PROJECT — receipt-line rows, mono, right-aligned figures. */
+	.by-project-sec {
+		margin-bottom: 1rem;
+	}
+	.project-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+	.project-list li {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 1rem;
+		font-family: var(--font-mono);
+		font-size: 0.82rem;
+	}
+	.project-list li.unknown .proj-name {
+		color: var(--text-dim);
+		font-style: italic;
+	}
+	.proj-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--text);
+	}
+	.proj-figs {
+		display: flex;
+		align-items: baseline;
+		gap: 0.9rem;
+		flex: none;
+	}
+	.proj-figs .num {
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+	}
+	.proj-sub {
+		color: var(--text-dim);
+		font-size: 0.72rem;
+		font-variant-numeric: tabular-nums;
+	}
+	.proj-more {
+		margin: 0.7rem 0 0;
+		font-family: var(--font-mono);
+		font-size: 0.74rem;
+		color: var(--text-dim);
 	}
 
 	/* REGION 8 · SESSIONS */

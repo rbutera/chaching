@@ -18,6 +18,9 @@ import {
 	isLive,
 	models,
 	periodWindow,
+	projectTotals,
+	aggregateProjects,
+	UNKNOWN_PROJECT_LABEL,
 	providers,
 	scopedGrain,
 	scopedSessions,
@@ -825,5 +828,175 @@ describe('shared view-model — scopedGrain follows the period selector + pinned
 	it('providers() re-scopes with the period', () => {
 		expect(providers(snap, defaultViewState('day')).map((p) => p.provider)).toEqual(['claude']);
 		expect(providers(snap, defaultViewState('all')).length).toBe(2);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// chaching-by-project: projectTotals / aggregateProjects (glow-up idea #1).
+// ---------------------------------------------------------------------------
+
+describe('aggregateProjects — grouping, unknown bucket, sum invariant', () => {
+	/** A session with explicit project/cost/tokens for attribution tests. */
+	function psess(
+		id: string,
+		project: string,
+		cost: number,
+		opts: { provider?: string; tokens?: TokenCounts; requests?: number } = {}
+	): SessionSummary {
+		return {
+			sessionId: id,
+			provider: opts.provider ?? 'codex',
+			project,
+			firstTs: new Date('2026-06-19T08:00:00Z').getTime(),
+			lastTs: new Date('2026-06-19T20:00:00Z').getTime(),
+			tokens: opts.tokens ?? toks(cost * 1000),
+			requests: opts.requests ?? 1,
+			cost,
+			costUnknownRequests: 0,
+			models: ['claude-opus-4-8']
+		};
+	}
+
+	it('sorts by cost desc and normalizes the display name to the last path segment', () => {
+		const res = aggregateProjects([
+			psess('a', '/Users/rai/focused/chaching', 3),
+			psess('b', '/Users/rai/work/launchpad', 10),
+			psess('c', '/Users/rai/side/llmines', 5)
+		]);
+		expect(res.map((p) => p.display)).toEqual(['launchpad', 'llmines', 'chaching']);
+		expect(res.map((p) => p.cost)).toEqual([10, 5, 3]);
+		// full path preserved for the tooltip / dedup key
+		expect(res[0].project).toBe('/Users/rai/work/launchpad');
+	});
+
+	it('groups cross-provider sessions with the identical normalized path into one row', () => {
+		const res = aggregateProjects([
+			psess('a', '/Users/rai/focused/chaching', 4, { provider: 'codex' }),
+			psess('b', '/Users/rai/focused/chaching/', 6, { provider: 'claude' }), // trailing slash normalized
+			psess('c', '/Users/rai/focused/chaching', 2, { provider: 'opencode' })
+		]);
+		expect(res.length).toBe(1);
+		expect(res[0].cost).toBe(12);
+		expect(res[0].sessionCount).toBe(3);
+		// providers listed by descending cost within the project (claude 6 > codex 4 > opencode 2)
+		expect(res[0].providers).toEqual(['claude', 'codex', 'opencode']);
+	});
+
+	it('does NOT merge same-basename projects at different paths', () => {
+		const res = aggregateProjects([
+			psess('a', '/Users/rai/a/web', 5),
+			psess('b', '/Users/rai/b/web', 7)
+		]);
+		expect(res.length).toBe(2);
+		expect(res.every((p) => p.display === 'web')).toBe(true);
+		expect(new Set(res.map((p) => p.project))).toEqual(
+			new Set(['/Users/rai/a/web', '/Users/rai/b/web'])
+		);
+	});
+
+	it('folds empty / unknown projects into a single (unknown) bucket, never dropped', () => {
+		const res = aggregateProjects([
+			psess('a', '', 2),
+			psess('b', '   ', 3),
+			psess('c', 'unknown', 4),
+			psess('d', '/Users/rai/focused/chaching', 10)
+		]);
+		const unknown = res.find((p) => p.isUnknown);
+		expect(unknown).toBeDefined();
+		expect(unknown!.display).toBe(UNKNOWN_PROJECT_LABEL);
+		expect(unknown!.project).toBe('');
+		expect(unknown!.cost).toBe(9); // 2 + 3 + 4
+		expect(unknown!.sessionCount).toBe(3);
+	});
+
+	it('Σ project cost == the input session total (cost-honesty invariant)', () => {
+		const sessions = [
+			psess('a', '/x/one', 3.5),
+			psess('b', '/x/two', 1.25),
+			psess('c', '', 0.75),
+			psess('d', '/x/one', 2)
+		];
+		const total = sessions.reduce((a, s) => a + s.cost, 0);
+		const res = aggregateProjects(sessions);
+		expect(res.reduce((a, p) => a + p.cost, 0)).toBeCloseTo(total, 10);
+	});
+
+	it('sums tokens and requests across the grouped sessions', () => {
+		const res = aggregateProjects([
+			psess('a', '/x/one', 1, { tokens: toks(100, 10, 5, 2), requests: 3 }),
+			psess('b', '/x/one', 1, { tokens: toks(50, 5, 1, 1), requests: 4 })
+		]);
+		expect(res.length).toBe(1);
+		expect(res[0].tokens).toEqual(toks(150, 15, 6, 3));
+		expect(res[0].requests).toBe(7);
+	});
+});
+
+describe('projectTotals — period scoping, focusedDay, and filters', () => {
+	function psess(
+		id: string,
+		project: string,
+		firstDay: string,
+		lastDay: string,
+		opts: { provider?: string; models?: string[]; cost?: number } = {}
+	): SessionSummary {
+		return {
+			sessionId: id,
+			provider: opts.provider ?? 'codex',
+			project,
+			firstTs: new Date(firstDay + 'T08:00:00Z').getTime(),
+			lastTs: new Date(lastDay + 'T20:00:00Z').getTime(),
+			tokens: toks(1000),
+			requests: 1,
+			cost: opts.cost ?? 1,
+			costUnknownRequests: 0,
+			models: opts.models ?? ['claude-opus-4-8']
+		};
+	}
+
+	// Latest day 06-19 anchors the rolling windows; an old session sits outside week/day.
+	const base = snapFrom([
+		dm('2026-06-01', 'codex', 'claude-opus-4-8', 1),
+		dm('2026-06-19', 'codex', 'claude-opus-4-8', 1)
+	]);
+	const sessions = [
+		psess('recent', '/x/recent', '2026-06-19', '2026-06-19', { cost: 5 }),
+		psess('old', '/x/old', '2026-06-01', '2026-06-01', { cost: 9 })
+	];
+	const snap = { ...base, sessions };
+
+	it('follows the period selector (Day excludes the out-of-window project)', () => {
+		const day = projectTotals(snap, defaultViewState('day'));
+		expect(day.map((p) => p.display)).toEqual(['recent']);
+		const month = projectTotals(snap, defaultViewState('month'));
+		expect(new Set(month.map((p) => p.display))).toEqual(new Set(['recent', 'old']));
+	});
+
+	it('follows a pinned focusedDay', () => {
+		const pinned: ViewState = { ...defaultViewState('month'), focusedDay: '2026-06-01' };
+		expect(projectTotals(snap, pinned).map((p) => p.display)).toEqual(['old']);
+	});
+
+	it('applies the provider filter through the shared session lineage', () => {
+		const twoProviders = {
+			...base,
+			sessions: [
+				psess('a', '/x/one', '2026-06-19', '2026-06-19', { provider: 'codex', cost: 4 }),
+				psess('b', '/x/two', '2026-06-19', '2026-06-19', { provider: 'opencode', cost: 6 })
+			]
+		};
+		const codexOnly = projectTotals(twoProviders, {
+			...defaultViewState('week'),
+			providerFilter: new Set(['codex'])
+		});
+		expect(codexOnly.map((p) => p.display)).toEqual(['one']);
+	});
+
+	it('Σ projectTotals == the scoped-session total for the same window', () => {
+		const state = defaultViewState('month');
+		const scoped = scopedSessions(snap, state);
+		const sessionTotal = scoped.reduce((a, s) => a + s.cost, 0);
+		const projTotal = projectTotals(snap, state).reduce((a, p) => a + p.cost, 0);
+		expect(projTotal).toBeCloseTo(sessionTotal, 10);
 	});
 });
