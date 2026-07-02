@@ -262,9 +262,16 @@ export class Dashboard {
 	 * with Day/Week/Month, unlike the subsidisation headline (design D5 cross).
 	 */
 	cacheBreakdown(snap: RollupSnapshot): CacheCostBreakdownResult {
+		// Same lineage as scopedTotals: period/day-windowed grain (via scopedGrain)
+		// with the model + provider filters applied, so the cache figures and the
+		// hit-rate denominator on the page never mix scopes.
+		let grain = this.scopedGrain(snap);
+		if (this.modelFilter.size > 0) grain = grain.filter((dm) => this.modelFilter.has(dm.model));
+		if (this.providerFilter.size > 0)
+			grain = grain.filter((dm) => this.providerFilter.has(dm.provider));
 		// Client-safe: resolve rates via the bundled client price map, NEVER the
 		// Node `cost.ts` (which uses node:url fileURLToPath and would crash in the browser).
-		return cacheCostBreakdownWith(this.scopedGrain(snap), (model) => {
+		return cacheCostBreakdownWith(grain, (model) => {
 			const p = resolvePriceClient(model);
 			return p ? { input: p.input, cacheRead: p.cacheRead, cacheWrite: p.cacheCreation } : null;
 		});

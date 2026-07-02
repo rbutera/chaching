@@ -19,6 +19,7 @@ import {
 	models,
 	periodWindow,
 	providers,
+	scopedGrain,
 	scopedSessions,
 	scopedTotals,
 	todayUTC,
@@ -780,5 +781,49 @@ describe('allSessions / isLive — explorer selectors', () => {
 			lastTs: new Date('2026-06-19T00:01:00Z').getTime()
 		});
 		expect(isLive(justInto, now)).toBe(true);
+	});
+});
+
+describe('shared view-model — scopedGrain follows the period selector + pinned day', () => {
+	// Three rows spread so day/week/all windows genuinely differ: an old day far
+	// outside any rolling window, a mid row inside week-but-not-day, and the
+	// latest (anchor) day. periodWindow anchors at latestDay, so this is
+	// deterministic regardless of the real clock.
+	const grain = [
+		dm('2026-05-01', 'claude', 'claude-opus-4-8', 10),
+		dm('2026-06-30', 'codex', 'gpt-5.1-codex', 5),
+		dm('2026-07-02', 'claude', 'claude-fable-5', 2)
+	];
+	const snap = snapFrom(grain);
+
+	it('Day window keeps only the latest day', () => {
+		const rows = scopedGrain(snap, defaultViewState('day'));
+		expect(rows.map((r) => r.day)).toEqual(['2026-07-02']);
+	});
+
+	it('Week window keeps the last 7 days, All keeps everything', () => {
+		expect(scopedGrain(snap, defaultViewState('week')).map((r) => r.day)).toEqual([
+			'2026-06-30',
+			'2026-07-02'
+		]);
+		expect(scopedGrain(snap, defaultViewState('all')).length).toBe(3);
+	});
+
+	it('a pinned focusedDay wins over the period window', () => {
+		const rows = scopedGrain(snap, { ...defaultViewState('all'), focusedDay: '2026-06-30' });
+		expect(rows.map((r) => r.provider)).toEqual(['codex']);
+	});
+
+	it('models() re-scopes with the period (top model can change per window)', () => {
+		const day = models(snap, defaultViewState('day'));
+		expect(day.map((m) => m.model)).toEqual(['claude-fable-5']);
+		const all = models(snap, defaultViewState('all'));
+		expect(all[0].model).toBe('claude-opus-4-8'); // by cost over full history
+		expect(all.length).toBe(3);
+	});
+
+	it('providers() re-scopes with the period', () => {
+		expect(providers(snap, defaultViewState('day')).map((p) => p.provider)).toEqual(['claude']);
+		expect(providers(snap, defaultViewState('all')).length).toBe(2);
 	});
 });

@@ -91,9 +91,18 @@ function asFilter(set: Set<string>): Set<string> | null {
 	return set.size > 0 ? set : null;
 }
 
-/** The full day-grain in scope (no windowing here; trend/hero apply windows). */
-export function scopedGrain(snap: RollupSnapshot, _state: ViewState) {
-	return snap.dayModel;
+/**
+ * The day-grain in scope: pinned-day-scoped when a day is focused, else windowed
+ * to the selected period (day/week/month/quarter/all). Every summary derivation
+ * built on this — per-model totals, per-provider totals, the cache-cost
+ * breakdown — follows the period selector through here, matching the
+ * `scopedTotals`/`trend` lineage. Full-history reads (heatmap, lifetime totals)
+ * use `snap.dayModel`/`snap.totals` directly and are unaffected.
+ */
+export function scopedGrain(snap: RollupSnapshot, state: ViewState) {
+	if (state.focusedDay) return filterDays(snap.dayModel, state.focusedDay, state.focusedDay);
+	const w = periodWindow(snap, state);
+	return filterDays(snap.dayModel, w.from, w.to);
 }
 
 /** Number of inclusive days in a [from, to] window. */
