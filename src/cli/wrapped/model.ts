@@ -5,8 +5,6 @@
 // thermal-receipt voice — so this mirrors receipt/model.ts's shape and honesty
 // rules (cost never fabricated; comparisons gated on a real prior window).
 
-import type { TokenCounts } from '../../lib/types.js';
-
 /** The headline totals for the recap month. */
 export interface WrappedHeadline {
 	cost: number;
@@ -47,6 +45,13 @@ export interface WrappedTopProject {
 	cost: number;
 	sessionCount: number;
 	isUnknown: boolean;
+	/**
+	 * True when the whole-session cost exceeds the calendar-month headline (long
+	 * sessions straddling the month boundary). Renderers then omit the dollar
+	 * figure — a sub-item bigger than the total is not a shareable claim — and
+	 * show the project name + session count only.
+	 */
+	exceedsHeadline: boolean;
 }
 
 /** Cache savings for the month — the "you saved" narrative + the billed reality. */
@@ -79,6 +84,15 @@ export interface WrappedBiggestDay {
 export interface WrappedMomDelta {
 	/** prior calendar month label, e.g. "2026-05" */
 	priorMonth: string;
+	/**
+	 * True for a month-to-date recap: the comparison clips the prior month to the
+	 * SAME day-span (days 1..N), the equal-window discipline heroTotals uses —
+	 * comparing 2 days of July against all of June is exactly the "garbage"
+	 * comparison view-model.ts forbids. False = full month vs full month.
+	 */
+	likeForLike: boolean;
+	/** the last prior-month day included in the comparison (clipped when likeForLike) */
+	priorTo: string;
 	priorCost: number;
 	/** thisMonthCost − priorCost */
 	deltaUsd: number;

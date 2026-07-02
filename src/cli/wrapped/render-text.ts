@@ -97,7 +97,14 @@ export function renderWrappedText(model: WrappedModel, e: RenderTextEnv = {}): s
 				: `${model.from} -> ${model.to}` // ASCII arrow: pipe-safe, no tofu
 			: model.monthLabel;
 	const label = model.monthToDate ? `${model.monthLabel} (so far)` : model.monthLabel;
-	lines.push(centre(`${label}  ·  ${rangeLine}`));
+	const combined = `${label}  ·  ${rangeLine}`;
+	// centre() hard-slices at the paper width — split rather than truncate the date.
+	if (combined.length <= W) {
+		lines.push(centre(combined));
+	} else {
+		lines.push(centre(label));
+		lines.push(centre(rangeLine));
+	}
 	const hostPart = (model.account && model.account.trim()) || '';
 	if (hostPart) lines.push(centre(hostPart));
 	lines.push(C.accent(rule(noArt)));
@@ -147,11 +154,19 @@ export function renderWrappedText(model: WrappedModel, e: RenderTextEnv = {}): s
 	lines.push('');
 	lines.push(sectionHead('your top project'));
 	if (model.topProject) {
-		lines.push(row(model.topProject.display, money(model.topProject.cost)));
-		// Overlap-rule caveat (whole sessions in window) → no "% of spend" here.
-		lines.push(
-			C.dim(subRow(`${int(model.topProject.sessionCount)} sessions`, 'whole-session totals'))
-		);
+		if (model.topProject.exceedsHeadline) {
+			// Whole-session cost beats the calendar-month headline (a session straddling
+			// the boundary) — a sub-item bigger than the total is not a shareable claim,
+			// so show the name + session count and skip the dollar figure.
+			lines.push(row(model.topProject.display, `${int(model.topProject.sessionCount)} sessions`));
+			lines.push(C.dim(subRow('sessions span beyond this month', '')));
+		} else {
+			lines.push(row(model.topProject.display, money(model.topProject.cost)));
+			// Overlap-rule caveat (whole sessions in window) → no "% of spend" here.
+			lines.push(
+				C.dim(subRow(`${int(model.topProject.sessionCount)} sessions`, 'whole-session totals'))
+			);
+		}
 	} else {
 		lines.push(C.dim(centre('no attributed sessions')));
 	}
@@ -167,7 +182,7 @@ export function renderWrappedText(model: WrappedModel, e: RenderTextEnv = {}): s
 	lines.push('');
 	lines.push(dashRule(noArt));
 	lines.push(sectionHead('cache savings'));
-	lines.push(row('you saved', C.bold(`-${money(model.cache.savedVsUncached)}`)));
+	lines.push(row('you saved', C.bold(money(model.cache.savedVsUncached))));
 	if (model.cache.cacheReadTokens > 0) {
 		lines.push(
 			C.dim(subRow(`${compactTokens(model.cache.cacheReadTokens)} reads @ cache rate`, ''))
@@ -184,7 +199,8 @@ export function renderWrappedText(model: WrappedModel, e: RenderTextEnv = {}): s
 		lines.push(dashRule(noArt));
 		lines.push(sectionHead('vs last month'));
 		const d = model.momDelta;
-		lines.push(C.accent(C.bold(row(`vs ${d.priorMonth}`, signedPct(d.deltaPct)))));
+		const vsLabel = d.likeForLike ? `vs same point in ${d.priorMonth}` : `vs ${d.priorMonth}`;
+		lines.push(C.accent(C.bold(row(vsLabel, signedPct(d.deltaPct)))));
 		const sign = d.deltaUsd >= 0 ? '+' : '-';
 		lines.push(C.dim(row(`was ${money(d.priorCost)}`, `${sign}${money(Math.abs(d.deltaUsd))}`)));
 	}

@@ -246,9 +246,16 @@ function wrappedElement(model: WrappedModel, markDataUri: string): RenderNode {
 	children.push(dashedRule());
 	children.push(sectionLabel('your top project'));
 	if (model.topProject) {
-		children.push(lineItem(model.topProject.display, money(model.topProject.cost), { weight: 700, amountWeight: 700 }));
-		// Overlap-rule caveat (whole sessions in window) → no "% of spend" here.
-		children.push(lineItem(`${int(model.topProject.sessionCount)} sessions`, 'whole-session totals', { color: PAPER.muted }));
+		if (model.topProject.exceedsHeadline) {
+			// Whole-session cost beats the calendar headline (boundary-straddling session):
+			// drop the dollar figure — a sub-item bigger than the total is not shareable.
+			children.push(lineItem(model.topProject.display, `${int(model.topProject.sessionCount)} sessions`, { weight: 700, amountWeight: 700 }));
+			children.push(lineItem('sessions span beyond this month', '', { color: PAPER.muted }));
+		} else {
+			children.push(lineItem(model.topProject.display, money(model.topProject.cost), { weight: 700, amountWeight: 700 }));
+			// Overlap-rule caveat (whole sessions in window) → no "% of spend" here.
+			children.push(lineItem(`${int(model.topProject.sessionCount)} sessions`, 'whole-session totals', { color: PAPER.muted }));
+		}
 	} else {
 		children.push(lineItem('no attributed sessions', '', { color: PAPER.muted }));
 	}
@@ -263,7 +270,7 @@ function wrappedElement(model: WrappedModel, markDataUri: string): RenderNode {
 	// Cache savings.
 	children.push(dashedRule());
 	children.push(sectionLabel('cache savings'));
-	children.push(lineItem('you saved', `−${money(model.cache.savedVsUncached)}`, { color: PAPER.green, weight: 700, amountWeight: 700 }));
+	children.push(lineItem('you saved', money(model.cache.savedVsUncached), { color: PAPER.green, weight: 700, amountWeight: 700 }));
 	children.push(lineItem('cache billed', money(model.cache.cacheReadCost + model.cache.cacheWriteCost), { color: PAPER.muted }));
 
 	// Month over month (present only when the build gated a full prior baseline).
@@ -271,7 +278,8 @@ function wrappedElement(model: WrappedModel, markDataUri: string): RenderNode {
 		const d = model.momDelta;
 		children.push(dashedRule());
 		children.push(sectionLabel('vs last month'));
-		children.push(lineItem(`vs ${d.priorMonth}`, signedPct(d.deltaPct), { weight: 700, amountWeight: 700, color: PAPER.ink }));
+		const vsLabel = d.likeForLike ? `vs same point in ${d.priorMonth}` : `vs ${d.priorMonth}`;
+		children.push(lineItem(vsLabel, signedPct(d.deltaPct), { weight: 700, amountWeight: 700, color: PAPER.ink }));
 		const sign = d.deltaUsd >= 0 ? '+' : '−';
 		children.push(lineItem(`was ${money(d.priorCost)}`, `${sign}${money(Math.abs(d.deltaUsd))}`, { color: PAPER.muted }));
 	}

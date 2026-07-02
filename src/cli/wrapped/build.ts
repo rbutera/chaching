@@ -205,7 +205,10 @@ export function buildWrapped(snapshot: RollupSnapshot, opts: BuildWrappedOptions
 					display: projects[0].display,
 					cost: projects[0].cost,
 					sessionCount: projects[0].sessionCount,
-					isUnknown: projects[0].isUnknown
+					isUnknown: projects[0].isUnknown,
+					// A marathon session straddling the boundary can carry more whole-session
+					// cost than the calendar month burned — flag it so renderers drop the figure.
+					exceedsHeadline: projects[0].cost > totals.cost
 				}
 			: null;
 
@@ -221,22 +224,32 @@ export function buildWrapped(snapshot: RollupSnapshot, opts: BuildWrappedOptions
 
 	const biggestDay = biggestDayOf(grain);
 
-	// Month-over-month delta — gated on a GENUINE prior-month baseline (every day
-	// authoritative, wholly inside the banked range, non-zero total). Otherwise the
-	// whole comparison is omitted rather than fabricated.
+	// Month-over-month delta — equal windows or no delta (the heroTotals discipline;
+	// comparing a 2-day month-to-date against a full prior month manufactures a
+	// meaningless -9x%). A month-to-date recap clips the prior month to the SAME
+	// day-span (days 1..N, bounded by the shorter month); a full-month recap compares
+	// full vs full. Both sides must be trustworthy: every clipped prior day
+	// authoritative, non-zero prior total, and NO unknown-priced requests on either
+	// side. Otherwise the comparison is omitted rather than fabricated.
 	const priorMonth = priorMonthOf(month);
 	const priorFrom = `${priorMonth}-01`;
-	const priorTo = lastDayOfMonth(priorMonth);
+	const priorFullTo = lastDayOfMonth(priorMonth);
+	const priorTo = monthToDate
+		? `${priorMonth}-${String(Math.min(Number(to.slice(-2)), Number(priorFullTo.slice(-2)))).padStart(2, '0')}`
+		: priorFullTo;
 	const priorDays = enumerateDays(priorFrom, priorTo);
 	const priorTotals = sumGrain(snapshot.dayModel, { from: priorFrom, to: priorTo });
 	let momDelta: WrappedMomDelta | null = null;
 	if (
 		monthIsAuthoritative(priorDays, snapshot.coverage) &&
 		priorTotals.cost > 0 &&
-		priorTotals.costUnknownRequests === 0
+		priorTotals.costUnknownRequests === 0 &&
+		totals.costUnknownRequests === 0
 	) {
 		momDelta = {
 			priorMonth,
+			likeForLike: monthToDate,
+			priorTo,
 			priorCost: priorTotals.cost,
 			deltaUsd: totals.cost - priorTotals.cost,
 			deltaPct: (totals.cost - priorTotals.cost) / priorTotals.cost

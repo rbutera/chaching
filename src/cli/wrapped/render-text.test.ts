@@ -22,7 +22,7 @@ function fixtureModel(over: Partial<WrappedModel> = {}): WrappedModel {
 			tokens: 2_900_000,
 			requests: 140
 		},
-		topProject: { display: 'web-app', cost: 15, sessionCount: 3, isUnknown: false },
+		topProject: { display: 'web-app', cost: 15, sessionCount: 3, isUnknown: false, exceedsHeadline: false },
 		cache: {
 			cacheReadTokens: 2_800_000,
 			cacheReadCost: 0.8,
@@ -31,7 +31,7 @@ function fixtureModel(over: Partial<WrappedModel> = {}): WrappedModel {
 			savedVsUncached: 9.4
 		},
 		biggestDay: { day: '2026-07-03', cost: 12.5 },
-		momDelta: { priorMonth: '2026-06', priorCost: 10, deltaUsd: 12, deltaPct: 1.2 },
+		momDelta: { priorMonth: '2026-06', likeForLike: true, priorTo: '2026-06-15', priorCost: 10, deltaUsd: 12, deltaPct: 1.2 },
 		subsidy: { monthlyUsd: 100, apiEquivalentUsd: 20.5, netSubsidyUsd: -79.5, multiple: 0.205 },
 		footer: 'no refunds. the tokens are gone.',
 		barcode: '▌▏▎▏▋▍▌',
@@ -42,6 +42,31 @@ function fixtureModel(over: Partial<WrappedModel> = {}): WrappedModel {
 }
 
 describe('renderWrappedText', () => {
+	it("'you saved' shows a POSITIVE figure — never a leading minus (W3 review regression)", () => {
+		const out = renderWrappedText(fixtureModel(), { noColor: true });
+		expect(out).toContain('you saved');
+		expect(out).toMatch(/you saved\s+\$9\.40/);
+		expect(out).not.toContain('-$9.40');
+		expect(out).not.toContain('\u2212$9.40');
+	});
+
+	it('omits the top-project dollar when whole-session cost exceeds the headline', () => {
+		const out = renderWrappedText(
+			fixtureModel({
+				topProject: { display: 'marathon', cost: 999, sessionCount: 2, isUnknown: false, exceedsHeadline: true }
+			}),
+			{ noColor: true }
+		);
+		expect(out).toContain('marathon');
+		expect(out).not.toContain('$999.00');
+		expect(out).toContain('sessions span beyond this month');
+	});
+
+	it('labels a like-for-like month-to-date delta as "same point"', () => {
+		const out = renderWrappedText(fixtureModel(), { noColor: true });
+		expect(out).toContain('vs same point in 2026-06');
+	});
+
 	it('renders the header + all section heads in the recap voice', () => {
 		const out = renderWrappedText(fixtureModel(), { noColor: true });
 		expect(out).toContain('chaching wrapped');

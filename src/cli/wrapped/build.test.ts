@@ -187,16 +187,71 @@ describe('buildWrapped — month-over-month delta gating (honesty rule)', () => 
 		const m = buildWrapped(snap, { now: NOW });
 		expect(m.momDelta).not.toBeNull();
 		expect(m.momDelta?.priorMonth).toBe('2026-06');
+		// like-for-like: a July-15 month-to-date compares against June 1-15 only
+		expect(m.momDelta?.likeForLike).toBe(true);
+		expect(m.momDelta?.priorTo).toBe('2026-06-15');
 		expect(m.momDelta?.priorCost).toBeCloseTo(10, 10);
-		// July = 22, June = 10 → +120%
+		// July MTD = 22, June 1-15 = 10 → +120%
 		expect(m.momDelta?.deltaPct).toBeCloseTo((22 - 10) / 10, 6);
+	});
+
+	it('like-for-like clipping EXCLUDES prior-month spend after the same day-of-month', () => {
+		// June 20 spend is outside the June 1-15 like-for-like window of a July-15 recap.
+		const grain = [
+			...julyGrain,
+			...junePriorGrain,
+			dm('2026-06-20', 'claude', 'claude-opus-4-8', 999, toks(1_000), 1)
+		];
+		const coverage = {
+			...coverAll('2026-06-01', '2026-06-30', 'frozen'),
+			...coverAll('2026-07-01', '2026-07-15', 'partial')
+		};
+		const m = buildWrapped(snapFrom(grain, { coverage }), { now: NOW });
+		expect(m.momDelta?.priorCost).toBeCloseTo(10, 10); // the 999 never enters
+	});
+
+	it('a FULL-month recap (--month) still compares full month vs full month', () => {
+		const grain = [
+			...julyGrain,
+			...junePriorGrain,
+			dm('2026-06-20', 'claude', 'claude-opus-4-8', 5, toks(1_000), 1)
+		];
+		const coverage = {
+			...coverAll('2026-06-01', '2026-06-30', 'frozen'),
+			...coverAll('2026-07-01', '2026-07-31', 'frozen')
+		};
+		// recap June itself is not the point — recap July as an EXPLICIT past month
+		const m = buildWrapped(snapFrom(grain, { coverage }), {
+			now: Date.parse('2026-08-10T12:00:00Z'),
+			month: '2026-07'
+		});
+		expect(m.momDelta?.likeForLike).toBe(false);
+		expect(m.momDelta?.priorTo).toBe('2026-06-30');
+		expect(m.momDelta?.priorCost).toBeCloseTo(15, 10); // 10 + 5, full June
+	});
+
+	it('SUPPRESSES the delta when the CURRENT month has unknown-priced requests', () => {
+		const julyWithUnknown = [
+			...julyGrain,
+			{ ...dm('2026-07-11', 'claude', 'some-unpriced-model', 0, toks(1_000), 1), costUnknownRequests: 1 }
+		];
+		const coverage = {
+			...coverAll('2026-06-01', '2026-06-30', 'frozen'),
+			...coverAll('2026-07-01', '2026-07-15', 'partial')
+		};
+		const m = buildWrapped(snapFrom([...julyWithUnknown, ...junePriorGrain], { coverage }), { now: NOW });
+		expect(m.momDelta).toBeNull();
 	});
 
 	it('SUPPRESSES the delta when a prior-month day is missing (not fully covered)', () => {
 		const grain = [...julyGrain, ...junePriorGrain];
-		// cover all of June EXCEPT one day → that day is `missing` → not authoritative.
-		const coverage = coverAll('2026-06-01', '2026-06-30', 'frozen');
-		delete coverage['2026-06-20'];
+		// cover all of June EXCEPT one day INSIDE the like-for-like window (1-15)
+		// → that day is `missing` → not authoritative.
+		const coverage = {
+			...coverAll('2026-06-01', '2026-06-30', 'frozen'),
+			...coverAll('2026-07-01', '2026-07-15', 'partial')
+		};
+		delete coverage['2026-06-10'];
 		const snap = snapFrom(grain, { coverage });
 		const m = buildWrapped(snap, { now: NOW });
 		expect(m.momDelta).toBeNull();
