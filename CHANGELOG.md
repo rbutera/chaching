@@ -2,6 +2,13 @@
 
 All notable changes to chaching. Follows [semver](https://semver.org/); dates are UTC.
 
+## 1.11.0 — 2026-07-02
+
+### Changed
+
+- **The subscription-subsidy card now follows the period selector.** The fee is pro-rated to the selected window from a daily rate of `monthly fee / 30`: the day view compares today's usage against fee/30, week against 7 days of fee, month (last 30 days) against the full monthly fee exactly, quarter against 90 days of fee; a pinned heatmap day is a 1-day window. The basis line names the window and the pro-rated fee. Shortfalls render as a plain net figure — the "(under-using)" verdicts, month-to-date projections, and "too early to call" states are gone. The receipt footer and `chaching wrapped` keep their calendar-month basis (they reconcile a specific month's bill).
+- **The hero explains a missing period comparison** ("no full prior-window data yet", with a tooltip) instead of silently omitting the delta when the prior window contains days with no banked data.
+
 ## 1.10.1 — 2026-07-02
 
 ### Fixed
