@@ -16,12 +16,12 @@ import {
 } from '$lib/core/pricing/cache-breakdown-core';
 import { resolvePriceClient } from '$lib/pricing-client';
 import {
-	buildSubsidisation,
+	buildWindowSubsidisation,
 	burnPace as coreBurnPace,
 	type BurnPace,
 	type ProviderSubsidisationConfig,
-	type SubsidisationRollup,
-	type SubsidisedProvider
+	type SubsidisedProvider,
+	type WindowSubsidisationRollup
 } from '$lib/core/subsidisation';
 
 const LS_KEY = 'chaching.ui.v1';
@@ -289,17 +289,22 @@ export class Dashboard {
 	}
 
 	/**
-	 * Subsidisation roll-up. ALWAYS month-basis: the headline compares the current
-	 * calendar month-to-date burn against the full monthly fee and does NOT follow
-	 * the dashboard period selector (design D5). Derived from the full snapshot grain
-	 * + the per-provider subscription config the page fetched.
+	 * Subsidisation roll-up for the card. FOLLOWS the period selector (and a pinned
+	 * day): usage in the selected window vs the fee pro-rated to that window from a
+	 * monthlyUsd/30 daily rate — day = today vs fee/30, week = ×7, month (last 30
+	 * days) = the full fee, quarter = ×90. Model/provider display filters do NOT
+	 * apply — the fee is inherently per-provider, so filtering the burn while
+	 * keeping the fee would fabricate a bad multiple.
 	 */
 	subsidisation(
 		snap: RollupSnapshot,
-		config: Record<SubsidisedProvider, ProviderSubsidisationConfig>,
-		now: Date = new Date(snap.generatedAt || Date.now())
-	): SubsidisationRollup {
-		return buildSubsidisation(snap.dayModel, config, now);
+		config: Record<SubsidisedProvider, ProviderSubsidisationConfig>
+	): WindowSubsidisationRollup {
+		const st = this.state();
+		const w = vm.periodWindow(snap, st);
+		const from = st.focusedDay ?? w.from;
+		const to = st.focusedDay ?? w.to;
+		return buildWindowSubsidisation(snap.dayModel, config, { from, to });
 	}
 
 	/**

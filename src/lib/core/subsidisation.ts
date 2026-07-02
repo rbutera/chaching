@@ -247,3 +247,92 @@ export function buildSubsidisation(
 		daysInMonth
 	};
 }
+
+// ── Window-based subsidisation (the dashboard card) ─────────────────────────────
+//
+// The dashboard subsidy card FOLLOWS the period selector (product decision,
+// 2026-07-02, superseding the old calendar-month-to-date design): the fee is
+// pro-rated to the selected window from a daily rate of monthlyUsd / 30, so
+//   day     -> today's usage        vs fee/30
+//   week    -> last 7 days' usage   vs fee/30 * 7
+//   month   -> last 30 days' usage  vs fee/30 * 30 (= the monthly fee exactly)
+//   quarter -> last 90 days' usage  vs fee/30 * 90
+//   all     -> full-range usage     vs fee/30 * windowDays
+// A pinned day is a 1-day window. The receipt footer and `chaching wrapped`
+// keep the calendar-month basis (they reconcile a specific month's bill).
+
+/** Daily-rate divisor for pro-rating a monthly fee across a window. */
+export const FEE_PRORATA_DAYS = 30;
+
+export interface WindowProviderSubsidisation {
+	provider: SubsidisedProvider;
+	enabled: boolean;
+	tier: string;
+	monthlyUsd: number;
+	/** monthlyUsd / 30 * windowDays — the fee share this window carries */
+	windowFeeUsd: number;
+	sub: Subsidisation;
+}
+
+export interface WindowSubsidisationRollup {
+	providers: WindowProviderSubsidisation[];
+	combined: { monthlyUsd: number; windowFeeUsd: number; sub: Subsidisation };
+	/** inclusive day count of the window */
+	windowDays: number;
+	from: string;
+	to: string;
+}
+
+/** Inclusive day count of [from, to] (UTC). */
+function inclusiveDays(from: string, to: string): number {
+	if (to < from) return 0;
+	const a = new Date(from + 'T00:00:00Z').getTime();
+	const b = new Date(to + 'T00:00:00Z').getTime();
+	return Math.round((b - a) / 86400000) + 1;
+}
+
+/**
+ * Per-provider + combined subsidisation over an arbitrary [from, to] window,
+ * against the fee pro-rated to that window (daily rate = monthlyUsd / 30).
+ */
+export function buildWindowSubsidisation(
+	grain: DayModelAgg[],
+	config: Record<SubsidisedProvider, ProviderSubsidisationConfig>,
+	window: { from: string; to: string }
+): WindowSubsidisationRollup {
+	const { from, to } = window;
+	const windowDays = inclusiveDays(from, to);
+
+	const providers: WindowProviderSubsidisation[] = SUBSIDISED_PROVIDERS.map((provider) => {
+		const cfg = config[provider];
+		const burn = cfg.enabled
+			? sumGrain(grain, { from, to, providers: new Set([provider]) }).cost
+			: 0;
+		const windowFeeUsd = cfg.enabled ? (cfg.monthlyUsd / FEE_PRORATA_DAYS) * windowDays : 0;
+		return {
+			provider,
+			enabled: cfg.enabled,
+			tier: cfg.tier,
+			monthlyUsd: cfg.monthlyUsd,
+			windowFeeUsd,
+			sub: computeSubsidisation({ apiEquivalentUsd: burn, monthlyUsd: windowFeeUsd })
+		};
+	});
+
+	const enabled = providers.filter((p) => p.enabled);
+	const combinedFee = enabled.reduce((s, p) => s + p.monthlyUsd, 0);
+	const combinedWindowFee = enabled.reduce((s, p) => s + p.windowFeeUsd, 0);
+	const combinedBurn = enabled.reduce((s, p) => s + p.sub.apiEquivalentUsd, 0);
+
+	return {
+		providers,
+		combined: {
+			monthlyUsd: combinedFee,
+			windowFeeUsd: combinedWindowFee,
+			sub: computeSubsidisation({ apiEquivalentUsd: combinedBurn, monthlyUsd: combinedWindowFee })
+		},
+		windowDays,
+		from,
+		to
+	};
+}

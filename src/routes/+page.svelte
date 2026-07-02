@@ -231,8 +231,8 @@
 		return { saved: b.savedVsUncached, hitRate: totalInputish > 0 ? cacheRead / totalInputish : 0 };
 	});
 
-	// Subsidisation roll-up — ALWAYS month-basis (does NOT follow the period selector).
-	// Derived from the full snapshot grain + the per-provider subscription config.
+	// Subsidisation roll-up — follows the period selector / pinned day; the fee is
+	// pro-rated to the window from a monthlyUsd/30 daily rate.
 	let subsidyConfig = $derived(
 		config
 			? {
@@ -485,6 +485,13 @@
 								{heroDelta.text}
 								<span class="sub">vs prior {money(hero?.prior.cost ?? 0)}</span>
 							</span>
+						{:else if !focusedDay && hero && !hero.priorHasBaseline}
+							<!-- honest-baseline rule: say WHY there's no comparison instead of
+							     silently omitting it (the prior window has gap days or predates
+							     the banked history, so a % against it would be fabricated). -->
+							<span class="delta none" title="The prior window has days with no banked data, so a comparison against it would be misleading. It appears once a full prior window is covered.">
+								no full prior-window data yet
+							</span>
 						{/if}
 					</div>
 					{#if flourish}<div class="flourish">{flourish}</div>{/if}
@@ -592,7 +599,7 @@
 					<CachePanel breakdown={cacheBreakdown} />
 				{/if}
 				{#if subsidy && subsidyConfig}
-					<SubsidisationCard rollup={subsidy} config={subsidyConfig} {onTierChange} burnPace={pace} />
+					<SubsidisationCard rollup={subsidy} windowLabel={heroLabel} config={subsidyConfig} {onTierChange} burnPace={pace} />
 				{/if}
 			</section>
 
@@ -932,6 +939,10 @@
 	}
 	.delta.down {
 		color: var(--good);
+	}
+	.delta.none {
+		color: var(--text-dim);
+		font-weight: 400;
 	}
 	.delta.flat {
 		color: var(--text-dim);

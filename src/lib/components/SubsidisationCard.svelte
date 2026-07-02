@@ -1,9 +1,10 @@
 <script lang="ts">
-	// SubsidisationCard — the headline "how much API value did my flat fee buy me
-	// this month" framing. Always month-basis (does NOT follow the dashboard period
-	// selector): month-to-date burn vs the full monthly fee, plus a labelled
-	// projected figure. Per-provider + combined, $0-tier ("∞ — all of it") and
-	// negative-subsidy ("under-using your plan") states. Brass-accent headline.
+	// SubsidisationCard — "how much API value did my flat fee buy me" over the
+	// SELECTED WINDOW. Follows the period selector / pinned day: the burn in the
+	// window is compared against the fee pro-rated to it from a monthlyUsd/30 daily
+	// rate (day = fee/30, week = ×7, month = the full fee, quarter = ×90). The
+	// receipt footer and `chaching wrapped` keep the calendar-month basis. $0-tier
+	// renders "∞ — all of it". Brass-accent headline.
 	//
 	// Owns the per-provider tier switcher (a preset <select> + a Custom number input
 	// shown only for Custom), controlled off the publicConfig the page holds. On
@@ -12,18 +13,20 @@
 	import { SUBSCRIPTION_PRESETS, type SubscriptionPreset } from '$lib/core/config';
 	import type {
 		BurnPace,
-		ProviderSubsidisation,
-		SubsidisationRollup,
-		SubsidisedProvider
+		SubsidisedProvider,
+		WindowSubsidisationRollup
 	} from '$lib/core/subsidisation';
 
 	let {
 		rollup,
+		windowLabel,
 		config,
 		onTierChange,
 		burnPace = null
 	}: {
-		rollup: SubsidisationRollup;
+		rollup: WindowSubsidisationRollup;
+		/** the human window label the page already renders (e.g. "Last 7 days", a pinned day) */
+		windowLabel: string;
 		/** the current persisted tier/fee per provider (from publicConfig) */
 		config: Record<SubsidisedProvider, { enabled: boolean; tier: string; monthlyUsd: number }>;
 		/** commit a tier change for one provider; the page persists via /api/config */
@@ -40,16 +43,12 @@
 	/** Render a multiple as "97×" / "1.4×" / "∞ — all of it" / "0× — nothing yet". */
 	function fmtMultiple(multiple: number | null): string {
 		if (multiple == null) return '∞ — all of it';
-		if (multiple === 0) return '0× — nothing used yet this month';
+		if (multiple === 0) return '0× — nothing used yet';
 		return multiple >= 100 ? `${Math.round(multiple)}×` : `${multiple.toFixed(1)}×`;
 	}
 
 	let enabledProviders = $derived(rollup.providers.filter((p) => p.enabled));
 
-	// A 1-2 day sample can't support an "(under-using)" verdict or a projection —
-	// same ≥3-day discipline as burnPace guard (b). The MTD figures stay (facts);
-	// only the forward-looking wording is gated.
-	let earlyMonth = $derived(rollup.elapsedDays < 3);
 
 	function presetsFor(provider: SubsidisedProvider): SubscriptionPreset[] {
 		return SUBSCRIPTION_PRESETS[provider];
@@ -76,7 +75,12 @@
 	<div class="head">
 		<div>
 			<h2 id="subsidy-heading" class="title">Subscription subsidy</h2>
-			<p class="basis">{rollup.monthLabel} so far · day {rollup.elapsedDays} of {rollup.daysInMonth} · vs your flat monthly fee</p>
+			<p class="basis">
+				{windowLabel} · vs {money(rollup.combined.windowFeeUsd)}
+				({rollup.windowDays === 30
+					? 'your monthly fee'
+					: `${rollup.windowDays} ${rollup.windowDays === 1 ? 'day' : 'days'} of fee at 1/30 per day`})
+			</p>
 			{#if burnPace}
 				<p class="pace">
 					on pace for ~<span class="num">{money(burnPace.projectedCost)}</span> this month
@@ -88,27 +92,17 @@
 	<!-- COMBINED HEADLINE -->
 	<div class="headline">
 		<span class="multiple num" aria-label="combined subsidy multiple">
-			{fmtMultiple(rollup.combined.mtd.multiple)}
+			{fmtMultiple(rollup.combined.sub.multiple)}
 		</span>
 		<p class="headline-sub">
-			<span class="num">{money(rollup.combined.mtd.apiEquivalentUsd)}</span> of API value for
-			<span class="num">{money(rollup.combined.monthlyUsd)}</span>
+			<span class="num">{money(rollup.combined.sub.apiEquivalentUsd)}</span> of API value for
+			<span class="num">{money(rollup.combined.windowFeeUsd)}</span>
 		</p>
 		<p class="headline-net">
-			{#if rollup.combined.mtd.netSubsidyUsd >= 0}
-				<span class="net-pos">net subsidy +{money(rollup.combined.mtd.netSubsidyUsd)}</span>
-			{:else if earlyMonth}
-				<!-- 1-2 days in, fee not yet earned back: expected, not a verdict -->
-				<span class="net-dim">fee not earned back yet — too early to call</span>
-			{:else if (rollup.combined.projected.multiple ?? 1) >= 1}
-				<span class="net-dim">on pace to earn the fee back</span>
+			{#if rollup.combined.sub.netSubsidyUsd >= 0}
+				<span class="net-pos">net subsidy +{money(rollup.combined.sub.netSubsidyUsd)}</span>
 			{:else}
-				<span class="net-neg">on pace to under-use · {money(rollup.combined.mtd.netSubsidyUsd)} so far</span>
-			{/if}
-			{#if !earlyMonth}
-				<span class="projected">
-					· projected <span class="num">{fmtMultiple(rollup.combined.projected.multiple)}</span>
-				</span>
+				<span class="net-dim">net {money(rollup.combined.sub.netSubsidyUsd)} vs the pro-rated fee</span>
 			{/if}
 		</p>
 	</div>
@@ -120,18 +114,14 @@
 			<li class="prov">
 				<div class="prov-top">
 					<span class="prov-name">{label}</span>
-					<span class="prov-mult num">{fmtMultiple(p.mtd.multiple)}</span>
+					<span class="prov-mult num">{fmtMultiple(p.sub.multiple)}</span>
 				</div>
 				<div class="prov-detail">
-					<span class="num">{money(p.mtd.apiEquivalentUsd)}</span> value so far ·
-					{#if p.mtd.netSubsidyUsd >= 0}
-						<span class="net-pos">+{money(p.mtd.netSubsidyUsd)} subsidy</span>
-					{:else if earlyMonth}
-						<span class="net-dim">too early to call</span>
-					{:else if (p.projected.multiple ?? 1) >= 1}
-						<span class="net-dim">on pace to earn it back · projected <span class="num">{fmtMultiple(p.projected.multiple)}</span></span>
+					<span class="num">{money(p.sub.apiEquivalentUsd)}</span> value ·
+					{#if p.sub.netSubsidyUsd >= 0}
+						<span class="net-pos">+{money(p.sub.netSubsidyUsd)} subsidy</span>
 					{:else}
-						<span class="net-neg">on pace to under-use · projected <span class="num">{fmtMultiple(p.projected.multiple)}</span></span>
+						<span class="net-dim">net {money(p.sub.netSubsidyUsd)} vs {money(p.windowFeeUsd)} pro-rated</span>
 					{/if}
 				</div>
 				<div class="switcher">
@@ -231,14 +221,8 @@
 	.net-pos {
 		color: var(--good);
 	}
-	.net-neg {
-		color: var(--warn);
-	}
 	.net-dim {
 		color: var(--text-dim);
-	}
-	.projected {
-		color: var(--fg-dim);
 	}
 	.providers {
 		list-style: none;
