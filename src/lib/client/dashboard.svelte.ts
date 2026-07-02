@@ -17,6 +17,8 @@ import {
 import { resolvePriceClient } from '$lib/pricing-client';
 import {
 	buildSubsidisation,
+	burnPace as coreBurnPace,
+	type BurnPace,
 	type ProviderSubsidisationConfig,
 	type SubsidisationRollup,
 	type SubsidisedProvider
@@ -289,5 +291,16 @@ export class Dashboard {
 		now: Date = new Date(snap.generatedAt || Date.now())
 	): SubsidisationRollup {
 		return buildSubsidisation(snap.dayModel, config, now);
+	}
+
+	/**
+	 * Burn-pace projection ("on pace for ~$X this month"). ALWAYS month-basis, same
+	 * D5 semantics as `subsidisation()`: does NOT follow the dashboard period
+	 * selector. Returns `null` when the cost-honesty guards trip (a coverage gap
+	 * in the elapsed month-to-date range, or too few elapsed days to extrapolate) —
+	 * the caller must render nothing in that case.
+	 */
+	burnPace(snap: RollupSnapshot, now: Date = new Date(snap.generatedAt || Date.now())): BurnPace | null {
+		return coreBurnPace(snap.dayModel, snap.coverage, now);
 	}
 }

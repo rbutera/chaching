@@ -7,8 +7,8 @@
 // labelled "projected" figure scales month-to-date up by the elapsed fraction of
 // the month (design D5). $0 (Free) tiers are handled without divide-by-zero.
 
-import type { DayModelAgg } from '../types';
-import { sumGrain } from './aggregate';
+import type { CoverageMap, DayModelAgg } from '../types';
+import { dayCoverageState, sumGrain } from './aggregate';
 
 /** Providers whose API-equivalent cost chaching computes → subsidisation applies. */
 export const SUBSIDISED_PROVIDERS = ['claude', 'codex'] as const;
@@ -65,6 +65,62 @@ export function fractionOfMonthElapsed(now: Date = new Date()): number {
 	const daysElapsed = now.getUTCDate(); // 1..31, includes today
 	const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
 	return daysElapsed / daysInMonth;
+}
+
+/** One day past `day` (YYYY-MM-DD, UTC). Local to avoid coupling this module to view-model.ts. */
+function nextDayISO(day: string): string {
+	const d = new Date(day + 'T00:00:00Z');
+	d.setUTCDate(d.getUTCDate() + 1);
+	return d.toISOString().slice(0, 10);
+}
+
+export interface BurnPace {
+	/** month-to-date cost, [month-start, today] inclusive (UTC) */
+	mtdCost: number;
+	/** day-of-month of `now` (UTC), 1..31 — the denominator of the pace, includes today */
+	elapsedDays: number;
+	daysInMonth: number;
+	/** mtdCost / elapsedDays * daysInMonth — "on pace for ~$X this month" */
+	projectedCost: number;
+}
+
+/**
+ * Burn-pace projection: "on pace for ~$X this month", the dashboard's forward
+ * headline (distinct from `monthlyBurn`, which the subsidy math scales by
+ * elapsed FRACTION — this is the plain day-count version driving its own UI
+ * stat). Cost-honesty hard rule (see CLAUDE.md "Conventions"): two guards
+ * return `null` rather than a fabricated figure, and the caller must render
+ * nothing when that happens.
+ *
+ * GUARD (a) coverage: if any elapsed-MTD day is `missing` (a gap chaching has
+ * no opinion about — pruned logs, or chaching wasn't running), an unknown
+ * chunk of real spend could be absent from `mtdCost`, and projecting off an
+ * understated MTD would understate the whole-month pace. `partial` (today's
+ * live tail) is fine — it's meant to be counted as-is, not a gap.
+ *
+ * GUARD (b) sample size: `elapsedDays < 3` extrapolates a whole month from a
+ * 1-2 day sample, which fabricates precision the data doesn't support.
+ */
+export function burnPace(
+	dayModel: DayModelAgg[],
+	coverage: CoverageMap,
+	now: Date = new Date()
+): BurnPace | null {
+	const elapsedDays = now.getUTCDate();
+	if (elapsedDays < 3) return null;
+
+	const { from, to } = monthToDateRange(now);
+	for (let day = from; day <= to; day = nextDayISO(day)) {
+		if (dayCoverageState(day, coverage) === 'missing') return null;
+	}
+
+	const daysInMonth = new Date(
+		Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)
+	).getUTCDate();
+	const mtdCost = sumGrain(dayModel, { from, to }).cost;
+	const projectedCost = (mtdCost / elapsedDays) * daysInMonth;
+
+	return { mtdCost, elapsedDays, daysInMonth, projectedCost };
 }
 
 export interface MonthlyBurn {

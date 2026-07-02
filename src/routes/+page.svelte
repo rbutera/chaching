@@ -243,6 +243,11 @@
 	);
 	let subsidy = $derived(snap && subsidyConfig ? dash.subsidisation(snap, subsidyConfig) : null);
 
+	// Burn-pace projection ("on pace for ~$X this month") — same month-basis, does-NOT-follow-
+	// the-period-selector semantics as the subsidy above (design D5). null when the cost-honesty
+	// guards trip (coverage gap in the elapsed month, or too few elapsed days).
+	let pace = $derived(snap ? dash.burnPace(snap) : null);
+
 	// Commit a tier change for one provider: optimistically update the local config
 	// copy (so the switcher + card move immediately), then persist via /api/config and
 	// merge the echoed config back. A racing SSE delta touches the feed snapshot, not
@@ -578,7 +583,7 @@
 					<CachePanel breakdown={cacheBreakdown} />
 				{/if}
 				{#if subsidy && subsidyConfig}
-					<SubsidisationCard rollup={subsidy} config={subsidyConfig} {onTierChange} />
+					<SubsidisationCard rollup={subsidy} config={subsidyConfig} {onTierChange} burnPace={pace} />
 				{/if}
 			</section>
 

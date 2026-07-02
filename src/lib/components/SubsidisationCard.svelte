@@ -11,6 +11,7 @@
 	import { money } from '$lib/format';
 	import { SUBSCRIPTION_PRESETS, type SubscriptionPreset } from '$lib/core/config';
 	import type {
+		BurnPace,
 		ProviderSubsidisation,
 		SubsidisationRollup,
 		SubsidisedProvider
@@ -19,13 +20,16 @@
 	let {
 		rollup,
 		config,
-		onTierChange
+		onTierChange,
+		burnPace = null
 	}: {
 		rollup: SubsidisationRollup;
 		/** the current persisted tier/fee per provider (from publicConfig) */
 		config: Record<SubsidisedProvider, { enabled: boolean; tier: string; monthlyUsd: number }>;
 		/** commit a tier change for one provider; the page persists via /api/config */
 		onTierChange: (provider: SubsidisedProvider, tier: string, monthlyUsd: number) => void;
+		/** whole-account month-to-date burn-pace projection; null suppresses the line (cost-honesty guards) */
+		burnPace?: BurnPace | null;
 	} = $props();
 
 	const PROVIDER_LABEL: Record<SubsidisedProvider, string> = {
@@ -68,6 +72,11 @@
 		<div>
 			<h2 id="subsidy-heading" class="title">Subscription subsidy</h2>
 			<p class="basis">this month so far · vs your flat monthly fee</p>
+			{#if burnPace}
+				<p class="pace">
+					on pace for ~<span class="num">{money(burnPace.projectedCost)}</span> this month
+				</p>
+			{/if}
 		</div>
 	</div>
 
@@ -173,6 +182,11 @@
 		font-size: 0.72rem;
 		color: var(--fg-dim);
 		margin: 0.15rem 0 0;
+	}
+	.pace {
+		font-size: 0.72rem;
+		color: var(--fg-muted);
+		margin: 0.1rem 0 0;
 	}
 	.headline {
 		display: flex;
