@@ -48,6 +48,7 @@ Usage:
   chaching               Open the TUI dashboard (or run wizard on first launch)
   chaching stats         One-shot summary: totals, per-provider, per-model
   chaching receipt       Print your spend as a branded thermal receipt
+  chaching wrapped       Your month in tokens: a Spotify-Wrapped-style recap
   chaching serve         Start the web dashboard server
   chaching init          Run the setup wizard (re-runnable)
   chaching provider      Manage providers (add | enable | disable)
@@ -70,6 +71,12 @@ Flags for receipt:
   --png [path]             Write a shareable PNG (default: ./chaching-receipt-<period>.png)
   --redact                 Scrub usernames/hosts/paths before sharing (default: shown)
 
+Flags for wrapped:
+  --month YYYY-MM          Recap that calendar month (default: current month-to-date)
+  --json                   Machine-readable recap model to stdout (art-free)
+  --png [path]             Write a shareable PNG (default: ./chaching-wrapped-<month>.png)
+  --redact                 Scrub usernames/hosts/paths before sharing (default: shown)
+
 Flags for doctor:
   --json                   Machine-readable report model to stdout (art-free)
 
@@ -80,6 +87,8 @@ Examples:
   chaching receipt                 # this month (default)
   chaching receipt --period all
   chaching receipt --png receipt.png
+  chaching wrapped                 # your month in tokens (month-to-date)
+  chaching wrapped --month 2026-06 --png
   chaching serve
 `);
 }

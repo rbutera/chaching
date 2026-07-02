@@ -30,8 +30,12 @@ export interface RedactOptions {
 	homedir?: string;
 }
 
-/** Build the list of secret tokens to scrub from free text. */
-function secretsFor(opts: RedactOptions): string[] {
+/**
+ * Build the list of secret tokens to scrub from free text. Exported so sibling
+ * renderers (e.g. `chaching wrapped`) can reuse the SAME scrub semantics rather
+ * than reinventing username/host/home derivation.
+ */
+export function secretsFor(opts: RedactOptions): string[] {
 	const env = opts.env ?? process.env;
 	const secrets = new Set<string>();
 
@@ -100,9 +104,10 @@ function escapeRe(s: string): string {
 
 /**
  * Redact a free-text string: collapse absolute paths to a placeholder/basename,
- * then scrub any remaining secret tokens (username/host).
+ * then scrub any remaining secret tokens (username/host). Exported so sibling
+ * renderers reuse the identical path-collapse + secret-scrub behaviour.
  */
-function redactText(text: string, secrets: string[]): string {
+export function redactText(text: string, secrets: string[]): string {
 	if (!text) return text;
 	let out = text;
 

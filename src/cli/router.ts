@@ -4,6 +4,7 @@
 
 import { runStats, type StatsFlags } from './commands/stats.js';
 import { runReceipt, type ReceiptFlags } from './commands/receipt.js';
+import { runWrapped, type WrappedFlags } from './commands/wrapped.js';
 import { runServe } from './commands/serve.js';
 import { runInit } from './commands/init.js';
 import { runProvider } from './commands/provider.js';
@@ -57,6 +58,11 @@ export async function run(argv: string[]): Promise<void> {
 		case 'receipt':
 			// Same global-flag merge as stats (--no-art / --no-color before the subcommand).
 			await runReceipt(parseReceiptFlags([...globalArgs, ...rest]));
+			return;
+
+		case 'wrapped':
+			// Same global-flag merge as receipt (--no-art / --no-color before the subcommand).
+			await runWrapped(parseWrappedFlags([...globalArgs, ...rest]));
 			return;
 
 		case 'serve':
@@ -161,6 +167,89 @@ function parseStatsFlags(argv: string[]): StatsFlags {
 	}
 
 	if (providers.length > 0) flags.providers = providers;
+
+	return flags;
+}
+
+/**
+ * Parse `chaching wrapped` flags. Mirrors the receipt parser's discipline (unknown
+ * flag → error + nonzero exit) and adds `--month YYYY-MM`. `--period` is accepted
+ * for symmetry with the other commands but `month` is the only valid value — the
+ * recap is inherently monthly, so any other period is rejected rather than silently
+ * ignored.
+ */
+function parseWrappedFlags(argv: string[]): WrappedFlags {
+	const flags: WrappedFlags = {};
+
+	flags.noArt = noArt(argv);
+
+	const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+	const setMonth = (m: string): void => {
+		if (!MONTH_RE.test(m)) {
+			console.error(`chaching wrapped: --month must be YYYY-MM (e.g. 2026-07), got '${m}'`);
+			process.exit(1);
+		}
+		flags.month = m;
+	};
+
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+
+		if (arg === '--json') {
+			flags.json = true;
+		} else if (arg === '--redact') {
+			flags.redact = true;
+		} else if (arg === '--no-art') {
+			// already handled via noArt(); skip
+		} else if (arg === '--png') {
+			flags.png = true;
+			const next = argv[i + 1];
+			if (next && !next.startsWith('-')) {
+				flags.pngPath = next;
+				i++;
+			}
+		} else if (arg.startsWith('--png=')) {
+			flags.png = true;
+			const p = arg.slice('--png='.length);
+			if (p) flags.pngPath = p;
+		} else if (arg === '--month') {
+			const m = argv[i + 1];
+			if (!m || m.startsWith('--')) {
+				console.error(`chaching wrapped: --month requires a value (YYYY-MM)`);
+				process.exit(1);
+			}
+			i++;
+			setMonth(m);
+		} else if (arg.startsWith('--month=')) {
+			const m = arg.slice('--month='.length);
+			if (!m) {
+				console.error(`chaching wrapped: --month requires a value (YYYY-MM)`);
+				process.exit(1);
+			}
+			setMonth(m);
+		} else if (arg === '--period') {
+			const p = argv[i + 1];
+			if (!p || p.startsWith('--')) {
+				console.error(`chaching wrapped: --period requires a value (month)`);
+				process.exit(1);
+			}
+			i++;
+			if (p !== 'month') {
+				console.error(`chaching wrapped: --period must be 'month' (the recap is monthly), got '${p}'`);
+				process.exit(1);
+			}
+		} else if (arg.startsWith('--period=')) {
+			const p = arg.slice('--period='.length);
+			if (p !== 'month') {
+				console.error(`chaching wrapped: --period must be 'month' (the recap is monthly), got '${p}'`);
+				process.exit(1);
+			}
+		} else if (arg.startsWith('-')) {
+			console.error(`chaching wrapped: unknown flag '${arg}'`);
+			console.error(`Run \`chaching --help\` for usage.`);
+			process.exit(1);
+		}
+	}
 
 	return flags;
 }
