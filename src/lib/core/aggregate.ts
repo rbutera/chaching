@@ -325,3 +325,90 @@ export function filterDays(dayModel: DayModelAgg[], from?: string, to?: string):
 	if (!from && !to) return dayModel;
 	return dayModel.filter((dm) => (!from || dm.day >= from) && (!to || dm.day <= to));
 }
+
+/** Add (or subtract) whole days to a YYYY-MM-DD string, in UTC. Local to this module so
+ *  it has no dependency on view-model.ts (which imports FROM aggregate.ts, not vice versa). */
+function addDaysUTC(day: string, delta: number): string {
+	const d = dayToUTC(day);
+	d.setUTCDate(d.getUTCDate() + delta);
+	return d.toISOString().slice(0, 10);
+}
+
+export interface LifetimeSpend {
+	/** total cost across every banked day (the full history, not the current period window) */
+	totalCost: number;
+	/** trailing daily cost series for the sparkline, oldest-first, zero-filled for no-spend days */
+	dailySeries: { day: string; cost: number }[];
+	/**
+	 * Projected 12-month burn, derived from the trailing run-rate (see `runRateDays`), or
+	 * `null` when there isn't enough history to extrapolate responsibly (cost-honesty rule,
+	 * same posture as `burnPace` in subsidisation.ts: no history yet is not "$0/year").
+	 */
+	projectedYearlyCost: number | null;
+	/** the actual number of trailing days the run-rate was averaged over (<= runRateDays) */
+	runRateSampleDays: number;
+}
+
+/** Guard: fewer than this many banked days makes a run-rate too noisy to project a year from. */
+const MIN_RUN_RATE_SAMPLE_DAYS = 3;
+
+/**
+ * All-time cumulative spend + a forward-looking yearly-burn projection, for the dashboard's
+ * lifetime StatCard. `today` anchors both the trailing run-rate window and the sparkline span
+ * (defaults to the latest banked day so a stale/offline run doesn't skew the projection toward
+ * "today" in the real world).
+ *
+ * Method: average cost/day over the trailing `runRateDays` (default 30) that actually have
+ * banked data, then scale by 365. A shorter history still projects (using whatever sample it
+ * has) once it clears `MIN_RUN_RATE_SAMPLE_DAYS`; below that the projection is suppressed
+ * rather than fabricated from 1-2 days of noise. `dayModel` with zero rows projects `null`
+ * everywhere and an empty series (no divide-by-zero).
+ */
+export function lifetimeSpend(
+	dayModel: DayModelAgg[],
+	today?: string,
+	runRateDays = 30,
+	sparklineDays = 90
+): LifetimeSpend {
+	const totals = sumGrain(dayModel);
+
+	let latest = today ?? null;
+	if (!latest) {
+		for (const dm of dayModel) if (latest == null || dm.day > latest) latest = dm.day;
+	}
+
+	if (latest == null) {
+		return { totalCost: totals.cost, dailySeries: [], projectedYearlyCost: null, runRateSampleDays: 0 };
+	}
+
+	const byDay = new Map<string, number>();
+	for (const dm of dayModel) byDay.set(dm.day, (byDay.get(dm.day) ?? 0) + dm.cost);
+
+	const sparkFrom = addDaysUTC(latest, -(sparklineDays - 1));
+	const dailySeries = enumerateDays(sparkFrom, latest).map((day) => ({
+		day,
+		cost: byDay.get(day) ?? 0
+	}));
+
+	const runRateFrom = addDaysUTC(latest, -(runRateDays - 1));
+	let sampleDays = 0;
+	let sampleCost = 0;
+	for (const [day, cost] of byDay) {
+		if (day >= runRateFrom && day <= latest) {
+			sampleDays += 1;
+			sampleCost += cost;
+		}
+	}
+
+	const projectedYearlyCost =
+		sampleDays >= MIN_RUN_RATE_SAMPLE_DAYS ? (sampleCost / sampleDays) * 365 : null;
+
+	return { totalCost: totals.cost, dailySeries, projectedYearlyCost, runRateSampleDays: sampleDays };
+}
+
+/** Every inclusive calendar day in [from, to] (UTC), local helper (see note on `addDaysUTC`). */
+function enumerateDays(from: string, to: string): string[] {
+	const out: string[] = [];
+	for (let day = from; day <= to; day = addDaysUTC(day, 1)) out.push(day);
+	return out;
+}

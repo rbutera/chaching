@@ -7,7 +7,8 @@
 // thin Svelte shell that holds reactive state + persistence and delegates the math.
 
 import type { Period, RollupSnapshot, SessionSummary } from '$lib/types';
-import type { ModelTotal, PeriodBucket, ProviderTotal, Totals } from '$lib/core/aggregate';
+import type { LifetimeSpend, ModelTotal, PeriodBucket, ProviderTotal, Totals } from '$lib/core/aggregate';
+import { lifetimeSpend as coreLifetimeSpend } from '$lib/core/aggregate';
 import * as vm from '$lib/core/view-model';
 import type { DayCell, ProjectTotal } from '$lib/core/view-model';
 import {
@@ -316,5 +317,15 @@ export class Dashboard {
 	 */
 	burnPace(snap: RollupSnapshot, now: Date = new Date(snap.generatedAt || Date.now())): BurnPace | null {
 		return coreBurnPace(snap.dayModel, now);
+	}
+
+	/**
+	 * All-time cumulative spend + projected 12-month burn (design: dashboard glow-up,
+	 * all-time spend meter). Whole-account, ALWAYS: does not follow the period selector,
+	 * a pinned day, or the model/provider filters — same D5 posture as `burnPace`, since
+	 * "lifetime" means the full banked history, not the current scope.
+	 */
+	lifetimeSpend(snap: RollupSnapshot): LifetimeSpend {
+		return coreLifetimeSpend(snap.dayModel, snap.latestDay ?? undefined);
 	}
 }

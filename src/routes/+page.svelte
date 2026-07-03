@@ -256,6 +256,11 @@
 	// guards trip (coverage gap in the elapsed month, or too few elapsed days).
 	let pace = $derived(snap ? dash.burnPace(snap) : null);
 
+	// All-time cumulative spend + projected 12-month burn. Whole-account, ALWAYS: same
+	// does-NOT-follow-the-period-selector posture as `pace` above (design D5).
+	let lifetime = $derived(snap ? dash.lifetimeSpend(snap) : null);
+	let lifetimeSpark = $derived(lifetime ? lifetime.dailySeries.map((d) => d.cost) : []);
+
 	// Commit a tier change for one provider: optimistically update the local config
 	// copy (so the switcher + card move immediately), then persist via /api/config and
 	// merge the echoed config back. A racing SSE delta touches the feed snapshot, not
@@ -602,6 +607,28 @@
 					<SubsidisationCard rollup={subsidy} windowLabel={heroLabel} config={subsidyConfig} {onTierChange} burnPace={pace} />
 				{/if}
 			</section>
+
+			<!-- REGION 5b · LIFETIME SPEND (all-time cumulative + projected yearly burn) -->
+			{#if lifetime}
+				<section class="value-grid" aria-label="Lifetime spend">
+					<StatCard
+						label="all-time spend"
+						value={lifetime.totalCost}
+						money
+						moneyTone="gold"
+						accent="var(--accent)"
+						sub={lifetime.projectedYearlyCost != null
+							? `on pace for ${money(lifetime.projectedYearlyCost)}/yr · ${lifetime.runRateSampleDays}d sample`
+							: 'not enough history yet to project a year'}
+					/>
+					{#if lifetimeSpark.length > 1}
+						<div class="panel lifetime-spark-panel">
+							<span class="lifetime-spark-label">last 90 days</span>
+							<Sparkline values={lifetimeSpark} width={320} height={72} color="var(--accent)" area dot ariaLabel="Daily spend over the last 90 days" />
+						</div>
+					{/if}
+				</section>
+			{/if}
 
 			<!-- REGION 6 · CALENDAR HEATMAP (primary time-nav surface) -->
 			<section class="heatmap-sec" aria-label="Daily spend calendar">
@@ -1086,6 +1113,20 @@
 			grid-template-columns: 1fr 1fr;
 			align-items: start;
 		}
+	}
+	.lifetime-spark-panel {
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+		justify-content: center;
+	}
+	.lifetime-spark-label {
+		font-family: var(--font-mono);
+		font-size: var(--text-2xs);
+		font-weight: var(--fw-medium);
+		text-transform: uppercase;
+		letter-spacing: var(--tracking-caps);
+		color: var(--text-dim);
 	}
 
 	/* REGION 6 · HEATMAP */
