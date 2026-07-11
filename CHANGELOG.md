@@ -2,6 +2,18 @@
 
 All notable changes to chaching. Follows [semver](https://semver.org/); dates are UTC.
 
+## 1.13.0 — 2026-07-11
+
+### Added
+
+- **GPT-5.6 Sol, Terra, and Luna pricing.** Codex usage now resolves each exact tier at its published standard, cached-input, and cache-write rates. Requests above 272K prompt tokens apply the full-request long-context multipliers, while unknown GPT-5.6 tier names remain explicitly unpriced instead of inheriting a generic GPT-5 rate.
+- **All-time spend and projected annual burn.** The dashboard now shows cumulative lifetime spend and a yearly projection alongside the existing period-scoped views.
+
+### Changed
+
+- Refreshed the vendored LiteLLM and models.dev pricing catalogs and hardened browser/server pricing parity for GPT-5.6 and Claude Sonnet 5.
+- Cache documentation now distinguishes observable cached reads from cache writes that Codex's local logs do not expose separately.
+
 ## 1.12.0 — 2026-07-02
 
 ### Changed
