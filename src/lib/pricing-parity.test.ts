@@ -112,17 +112,25 @@ describe('pricing parity — OpenAI/Codex family ids vs resolvePriceClient', () 
 			if (entry.cache_read_input_token_cost != null) {
 				expect(client!.cacheRead).toBe(entry.cache_read_input_token_cost);
 			}
-			// OpenAI has no cache-write billing — the client mirrors that by
-			// setting cacheCreation === input for every OpenAI family.
-			expect(client!.cacheCreation).toBe(client!.input);
+			if (entry.cache_creation_input_token_cost != null) {
+				expect(client!.cacheCreation).toBe(entry.cache_creation_input_token_cost);
+			} else {
+				expect(client!.cacheCreation).toBe(client!.input);
+			}
 		});
 	}
 });
 
 describe('resolvePriceClient — negative + family-intent cases (review hardening)', () => {
 	it('returns null for foreign / unknown model families (never a fabricated rate)', () => {
-		for (const id of ['gemini-2.5-pro', 'grok-4', 'mistral-large-2', 'deepseek-r2', 'llama-4-70b']) {
+		for (const id of ['gpt-5.6-mars', 'gemini-2.5-pro', 'grok-4', 'mistral-large-2', 'deepseek-r2', 'llama-4-70b']) {
 			expect(resolvePriceClient(id), id).toBeNull();
+		}
+	});
+
+	it('keeps each exact GPT-5.6 tier distinct from the generic GPT-5 family', () => {
+		for (const id of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) {
+			expect(resolvePriceClient(id), id).not.toEqual(resolvePriceClient('gpt-5'));
 		}
 	});
 

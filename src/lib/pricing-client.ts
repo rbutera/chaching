@@ -9,10 +9,9 @@
 // file resolution) stays out of the browser bundle — see client-safety.test.ts.
 //
 // Per-token USD. Claude: Fable/Mythos $10/$50, Opus $5/$25, Sonnet $3/$15, Haiku
-// $1/$5 (cache-write = 5m rate). OpenAI/Codex families: rates from the vendored LiteLLM snapshot as of
-// 2026-06. OpenAI has no separate cache-WRITE rate (you're not billed to create a
-// cache entry), so cacheCreation === input for those — matching the server table,
-// where the snapshot carries no cache-creation cost for these ids.
+// $1/$5 (cache-write = 5m rate). OpenAI/Codex families: rates from the vendored
+// LiteLLM snapshot. GPT-5.6 bills explicit cache writes at 1.25x input; older
+// OpenAI families have no separate cache-write rate, so cacheCreation === input.
 //
 // Parity with the server maps (overrides.ts + the snapshot) is enforced by
 // pricing-parity.test.ts, which iterates both sources so a new/repriced id fails
@@ -30,6 +29,7 @@ export interface ClientPrice {
 const FABLE: ClientPrice = { input: 1e-5, output: 5e-5, cacheCreation: 1.25e-5, cacheRead: 1e-6 };
 const OPUS: ClientPrice = { input: 5e-6, output: 2.5e-5, cacheCreation: 6.25e-6, cacheRead: 5e-7 };
 const SONNET: ClientPrice = { input: 3e-6, output: 1.5e-5, cacheCreation: 3.75e-6, cacheRead: 3e-7 };
+const SONNET5: ClientPrice = { input: 2e-6, output: 1e-5, cacheCreation: 2.5e-6, cacheRead: 2e-7 };
 const HAIKU: ClientPrice = { input: 1e-6, output: 5e-6, cacheCreation: 1.25e-6, cacheRead: 1e-7 };
 
 // Superseded generations that priced differently before a family-wide cut: Opus
@@ -57,8 +57,15 @@ const LEGACY_CLAUDE_IDS: Record<string, ClientPrice> = {
 	'claude-3-haiku-20240307': LEGACY_HAIKU
 };
 
-// ── OpenAI / Codex (mirror static/pricing/litellm-prices.json) ──────────────────
-// No cache-write billing on OpenAI → cacheCreation = input.
+// ── OpenAI / Codex (mirror overrides + static/pricing snapshot) ─────────────────
+const GPT56: Record<string, ClientPrice> = {
+	'gpt-5.6': { input: 5e-6, output: 3e-5, cacheCreation: 6.25e-6, cacheRead: 5e-7 },
+	'gpt-5.6-sol': { input: 5e-6, output: 3e-5, cacheCreation: 6.25e-6, cacheRead: 5e-7 },
+	'gpt-5.6-terra': { input: 2.5e-6, output: 1.5e-5, cacheCreation: 3.125e-6, cacheRead: 2.5e-7 },
+	'gpt-5.6-luna': { input: 1e-6, output: 6e-6, cacheCreation: 1.25e-6, cacheRead: 1e-7 }
+};
+
+// Older OpenAI families have no cache-write billing → cacheCreation = input.
 const GPT5: ClientPrice = { input: 1.25e-6, output: 1e-5, cacheCreation: 1.25e-6, cacheRead: 1.25e-7 };
 const GPT5_MINI: ClientPrice = { input: 2.5e-7, output: 2e-6, cacheCreation: 2.5e-7, cacheRead: 2.5e-8 };
 const GPT5_NANO: ClientPrice = { input: 5e-8, output: 4e-7, cacheCreation: 5e-8, cacheRead: 5e-9 };
@@ -102,8 +109,12 @@ export function resolvePriceClient(model: string): ClientPrice | null {
 	// Claude families. Fable/Mythos first — nothing else matches those names.
 	if (/fable|mythos/i.test(model)) return FABLE;
 	if (/opus/i.test(model)) return OPUS;
+	if (/claude-sonnet-5/i.test(model)) return SONNET5;
 	if (/sonnet/i.test(model)) return SONNET;
 	if (/haiku/i.test(model)) return HAIKU;
+
+	if (GPT56[model]) return GPT56[model];
+	if (model.startsWith('gpt-5.6-')) return null;
 
 	// OpenAI / Codex families. Match the mini/nano variants BEFORE the bare family
 	// so "gpt-5-mini" doesn't get swallowed by the "gpt-5" rule.

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { tokens } from '../../lib/brand/tokens.js';
 import {
 	spendLadderColor,
@@ -16,11 +16,18 @@ import {
 } from './theme.js';
 import { LOGO_FULL, LOGO_COMPACT, LOGO_FULL_MIN_COLS } from './banner.js';
 
-describe('spendLadderColor', () => {
-	afterEach(() => {
-		delete process.env.NO_COLOR;
-	});
+const originalNoColor = process.env.NO_COLOR;
 
+beforeEach(() => {
+	delete process.env.NO_COLOR;
+});
+
+afterEach(() => {
+	if (originalNoColor == null) delete process.env.NO_COLOR;
+	else process.env.NO_COLOR = originalNoColor;
+});
+
+describe('spendLadderColor', () => {
 	it('maps cost to the calm → warm → hot → alarm token hues (no literal hex)', () => {
 		// Tiers mirror the BLOCK_FLOURISHES thresholds and source from the token ladder.
 		expect(spendLadderColor(0)).toBe(tokens.spend.calm.hex);
@@ -41,10 +48,6 @@ describe('spendLadderColor', () => {
 });
 
 describe('ladderColorFor (generalized over any ladder)', () => {
-	afterEach(() => {
-		delete process.env.NO_COLOR;
-	});
-
 	it('maps the daily ladder: zero tier = calm, top tier = alarm', () => {
 		expect(ladderColorFor(0, DAILY_FLOURISHES)).toBe(tokens.spend.calm.hex);
 		// top daily tier (send help, >= $500) lands on alarm
@@ -107,10 +110,6 @@ describe('accent / good token sourcing', () => {
 });
 
 describe('bannerLine (inlined logo.txt)', () => {
-	afterEach(() => {
-		delete process.env.NO_COLOR;
-	});
-
 	it('returns the full register wordmark at >= the full-banner min width', () => {
 		expect(bannerLine(false, LOGO_FULL_MIN_COLS)).toBe(LOGO_FULL);
 		expect(bannerLine(false, 120)).toBe(LOGO_FULL);

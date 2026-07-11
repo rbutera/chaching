@@ -49,6 +49,60 @@ describe('codex provider parser', () => {
 		expect(rec?.model).toBe('gpt-5.5');
 		expect(rec?.tokens).toEqual({ input: 3318, output: 1544, cacheCreation: 0, cacheRead: 89984 });
 	});
+
+	it.each([
+		['gpt-5.6-sol', 0.1],
+		['gpt-5.6-terra', 0.05],
+		['gpt-5.6-luna', 0.02]
+	])('prices %s with cached input and reasoning output', (model, expectedCost) => {
+		const parser = createCodexLineParser({ sessionId: `rollout-${model}`, project: '/tmp/project' });
+		parser.parse(line({ timestamp: '2026-07-11T10:00:00Z', type: 'turn_context', payload: { model } }));
+		const rec = parser.parse(
+			line({
+				timestamp: '2026-07-11T10:00:01Z',
+				type: 'event_msg',
+				payload: {
+					type: 'token_count',
+					info: {
+						last_token_usage: {
+							input_tokens: 20_000,
+							cached_input_tokens: 10_000,
+							output_tokens: 1_000,
+							reasoning_output_tokens: 500
+						}
+					}
+				}
+			})
+		);
+
+		expect(rec?.tokens).toEqual({ input: 10_000, output: 1_500, cacheCreation: 0, cacheRead: 10_000 });
+		expect(rec?.cost).toBeCloseTo(expectedCost);
+	});
+
+	it('uses total prompt tokens for GPT-5.6 long-context pricing', () => {
+		const parser = createCodexLineParser({ sessionId: 'rollout-long', project: '/tmp/project' });
+		parser.parse(line({ timestamp: '2026-07-11T10:00:00Z', type: 'turn_context', payload: { model: 'gpt-5.6-sol' } }));
+		const rec = parser.parse(
+			line({
+				timestamp: '2026-07-11T10:00:01Z',
+				type: 'event_msg',
+				payload: {
+					type: 'token_count',
+					info: {
+						last_token_usage: {
+							input_tokens: 272_001,
+							cached_input_tokens: 200_000,
+							output_tokens: 10_000,
+							reasoning_output_tokens: 0
+						}
+					}
+				}
+			})
+		);
+
+		expect(rec?.tokens.cacheCreation).toBe(0);
+		expect(rec?.cost).toBeCloseTo(1.37001);
+	});
 });
 
 describe('readCodexRecords — incremental modifiedSince', () => {

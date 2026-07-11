@@ -273,8 +273,9 @@ tailscale serve --https=443 off   # stop sharing
 **These are estimates, not invoices.** Provider token counts are best-effort; rounding and sampling happen at the source. chaching would rather tell you "I don't know" than quietly lie with a $0.
 
 - **Claude / Codex cost** = tokens (input / output / cache-creation / cache-read) times per-token price. Prices resolve in order: hand-maintained overrides, a vendored LiteLLM snapshot (`static/pricing/litellm-prices.json`), family fallback, then "unknown" (flagged, never silently zero).
-- **OpenCode / Cursor-via-bridge cost** is computed, not trusted: OpenCode reports `cost: 0` for Zen/Go/subscription usage, so chaching prices each model from a vendored [models.dev](https://models.dev) snapshot (`static/pricing/modelsdev-prices.json`), provider-aware so cache economics stay accurate (Anthropic models — via any path — bill cache writes; OpenAI models don't). Genuinely-free models price at `$0`; anything unpriced is flagged unknown, never a faked `$0`. The Cursor Admin API path still trusts its own `chargedCents`.
-- **Cache reads are billed (at a discount), not free** — including OpenAI/Codex (~10% of input). Only cache *writes* differ: Anthropic bills them, OpenAI doesn't.
+- **OpenCode / Cursor-via-bridge cost** is computed, not trusted: OpenCode reports `cost: 0` for Zen/Go/subscription usage, so chaching prices each model from a vendored [models.dev](https://models.dev) snapshot (`static/pricing/modelsdev-prices.json`), provider-aware so cache economics stay accurate (Anthropic and GPT-5.6 models bill cache writes; most older OpenAI models don't). Genuinely-free models price at `$0`; anything unpriced is flagged unknown, never a faked `$0`. The Cursor Admin API path still trusts its own `chargedCents`.
+- **GPT-5.6 pricing** is tier-specific: Sol is $5/$30, Terra $2.50/$15, and Luna $1/$6 per million input/output tokens. Cached input is 10% of input. Explicit cache writes are 1.25× input. Requests above 272K prompt tokens charge the full request at 2× input and 1.5× output; exactly 272K stays at standard rates.
+- **Cache reads are billed (at a discount), not free.** GPT-5.6 also bills cache writes, but Codex's local `token_count` records currently expose cached reads without a separate cache-write count. chaching prices only the classes it can observe rather than guessing cache writes. Cache panels show standard-rate class breakdowns; `TOTAL BURN` uses the authoritative per-request calculation, including GPT-5.6 long-context multipliers.
 - **Reasoning tokens** fold into `output_tokens` in the Claude logs. No separate breakdown.
 - **Work vs personal** isn't in any log. The optional cutover timestamp is a user-set approximation, nothing more.
 - **Coverage is explicit.** Frozen days are authoritative, today is marked partial, gaps are marked missing. The UI never dresses up "incomplete" as "you spent less."
@@ -328,7 +329,7 @@ The web app and the TUI share one in-process engine. `chaching stats` and `chach
 
 ## Refresh the price map
 
-The vendored snapshot is `static/pricing/litellm-prices.json` (Claude + OpenAI/Codex, the two providers whose cost chaching computes). To pull a fresh copy:
+The vendored snapshot is `static/pricing/litellm-prices.json` (Claude + OpenAI/Codex, the two providers whose cost chaching computes). The checked-in snapshot metadata records its source and refresh date; GPT-5.6's request-sensitive long-context rules live in exact overrides because the upstream snapshot only carries base token rates. To pull a fresh copy:
 
 ```sh
 curl -s https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json \

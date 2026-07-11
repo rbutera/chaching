@@ -42,7 +42,8 @@ export function createCodexLineParser(ctx: CodexParserContext): CodexLineParser 
 			const info = objectValue(payload.info);
 			const usage = tokenUsage(objectValue(info.last_token_usage));
 			const cached = usage.cached_input_tokens ?? 0;
-			const input = Math.max((usage.input_tokens ?? 0) - cached, 0);
+			const promptTokens = usage.input_tokens ?? 0;
+			const input = Math.max(promptTokens - cached, 0);
 			const output = (usage.output_tokens ?? 0) + (usage.reasoning_output_tokens ?? 0);
 			const tokens: TokenCounts = { input, output, cacheCreation: 0, cacheRead: cached };
 			if (tokens.input === 0 && tokens.output === 0 && tokens.cacheRead === 0) return null;
@@ -61,7 +62,7 @@ export function createCodexLineParser(ctx: CodexParserContext): CodexLineParser 
 				sessionId: ctx.sessionId,
 				project: currentProject,
 				isSidechain: false,
-				cost: computeCost(currentModel, tokens)
+				cost: computeCost(currentModel, tokens, 0, 0, promptTokens)
 			};
 		}
 	};

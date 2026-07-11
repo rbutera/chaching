@@ -32,4 +32,33 @@ describe('cost resolution', () => {
 		expect(computeCost('totally-made-up-model-xyz-9000', tokens)).toBeNull();
 		expect(resolvePrice('totally-made-up-model-xyz-9000')).toBeNull();
 	});
+
+	it('prices the three GPT-5.6 tiers at their exact standard rates', () => {
+		const standard = { input: 100_000, output: 100_000, cacheCreation: 0, cacheRead: 100_000 };
+		expect(computeCost('gpt-5.6-sol', standard)).toBeCloseTo(3.55);
+		expect(computeCost('gpt-5.6-terra', standard)).toBeCloseTo(1.775);
+		expect(computeCost('gpt-5.6-luna', standard)).toBeCloseTo(0.71);
+	});
+
+	it('bills explicit GPT-5.6 cache writes at 1.25x without inferring them', () => {
+		const explicitWrite = { input: 0, output: 0, cacheCreation: 100_000, cacheRead: 0 };
+		expect(computeCost('gpt-5.6-sol', explicitWrite, 0, 0, 100_000)).toBeCloseTo(0.625);
+		expect(computeCost('gpt-5.6-sol', { ...explicitWrite, cacheCreation: 0 }, 0, 0, 100_000)).toBe(0);
+	});
+
+	it('applies long-context pricing strictly above 272k prompt tokens', () => {
+		const request = { input: 172_000, output: 10_000, cacheCreation: 0, cacheRead: 100_000 };
+		expect(computeCost('gpt-5.6-sol', request, 0, 0, 272_000)).toBeCloseTo(1.21);
+		expect(computeCost('gpt-5.6-sol', request, 0, 0, 272_001)).toBeCloseTo(2.27);
+	});
+
+	it('counts cached input toward the long-context boundary', () => {
+		const request = { input: 100_000, output: 0, cacheCreation: 0, cacheRead: 172_001 };
+		expect(computeCost('gpt-5.6-terra', request)).toBeCloseTo(0.5860005);
+	});
+
+	it('keeps unknown GPT-5.6 tiers unknown', () => {
+		expect(resolvePrice('gpt-5.6-mars')).toBeNull();
+		expect(computeCost('gpt-5.6-mars', tokens)).toBeNull();
+	});
 });

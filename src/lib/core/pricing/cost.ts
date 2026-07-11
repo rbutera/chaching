@@ -96,7 +96,10 @@ function asEntry(p: Partial<PriceEntry> | undefined): PriceEntry | null {
 		output_cost_per_token: p.output_cost_per_token,
 		cache_creation_input_token_cost: p.cache_creation_input_token_cost ?? 0,
 		cache_creation_input_token_cost_above_1hr: p.cache_creation_input_token_cost_above_1hr,
-		cache_read_input_token_cost: p.cache_read_input_token_cost ?? 0
+		cache_read_input_token_cost: p.cache_read_input_token_cost ?? 0,
+		long_context_threshold_tokens: p.long_context_threshold_tokens,
+		long_context_input_multiplier: p.long_context_input_multiplier,
+		long_context_output_multiplier: p.long_context_output_multiplier
 	};
 }
 
@@ -149,8 +152,13 @@ export function costFromPriceEntry(
 	price: PriceEntry,
 	tokens: TokenCounts,
 	cacheCreation1h = 0,
-	cacheCreation5m = 0
+	cacheCreation5m = 0,
+	promptTokens = tokens.input + tokens.cacheRead
 ): number {
+	const longContext =
+		price.long_context_threshold_tokens != null && promptTokens > price.long_context_threshold_tokens;
+	const inputMultiplier = longContext ? (price.long_context_input_multiplier ?? 1) : 1;
+	const outputMultiplier = longContext ? (price.long_context_output_multiplier ?? 1) : 1;
 	let cacheCreationCost: number;
 	const oneHrRate = price.cache_creation_input_token_cost_above_1hr;
 	if (oneHrRate != null && (cacheCreation1h > 0 || cacheCreation5m > 0)) {
@@ -164,12 +172,11 @@ export function costFromPriceEntry(
 		cacheCreationCost = tokens.cacheCreation * price.cache_creation_input_token_cost;
 	}
 
-	return (
+	const inputCost =
 		tokens.input * price.input_cost_per_token +
-		tokens.output * price.output_cost_per_token +
 		cacheCreationCost +
-		tokens.cacheRead * price.cache_read_input_token_cost
-	);
+		tokens.cacheRead * price.cache_read_input_token_cost;
+	return inputCost * inputMultiplier + tokens.output * price.output_cost_per_token * outputMultiplier;
 }
 
 /**
@@ -180,11 +187,12 @@ export function computeCost(
 	model: string,
 	tokens: TokenCounts,
 	cacheCreation1h = 0,
-	cacheCreation5m = 0
+	cacheCreation5m = 0,
+	promptTokens = tokens.input + tokens.cacheRead
 ): number | null {
 	const price = resolvePrice(model);
 	if (!price) return null;
-	return costFromPriceEntry(price, tokens, cacheCreation1h, cacheCreation5m);
+	return costFromPriceEntry(price, tokens, cacheCreation1h, cacheCreation5m, promptTokens);
 }
 
 /** True if we have a price for this model. */
