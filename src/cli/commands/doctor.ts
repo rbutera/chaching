@@ -34,8 +34,8 @@ import type { RollupSnapshot } from '../../lib/types.js';
 
 export type Health = 'OK' | 'WARN' | 'FAIL';
 
-/** The four providers chaching ingests, in display order. */
-export type ProviderName = 'claude' | 'codex' | 'opencode' | 'cursor';
+/** The providers chaching ingests, in display order. */
+export type ProviderName = 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor';
 
 /** Per-provider facts gathered by the I/O shell and fed to the pure builder. */
 export interface DoctorProviderInput {
@@ -401,6 +401,36 @@ async function gatherDoctorInput(cfg: chachingConfig): Promise<DoctorInput> {
 			todayRequests: today.requests,
 			todayCost: today.cost,
 			error: providerErrors.codex ?? null
+		});
+	}
+
+	// pi (and its fork omp) — JSONL session files under the sessions root.
+	{
+		const enabled = cfg.providers.pi.enabled;
+		const root = expandPath(cfg.providers.pi.root);
+		let sourceExists: boolean | null = null;
+		let fileCount: number | null = null;
+		let newestMtime: number | null = null;
+		if (enabled) {
+			sourceExists = existsSync(root);
+			if (sourceExists) {
+				const files = await walkExt(root, '.jsonl');
+				fileCount = files.length;
+				newestMtime = await newestOf(files);
+			}
+		}
+		const today = todayFacts('pi');
+		providers.push({
+			provider: 'pi',
+			enabled,
+			sourceLabel: cfg.providers.pi.root,
+			sourceExists,
+			fileCount,
+			newestMtime,
+			latestDay: latestDayFor('pi'),
+			todayRequests: today.requests,
+			todayCost: today.cost,
+			error: providerErrors.pi ?? null
 		});
 	}
 

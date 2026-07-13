@@ -26,6 +26,24 @@ export interface CodexProviderConfig {
 	subscription: SubscriptionConfig;
 }
 
+/**
+ * Pi (and its fork omp — same `~/.pi/agent/sessions` path + JSONL format, so one
+ * reader covers both). Default ON, like the other local-log providers
+ * (claude/codex/opencode); disable with `{"providers":{"pi":{"enabled":false}}}`.
+ *
+ * TODO(subscription): Pi has no subscription/subsidy block yet. Unlike Claude/Codex
+ * — whose spend is a single homogeneous subscription stream — a Pi session mixes
+ * subscription (Anthropic OAuth), pay-as-you-go API (e.g. zai), and Zen/Go usage in
+ * one log, so subsidising ALL of it against one flat fee would be dishonest. When it
+ * is wired, `~/.pi/agent/auth.json` (`anthropic.type === "oauth"` vs `"api_key"`) is
+ * the signal for whether the Anthropic slice is subscription-backed. Left as a
+ * documented gap rather than an unwired dead config field (see SUBSIDISED_PROVIDERS).
+ */
+export interface PiProviderConfig {
+	enabled: boolean;
+	root: string;
+}
+
 /** A single selectable subscription preset for a provider. */
 export interface SubscriptionPreset {
 	/** stable id stored in config (e.g. "corporate", "max-5x", "custom") */
@@ -103,6 +121,7 @@ export interface chachingConfig {
 		codex: CodexProviderConfig;
 		cursor: CursorProviderConfig;
 		opencode: OpenCodeProviderConfig;
+		pi: PiProviderConfig;
 	};
 }
 
@@ -113,6 +132,7 @@ export interface PublicchachingConfig extends Omit<chachingConfig, 'providers' |
 		codex: CodexProviderConfig;
 		cursor: Omit<CursorProviderConfig, 'adminApiToken'> & { adminApiTokenConfigured: boolean };
 		opencode: OpenCodeProviderConfig;
+		pi: PiProviderConfig;
 	};
 }
 
@@ -148,7 +168,8 @@ export function defaultConfig(): chachingConfig {
 			},
 			codex: { enabled: true, root: '~/.codex/sessions', subscription: { ...DEFAULT_SUBSCRIPTION } },
 			cursor: { enabled: false, adminApiToken: '', email: null, pollSeconds: DEFAULT_CURSOR_POLL_SECONDS },
-			opencode: { enabled: true, dbPath: '~/.local/share/opencode/opencode.db' }
+			opencode: { enabled: true, dbPath: '~/.local/share/opencode/opencode.db' },
+			pi: { enabled: true, root: '~/.pi/agent/sessions' }
 		}
 	};
 }
@@ -163,6 +184,7 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 	const codex = objectRecord(providers.codex);
 	const cursor = objectRecord(providers.cursor);
 	const opencode = objectRecord(providers.opencode);
+	const pi = objectRecord(providers.pi);
 
 	return {
 		cutoverTs: numberOrNull(root.cutoverTs),
@@ -195,6 +217,10 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 			opencode: {
 				enabled: booleanOr(opencode.enabled, defaults.providers.opencode.enabled),
 				dbPath: stringOr(opencode.dbPath, defaults.providers.opencode.dbPath)
+			},
+			pi: {
+				enabled: booleanOr(pi.enabled, defaults.providers.pi.enabled),
+				root: stringOr(pi.root, defaults.providers.pi.root)
 			}
 		}
 	};
@@ -218,7 +244,8 @@ export function publicConfig(cfg: chachingConfig): PublicchachingConfig {
 				pollSeconds: cfg.providers.cursor.pollSeconds,
 				adminApiTokenConfigured: cfg.providers.cursor.adminApiToken.length > 0
 			},
-			opencode: { ...cfg.providers.opencode }
+			opencode: { ...cfg.providers.opencode },
+			pi: { ...cfg.providers.pi }
 		}
 	};
 }

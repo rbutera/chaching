@@ -118,6 +118,7 @@ export function toCss(t: Tokens): string {
 		`\t--p-codex: ${t.providers.codex.hex};`,
 		`\t--p-opencode: ${t.providers.opencode.hex};`,
 		`\t--p-cursor: ${t.providers.cursor.hex};`,
+		`\t--p-pi: ${t.providers.pi.hex};`,
 		CSS_END_MARKER
 	];
 	return lines.join('\n');
@@ -157,6 +158,7 @@ export interface AnsiMap {
 		codex: AnsiColor;
 		opencode: AnsiColor;
 		cursor: AnsiColor;
+		pi: AnsiColor;
 	};
 }
 
@@ -196,7 +198,8 @@ export function toAnsiMap(t: Tokens): AnsiMap {
 			claude: resolve(t.providers.claude),
 			codex: resolve(t.providers.codex),
 			opencode: resolve(t.providers.opencode),
-			cursor: resolve(t.providers.cursor)
+			cursor: resolve(t.providers.cursor),
+			pi: resolve(t.providers.pi)
 		}
 	};
 }
