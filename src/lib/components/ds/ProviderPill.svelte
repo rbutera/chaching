@@ -2,7 +2,7 @@
 	import type { HTMLButtonAttributes } from 'svelte/elements';
 	import MoneyFigure from './MoneyFigure.svelte';
 
-	export type KnownProvider = 'claude' | 'codex' | 'opencode' | 'cursor';
+	export type KnownProvider = 'claude' | 'codex' | 'opencode' | 'cursor' | 'pi';
 
 	export interface ProviderPillProps extends HTMLButtonAttributes {
 		/** Known provider — sets hue + label automatically. */
@@ -21,14 +21,16 @@
 		claude: 'var(--p-claude)',
 		codex: 'var(--p-codex)',
 		opencode: 'var(--p-opencode)',
-		cursor: 'var(--p-cursor)'
+		cursor: 'var(--p-cursor)',
+		pi: 'var(--p-pi)'
 	} satisfies Record<KnownProvider, string>;
 
 	const PROVIDER_LABELS = {
 		claude: 'Claude Code',
 		codex: 'Codex',
 		opencode: 'OpenCode',
-		cursor: 'Cursor'
+		cursor: 'Cursor',
+		pi: 'Pi'
 	} satisfies Record<KnownProvider, string>;
 </script>
 

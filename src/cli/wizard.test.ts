@@ -238,8 +238,8 @@ describe('runWizard (mocked prompts — TTY bypassed via isTTY stub)', () => {
 		// Art on: ensure the env doesn't suppress it (the wizard reads process.env).
 		const origNoArt = process.env.CHACHING_NO_ART;
 		delete process.env.CHACHING_NO_ART;
-		// Simulate accepting the pre-ticked defaults (Cursor not among them).
-		vi.mocked(clack.multiselect).mockResolvedValue(['claude', 'codex', 'opencode']);
+		// Simulate accepting the pre-ticked defaults (Cursor not among them; Pi is).
+		vi.mocked(clack.multiselect).mockResolvedValue(['claude', 'codex', 'opencode', 'pi']);
 
 		const { runWizard } = await import('./wizard.js');
 		const result = await runWizard({ env: {} });
@@ -255,7 +255,7 @@ describe('runWizard (mocked prompts — TTY bypassed via isTTY stub)', () => {
 		const msArg = vi.mocked(clack.multiselect).mock.calls[0]![0] as {
 			initialValues: string[];
 		};
-		expect(msArg.initialValues).toEqual(['claude', 'codex', 'opencode']);
+		expect(msArg.initialValues).toEqual(['claude', 'codex', 'opencode', 'pi']);
 		expect(msArg.initialValues).not.toContain('cursor');
 
 		// Cursor not ticked → NO admin token prompt in the default flow.
@@ -265,6 +265,7 @@ describe('runWizard (mocked prompts — TTY bypassed via isTTY stub)', () => {
 		expect(result!.providers.claude.enabled).toBe(true);
 		expect(result!.providers.codex.enabled).toBe(true);
 		expect(result!.providers.opencode.enabled).toBe(true);
+		expect(result!.providers.pi.enabled).toBe(true);
 
 		if (origNoArt === undefined) delete process.env.CHACHING_NO_ART;
 		else process.env.CHACHING_NO_ART = origNoArt;

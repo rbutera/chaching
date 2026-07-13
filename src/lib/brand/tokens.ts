@@ -73,6 +73,7 @@ export interface BrandTokens {
 		codex: BrandToken;
 		opencode: BrandToken;
 		cursor: BrandToken;
+		pi: BrandToken;
 	};
 	/** The flourish escalation ladder: calm → warm → hot → alarm. */
 	spend: {
@@ -168,7 +169,8 @@ export const tokens = {
 		claude: { hex: '#b98cfb', ansi: 'magenta' }, // purple
 		codex: { hex: '#4cb8f0', ansi: 'cyan' }, // sky
 		opencode: { hex: '#54cc85', ansi: 'green' }, // mint/green-500
-		cursor: { hex: '#f6be3f', ansi: 'yellow' } // amber-500
+		cursor: { hex: '#f6be3f', ansi: 'yellow' }, // amber-500
+		pi: { hex: '#f4787b', ansi: 'red' } // coral/red-400
 	},
 	// spend escalation ladder for the flourishes.
 	spend: {

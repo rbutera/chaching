@@ -18,7 +18,8 @@ function disabledConfig(): chachingConfig {
 			claude: { enabled: false, roots: [], subscription: { ...DEFAULT_SUBSCRIPTION } },
 			codex: { enabled: false, root: '', subscription: { ...DEFAULT_SUBSCRIPTION } },
 			cursor: { enabled: false, adminApiToken: '', email: null, pollSeconds: 3600 },
-			opencode: { enabled: false, dbPath: '' }
+			opencode: { enabled: false, dbPath: '' },
+			pi: { enabled: false, root: '' }
 		}
 	};
 }

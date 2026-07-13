@@ -108,7 +108,8 @@ describe('toCss', () => {
 			'--p-claude',
 			'--p-codex',
 			'--p-opencode',
-			'--p-cursor'
+			'--p-cursor',
+			'--p-pi'
 		]) {
 			expect(css).toContain(`${name}: `);
 		}
@@ -143,6 +144,7 @@ describe('toAnsiMap', () => {
 		expect(map.providers.codex.hex).toBe(tokens.providers.codex.hex);
 		expect(map.providers.opencode.hex).toBe(tokens.providers.opencode.hex);
 		expect(map.providers.cursor.hex).toBe(tokens.providers.cursor.hex);
+		expect(map.providers.pi.hex).toBe(tokens.providers.pi.hex);
 	});
 
 	it('resolves the spend-escalation ladder (calm → warm → hot → alarm) to its tokens', () => {

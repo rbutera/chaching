@@ -109,7 +109,15 @@ const PROVIDER_CATALOGS: Record<string, string[]> = {
 	anthropic: ['anthropic'],
 	opencode: ['opencode'],
 	'opencode-go': ['opencode-go'],
-	google: ['google']
+	google: ['google'],
+	// Pi emits the upstream provider id on each turn. Map the two that don't already
+	// name a catalog so a Pi row prices against the vendor's canonical list rate:
+	//   zai         -> the zai catalog (glm-*), not the opencode Zen discount rate
+	//   openai-codex-> the openai catalog (gpt-*)
+	// Additive: nothing else passes these provider ids today, so this only sharpens
+	// Pi pricing and cannot change existing Claude/Codex/OpenCode resolution.
+	zai: ['zai'],
+	'openai-codex': ['openai']
 };
 
 // Catalog order for the cross-catalog fallback (step 3). Canonical vendor

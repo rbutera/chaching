@@ -10,8 +10,14 @@ import { bannerLine } from './tui/theme.js';
 
 // ── Provider registry ──────────────────────────────────────────────────────────
 
-export const KNOWN_PROVIDERS = ['claude', 'codex', 'opencode', 'cursor'] as const;
+export const KNOWN_PROVIDERS = ['claude', 'codex', 'opencode', 'cursor', 'pi'] as const;
 export type KnownProvider = (typeof KNOWN_PROVIDERS)[number];
+
+/**
+ * Providers OFF by default in the wizard (opt-in). Cursor needs an admin token, so
+ * ticking it is a deliberate choice.
+ */
+const DEFAULT_OFF: readonly KnownProvider[] = ['cursor'];
 
 interface ProviderMeta {
 	label: string;
@@ -45,6 +51,10 @@ const PROVIDER_META: Record<KnownProvider, ProviderMeta> = {
 			configKey: 'adminApiToken',
 			promptLabel: 'Cursor Admin API token'
 		}
+	},
+	pi: {
+		label: 'Pi',
+		hint: 'reads ~/.pi/agent/sessions (also covers the omp fork)'
 	}
 };
 
@@ -80,6 +90,10 @@ export function applySelectionToConfig(
 			opencode: {
 				...base.providers.opencode,
 				enabled: enabledSet.has('opencode')
+			},
+			pi: {
+				...base.providers.pi,
+				enabled: enabledSet.has('pi')
 			},
 			cursor: {
 				...base.providers.cursor,
@@ -136,7 +150,7 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 		// off in the default config and needs an admin token to do anything useful).
 		const base = await loadConfig();
 		const updated = applySelectionToConfig(base, {
-			enabled: KNOWN_PROVIDERS.filter((p) => p !== 'cursor'),
+			enabled: KNOWN_PROVIDERS.filter((p) => !DEFAULT_OFF.includes(p)),
 			secrets: {}
 		});
 		clearConfigCache();
@@ -177,7 +191,7 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 	// Claude / Codex / OpenCode are pre-ticked; Cursor is UNTICKED by default
 	// (it needs an admin API token and is off in the default config). Ticking
 	// Cursor here is what triggers the token prompt below — never otherwise.
-	const DEFAULT_TICKED: KnownProvider[] = KNOWN_PROVIDERS.filter((p) => p !== 'cursor');
+	const DEFAULT_TICKED: KnownProvider[] = KNOWN_PROVIDERS.filter((p) => !DEFAULT_OFF.includes(p));
 
 	const selection = await multiselect<KnownProvider>({
 		message: 'Which providers would you like to enable?',

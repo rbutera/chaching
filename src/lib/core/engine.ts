@@ -17,6 +17,7 @@ import { isoDayUTC } from './ingest/parse';
 import { HistoryStore } from './history/store';
 import { ProviderStatus } from './provider-status';
 import { readCodexRecords } from './providers/codex/local';
+import { readPiRecords } from './providers/pi/local';
 import { readOpenCodeSessions } from './providers/opencode/sqlite';
 import { fetchCursorUsageRecords } from './providers/cursor/api';
 import type { RollupDelta, RollupSnapshot, UsageRecord } from '../types';
@@ -66,6 +67,10 @@ class Ingestion {
 	private codexSeenFiles = new Set<string>();
 	/** incremental floor for the next codex re-poll (wall clock, NOT the `now` seam) */
 	private codexScanSince = 0;
+	/** pi (and omp) session files already counted in stats.filesScanned (re-polls don't re-count) */
+	private piSeenFiles = new Set<string>();
+	/** incremental floor for the next pi re-poll (wall clock, NOT the `now` seam) */
+	private piScanSince = 0;
 	/** opencode source stamp (db + -wal mtime) at last ingest; re-ingest only on change */
 	private opencodeSourceMtime = -1;
 	private opencodeCounted = false;
@@ -141,6 +146,10 @@ class Ingestion {
 
 		if (cfg.providers.opencode.enabled) {
 			await this.ingestOpenCode(expandPath(cfg.providers.opencode.dbPath));
+		}
+
+		if (cfg.providers.pi.enabled) {
+			await this.ingestPi(expandPath(cfg.providers.pi.root));
 		}
 
 		// Env-first: if the token is absent from config, fall back to the env var so
@@ -242,6 +251,28 @@ class Ingestion {
 		}
 	}
 
+	private async ingestPi(root: string, modifiedSince?: number): Promise<void> {
+		try {
+			// Wall clock on purpose (same rationale as codex): the incremental floor is
+			// an mtime fact and must not run through the `now` seam tests fake for "today".
+			const scanStart = Date.now();
+			const result = await readPiRecords(root, { modifiedSince });
+			for (const file of result.files) {
+				if (this.piSeenFiles.has(file)) continue;
+				this.piSeenFiles.add(file);
+				this.rollup.markFileScanned();
+			}
+			this.addProviderRecords(result.records);
+			this.piScanSince = scanStart - CODEX_RESCAN_MARGIN_MS;
+			const [firstError] = result.errors;
+			if (firstError) this.providerStatus.recordMessage('pi', firstError);
+			else this.providerStatus.clear('pi');
+		} catch (error) {
+			this.providerStatus.recordError('pi', error);
+			return;
+		}
+	}
+
 	private async ingestOpenCode(dbPath: string): Promise<void> {
 		try {
 			// Stamp BEFORE reading: a write that lands mid-read moves the mtime past
@@ -309,7 +340,12 @@ class Ingestion {
 	 */
 	private startLocalProviderPolling(cfg: chachingConfig): void {
 		if (this.localProviderTimer) return;
-		if (!cfg.providers.codex.enabled && !cfg.providers.opencode.enabled) return;
+		if (
+			!cfg.providers.codex.enabled &&
+			!cfg.providers.opencode.enabled &&
+			!cfg.providers.pi.enabled
+		)
+			return;
 		this.localProviderTimer = setInterval(
 			() => void this.pollLocalProviders(cfg),
 			LOCAL_PROVIDER_POLL_MS
@@ -323,6 +359,9 @@ class Ingestion {
 		try {
 			if (cfg.providers.codex.enabled) {
 				await this.ingestCodex(expandPath(cfg.providers.codex.root), this.codexScanSince);
+			}
+			if (cfg.providers.pi.enabled) {
+				await this.ingestPi(expandPath(cfg.providers.pi.root), this.piScanSince);
 			}
 			if (cfg.providers.opencode.enabled) {
 				const dbPath = expandPath(cfg.providers.opencode.dbPath);

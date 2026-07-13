@@ -67,7 +67,8 @@ function cfg(root: string, dbPath: string): chachingConfig {
 			claude: { enabled: true, roots: [root], subscription: { ...DEFAULT_SUBSCRIPTION } },
 			codex: { enabled: false, root: '', subscription: { ...DEFAULT_SUBSCRIPTION } },
 			cursor: { enabled: false, adminApiToken: '', email: null, pollSeconds: 3600 },
-			opencode: { enabled: false, dbPath: '' }
+			opencode: { enabled: false, dbPath: '' },
+			pi: { enabled: false, root: '' }
 		}
 	};
 }
