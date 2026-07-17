@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { Pool } from 'pg';
 import { describe, expect, it } from 'vitest';
 import type { FrozenAgg, HourAgg } from '../rollup/rollup';
 import type { SessionSummary } from '../../types';
@@ -119,7 +120,7 @@ suite('PostgresSyncStore v2 aggregate ledger', () => {
 	});
 
 	it('full-replacement upsert: republishing a key replaces it, never accumulates', { timeout: 30_000 }, async () => {
-		const { a, b, storeA, storeB } = await pooledPair();
+		const { a, storeA, storeB } = await pooledPair();
 		try {
 			await storeA.publishDayAggregates(scopeFor(a), [dayAgg('2026-07-13', { requests: 1, cost: 0.5 })]);
 			await storeA.publishDayAggregates(scopeFor(a), [dayAgg('2026-07-13', { requests: 5, cost: 2.5 })]);
@@ -136,20 +137,86 @@ suite('PostgresSyncStore v2 aggregate ledger', () => {
 	it('publishes sessions and prunes hour rows older than the retention window', { timeout: 30_000 }, async () => {
 		const { a, storeA, storeB } = await pooledPair();
 		try {
-			const now = Date.parse('2026-07-16T12:00:00Z');
+			// C7: the retention cutoff is computed SERVER-SIDE from now() (no client timestamp is
+			// passed), so anchor the buckets to the real clock. A forward-skewed client can no
+			// longer influence which rows are deleted.
+			const now = Date.now();
 			const recent = Math.floor((now - 3_600_000) / 3_600_000) * 3_600_000;
 			const stale = Math.floor((now - 8 * 24 * 3_600_000) / 3_600_000) * 3_600_000;
-			await storeA.publishHourAggregates(scopeFor(a), [hourAgg(recent), hourAgg(stale)], now);
+			await storeA.publishHourAggregates(scopeFor(a), [hourAgg(recent), hourAgg(stale)]);
 			await storeA.publishSessions(scopeFor(a), [session('codex', 'sess-1')]);
 
 			const load = await storeB.loadAggregates(null);
 			const hours = load.hourAggregates.filter((h) => h.machineId === a);
-			// The 8-day-old bucket was inserted then immediately pruned; only the recent one remains.
+			// The 8-day-old bucket was inserted then immediately pruned (server clock); only the
+			// recent one remains.
 			expect(hours.map((h) => h.hourTs)).toEqual([recent]);
 			expect(load.sessions.some((s) => s.sessionId === 'sess-1' && s.machineId === a)).toBe(true);
 		} finally {
 			await storeA.close();
 			await storeB.close();
+		}
+	});
+
+	it('C8 — round-trips the per-day partial flag', { timeout: 30_000 }, async () => {
+		const { a, storeA, storeB } = await pooledPair();
+		try {
+			await storeA.publishDayAggregates(scopeFor(a), [
+				{ ...dayAgg('2026-07-12'), partial: true },
+				{ ...dayAgg('2026-07-11'), partial: false }
+			]);
+			const load = await storeB.loadAggregates(null);
+			const partialRow = load.dayAggregates.find((d) => d.day === '2026-07-12' && d.machineId === a);
+			const cleanRow = load.dayAggregates.find((d) => d.day === '2026-07-11' && d.machineId === a);
+			expect(partialRow?.partial).toBe(true);
+			expect(cleanRow?.partial).toBe(false);
+		} finally {
+			await storeA.close();
+			await storeB.close();
+		}
+	});
+
+	it('C10 — markPublished stamps last_published_at, distinct from the heartbeat last_seen', { timeout: 30_000 }, async () => {
+		const { a, storeA, storeB } = await pooledPair();
+		try {
+			const before = await storeA.status();
+			expect(before.machines.find((m) => m.id === a)?.lastPublishedAt ?? null).toBeNull();
+
+			await storeA.markPublished();
+
+			const after = await storeA.status();
+			const machine = after.machines.find((m) => m.id === a);
+			expect(machine?.lastPublishedAt).toBeTruthy();
+			expect(machine?.lastSeenAt).toBeTruthy();
+		} finally {
+			await storeA.close();
+			await storeB.close();
+		}
+	});
+
+	it('C9 — records schema_version and a fresh open succeeds via the version fast-path', { timeout: 30_000 }, async () => {
+		const store1 = new PostgresSyncStore(databaseUrl!, randomUUID(), randomUUID());
+		const store2 = new PostgresSyncStore(databaseUrl!, randomUUID(), randomUUID());
+		const probe = new Pool({ connectionString: databaseUrl! });
+		try {
+			await store1.open(); // migrates (or no-ops) and records the version row
+			const first = await probe.query(
+				`SELECT version FROM chaching_sync.schema_version WHERE id = 1`
+			);
+			expect(first.rowCount).toBe(1);
+			expect(Number(first.rows[0].version)).toBe(2);
+
+			// A second, independent store opens against the already-migrated schema without error:
+			// the fast-path SELECT sees the current version and skips the DDL + advisory lock.
+			await store2.open();
+			const second = await probe.query(
+				`SELECT count(*)::int AS n FROM chaching_sync.schema_version`
+			);
+			expect(second.rows[0].n).toBe(1); // still exactly one version row
+		} finally {
+			await store1.close();
+			await store2.close();
+			await probe.end();
 		}
 	});
 

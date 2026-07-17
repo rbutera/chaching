@@ -41,9 +41,16 @@ Cursor Admin API spend is the exception: it describes a cloud-account fact every
 machine would otherwise ingest. It is scoped to the account (`cursor-account:<email>`) with
 last-writer-wins upserts, so every machine polling the same account computes identical aggregates
 that collapse to one pool-wide row. It is shown as pool-global rather than attributed to a single
-machine. Cursor usage reached through the local OpenCode bridge stays machine-scoped as normal.
-Because of the account scope, creating or joining a pool with the Cursor Admin API enabled
-requires `providers.cursor.email` to be set (Chaching refuses otherwise rather than mis-scope).
+machine. Because it is the last writer's view of a rolling 30-day window, the pooled cursor total
+can wobble slightly between bursts as different machines republish it; that is expected. Cursor
+usage reached through the local OpenCode bridge stays machine-scoped as normal. Because of the
+account scope, creating or joining a pool with the Cursor Admin API enabled requires
+`providers.cursor.email` to be set (Chaching refuses otherwise rather than mis-scope).
+
+**Pool-wide double-count warning:** never bridge Cursor through OpenCode on one machine while any
+machine in the pool polls the Cursor Admin API. The bridge attributes cursor spend per machine and
+the Admin API attributes it to the shared account, so with both live *anywhere in the pool* the
+same spend is counted twice pool-wide. Pick one path across the whole pool, not just per machine.
 
 ## Start PostgreSQL with Docker
 
@@ -211,6 +218,12 @@ in the same window, the endpoint sleeps the rest of the time. **Lowering the int
 minutes on a 3-machine pool defeats this** — the wake windows start to overlap the idle floor and
 keep the endpoint awake continuously, which blows the CU-hour budget. Keep the interval at 15 (or
 higher) on the free tier; only drop it if you are on a paid plan or an always-on Postgres.
+
+Note that dashboard loads also wake the endpoint *outside* the burst grid: opening the web
+dashboard issues a sync-status read, which opens a PostgreSQL connection off-schedule. A dashboard
+left open and frequently refreshed therefore adds wake windows the arithmetic above doesn't
+account for, eroding the CU-hour budget. The status path is kept cheap (it no longer re-runs schema
+DDL on every read), but the connection itself still wakes a scaled-to-zero endpoint.
 
 ## Dashboard
 

@@ -3,6 +3,8 @@ export interface SyncMachine {
 	name: string;
 	hostname: string;
 	lastSeenAt: string | null;
+	/** When this machine last PUBLISHED a burst (distinct from lastSeenAt = last heartbeat), C10. */
+	lastPublishedAt?: string | null;
 	current?: boolean;
 }
 

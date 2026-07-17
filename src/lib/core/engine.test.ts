@@ -291,14 +291,16 @@ describe('B1 — sync configured but unreachable falls back to local frozen hist
 			// The sync provider error is recorded.
 			expect(engine.stats.providerErrors.sync).toBeTruthy();
 
-			// NO NEW FREEZE: the sync error keeps scanIsPartial() true, so the freshly-scanned
-			// codex day must NOT have been frozen into SQLite this run.
+			// C4: a sync/PG error no longer gates LOCAL freezing. The local scan here is clean
+			// (only the sync provider errored), so the freshly-scanned codex past-day DOES freeze
+			// into SQLite this run — a sustained PG outage must not block local freezing, or days
+			// would be lost when Claude prunes its logs. (Pre-C4 this asserted `false`.)
 			const check = new HistoryStore();
 			check.openReadOnly(historyPath);
 			const frozen = check.frozenDays();
 			check.close();
 			expect(frozen.has(frozenDay)).toBe(true);
-			expect(frozen.has(codexDay)).toBe(false);
+			expect(frozen.has(codexDay)).toBe(true);
 		} finally {
 			engine.dispose();
 		}
@@ -322,6 +324,7 @@ describe('M5 — sync burst reliability', () => {
 			publishDayAggregates: async () => {},
 			publishHourAggregates: async () => {},
 			publishSessions: async () => {},
+			markPublished: async () => {},
 			heartbeat: async () => {},
 			mappingFingerprint: async () => '[]',
 			allMappings: async () => [],
@@ -357,6 +360,7 @@ describe('M5 — sync burst reliability', () => {
 			},
 			publishHourAggregates: async () => {},
 			publishSessions: async () => {},
+			markPublished: async () => {},
 			heartbeat: async () => {},
 			mappingFingerprint: async () => '[]',
 			allMappings: async () => [],
@@ -375,6 +379,95 @@ describe('M5 — sync burst reliability', () => {
 		// leaves publish-dirty untouched so the next burst self-heals by republishing.
 		expect(engine.stats.providerErrors.sync).toBeTruthy();
 		expect(internal.rollup.hasPublishDirty()).toBe(true);
+		internal.syncStore = null;
+		engine.dispose();
+	});
+
+	it('C3 — a record added during the publish await stays dirty for the next burst', async () => {
+		const engine = createEngine(disabledConfig());
+		const cfg = syncConfiguredConfig();
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let dayPublishes = 0;
+		const fakeStore = {
+			publishDayAggregates: async () => {
+				dayPublishes++;
+				if (dayPublishes === 1) await gate; // hold the first burst mid-publish
+			},
+			publishHourAggregates: async () => {},
+			publishSessions: async () => {},
+			markPublished: async () => {},
+			heartbeat: async () => {},
+			mappingFingerprint: async () => '[]',
+			allMappings: async () => [],
+			loadAggregates: async () => loadStub()
+		};
+		const internal = engine as unknown as {
+			syncStore: typeof fakeStore | null;
+			rollup: Rollup;
+			runSyncBurst: (c: chachingConfig) => Promise<void>;
+		};
+		internal.syncStore = fakeStore;
+		const machineId = cfg.sync.machineId ?? undefined;
+		internal.rollup.add({ ...usage('first'), machineId }); // day 2026-07-17
+		const burst = internal.runSyncBurst(cfg);
+		await vi.waitFor(() => expect(dayPublishes).toBe(1));
+		// A record lands DURING the publish await → marks a NEW publish-dirty day key.
+		internal.rollup.add({ ...usage('second'), day: '2026-07-18', machineId });
+		release();
+		await burst;
+		// The key dirtied mid-publish survives the burst's clear (a blanket clear pre-fix wiped it);
+		// the key that was actually published is cleared.
+		const stillDirty = internal.rollup.dirtyDayAggregates().map((d) => d.day);
+		expect(stillDirty).toContain('2026-07-18');
+		expect(stillDirty).not.toContain('2026-07-17');
+		internal.syncStore = null;
+		engine.dispose();
+	});
+
+	it('C5 — startSyncScheduler starts the timer even when the boot connect failed', () => {
+		const engine = createEngine(disabledConfig());
+		const cfg = syncConfiguredConfig();
+		const internal = engine as unknown as {
+			syncStore: unknown;
+			syncTimer: unknown;
+			startSyncScheduler: (c: chachingConfig) => void;
+		};
+		internal.syncStore = null; // boot connect failed, no store
+		internal.startSyncScheduler(cfg);
+		expect(internal.syncTimer).not.toBeNull();
+		engine.dispose();
+	});
+
+	it('C5 — a burst with no store attempts connectSync first, then proceeds', async () => {
+		const engine = createEngine(disabledConfig());
+		const cfg = syncConfiguredConfig();
+		const fakeStore = {
+			publishDayAggregates: async () => {},
+			publishHourAggregates: async () => {},
+			publishSessions: async () => {},
+			markPublished: async () => {},
+			heartbeat: async () => {},
+			mappingFingerprint: async () => '[]',
+			allMappings: async () => [],
+			loadAggregates: async () => loadStub()
+		};
+		let connectCalls = 0;
+		const internal = engine as unknown as {
+			syncStore: typeof fakeStore | null;
+			connectSync: (c: chachingConfig) => Promise<void>;
+			runSyncBurst: (c: chachingConfig) => Promise<void>;
+		};
+		internal.syncStore = null; // simulate a failed boot connect
+		internal.connectSync = async () => {
+			connectCalls++;
+			internal.syncStore = fakeStore; // the store recovers on this burst
+		};
+		await internal.runSyncBurst(cfg);
+		expect(connectCalls).toBe(1);
+		expect(internal.syncStore).toBe(fakeStore);
 		internal.syncStore = null;
 		engine.dispose();
 	});

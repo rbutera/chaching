@@ -80,6 +80,13 @@ interface HourState {
 	costUnknownRequests: number;
 }
 
+/** A snapshot of the publish-dirty key sets (see `publishDirtySnapshot`), C3. */
+export interface PublishDirtySnapshot {
+	days: ReadonlySet<string>;
+	hours: ReadonlySet<string>;
+	sessions: ReadonlySet<string>;
+}
+
 const HOUR_MS = 60 * 60 * 1000;
 
 /**
@@ -146,6 +153,13 @@ export class Rollup {
 	private pubDirtyDays = new Set<string>();
 	private pubDirtyHours = new Set<string>();
 	private pubDirtySessions = new Set<string>();
+
+	/**
+	 * Immutable capture of the publish-dirty key sets at a single instant. A caller takes one
+	 * right before it materializes a publish payload, then — on success — clears EXACTLY these
+	 * keys, so a record `add()`ed during the (awaited) publish stays dirty for the next burst
+	 * instead of being wiped by a blanket clear (the publish-dirty success-path race, C3).
+	 */
 
 	setCutover(ts: number | null): void {
 		this.cutoverTs = ts;
@@ -490,11 +504,34 @@ export class Rollup {
 		return this.pubDirtyDays.size > 0 || this.pubDirtyHours.size > 0 || this.pubDirtySessions.size > 0;
 	}
 
-	/** Reset the publish-dirty sets after a fully-successful publish burst. */
-	clearPublishDirty(): void {
-		this.pubDirtyDays.clear();
-		this.pubDirtyHours.clear();
-		this.pubDirtySessions.clear();
+	/**
+	 * Capture the publish-dirty key sets as they stand right now. Pair with
+	 * `clearPublishDirty(snapshot)` so a burst clears only what it actually published (C3).
+	 */
+	publishDirtySnapshot(): PublishDirtySnapshot {
+		return {
+			days: new Set(this.pubDirtyDays),
+			hours: new Set(this.pubDirtyHours),
+			sessions: new Set(this.pubDirtySessions)
+		};
+	}
+
+	/**
+	 * Clear publish-dirty keys after a successful burst. With no argument this drops every
+	 * pending key (the legacy blanket clear); with a `snapshot` it removes ONLY the keys that
+	 * snapshot captured, leaving anything dirtied since (e.g. a record added during the publish
+	 * await) intact for the next burst — the fix for the publish-dirty success-path race (C3).
+	 */
+	clearPublishDirty(snapshot?: PublishDirtySnapshot): void {
+		if (!snapshot) {
+			this.pubDirtyDays.clear();
+			this.pubDirtyHours.clear();
+			this.pubDirtySessions.clear();
+			return;
+		}
+		for (const k of snapshot.days) this.pubDirtyDays.delete(k);
+		for (const k of snapshot.hours) this.pubDirtyHours.delete(k);
+		for (const k of snapshot.sessions) this.pubDirtySessions.delete(k);
 	}
 
 	/**

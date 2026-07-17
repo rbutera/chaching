@@ -9,6 +9,7 @@ import { watch, type FSWatcher } from 'node:fs';
 import { sep } from 'node:path';
 import { hostname } from 'node:os';
 import { Rollup } from './rollup/rollup';
+import type { FrozenAgg, PublishDirtySnapshot } from './rollup/rollup';
 import { DedupSet } from './ingest/dedup';
 import { discoverFiles, resolveProjectsDirs } from './ingest/discover';
 import { ingestRange, type FileState } from './watch/tail';
@@ -228,8 +229,9 @@ class Ingestion {
 		if (isConfigured(cfg.sync)) await this.connectSync(cfg);
 
 		// Freeze newly-complete past days (day < today, scanned, not already frozen). Runs in
-		// pooled mode too now; scanIsPartial() (which includes a sync-connect error) still gates
-		// it, so a run where PG was unreachable does not lock in a partial copy.
+		// pooled mode too; gated by localScanIsPartial() (LOCAL gaps only), so a clean local scan
+		// still freezes even when PG was unreachable (C4), but a genuinely-partial local scan does
+		// not lock in a partial copy.
 		this.freezeNewDays(cfg);
 
 		this.coldScanMs = Date.now() - t0;
@@ -256,11 +258,13 @@ class Ingestion {
 			await this.refreshSubscriptionIndex();
 			// Full publish on connect: every local day/session (frozen history + live) plus the
 			// last 48h of hour buckets and the account-scoped cursor spend. Idempotent LWW.
-			await this.publishLocal(true);
+			const published = await this.publishLocal(true);
 			// Read all peers (watermark null → since beginning), including our own just-published
 			// account-scoped cursor rows, so this snapshot already renders cursor from the overlay.
 			await this.loadPeer();
-			this.rollup.clearPublishDirty();
+			// Clear only what this publish snapshotted, so a record added during the publish/load
+			// awaits stays dirty for the next burst (C3).
+			this.rollup.clearPublishDirty(published ?? undefined);
 			this.providerStatus.clear('sync');
 		} catch (error) {
 			this.providerStatus.recordError('sync', error);
@@ -286,32 +290,51 @@ class Ingestion {
 	 * Cursor spend publishes separately under the account scope. Callers clear publish-dirty
 	 * ONLY after this resolves without throwing, so a failed burst self-heals by republishing.
 	 */
-	private async publishLocal(full: boolean): Promise<void> {
-		if (!this.syncStore) return;
+	private async publishLocal(full: boolean): Promise<PublishDirtySnapshot | null> {
+		if (!this.syncStore) return null;
 		const now = this.now();
 		const hourFloor = now - HOUR_PUBLISH_WINDOW_MS;
 		const scope = this.ownScope();
-		const days = full ? this.rollup.allDayAggregates() : this.rollup.dirtyDayAggregates();
+		// Snapshot the publish-dirty keys BEFORE any await and adjacent to materializing the
+		// payload. On success the caller clears exactly these, so a record add()ed during the
+		// awaited publishes stays dirty for the next burst rather than being silently wiped (C3).
+		const published = this.rollup.publishDirtySnapshot();
+		const today = isoDayUTC(now);
+		const frozen = this.rollup.frozenDaySet();
+		const localPartial = this.localScanIsPartial();
+		// Stamp each published day with the publisher's per-day partial knowledge (C8): a strictly
+		// past day is partial when the local scan was partial and the day isn't frozen; today (and
+		// anything not strictly past) is inherently partial. Frozen past days stay authoritative.
+		const markPartial = (aggs: readonly FrozenAgg[]): (FrozenAgg & { partial: boolean })[] =>
+			aggs.map((a) => ({
+				...a,
+				partial: a.day < today ? localPartial && !frozen.has(a.day) : true
+			}));
+		const days = markPartial(full ? this.rollup.allDayAggregates() : this.rollup.dirtyDayAggregates());
 		const hours = full
 			? this.rollup.allHourAggregates(hourFloor)
 			: this.rollup.dirtyHourAggregates(hourFloor);
 		const sessions = full ? this.rollup.allSessionSummaries() : this.rollup.dirtySessionSummaries();
 		await this.syncStore.publishDayAggregates(scope, days);
-		await this.syncStore.publishHourAggregates(scope, hours, now);
+		await this.syncStore.publishHourAggregates(scope, hours);
 		await this.syncStore.publishSessions(scope, sessions);
 
 		const cursorScope = this.cursorScope();
 		if (this.cursorRollup && cursorScope) {
 			// Cursor account rows are always republished in full: the set is small and every
-			// machine may write them (LWW), so a per-machine dirty delta buys nothing.
+			// machine may write them (LWW), so a per-machine dirty delta buys nothing. They are the
+			// Admin API's authoritative 30-day window, so they publish as authoritative (partial=false).
 			await this.syncStore.publishDayAggregates(cursorScope, this.cursorRollup.allDayAggregates());
 			await this.syncStore.publishHourAggregates(
 				cursorScope,
-				this.cursorRollup.allHourAggregates(hourFloor),
-				now
+				this.cursorRollup.allHourAggregates(hourFloor)
 			);
 			await this.syncStore.publishSessions(cursorScope, this.cursorRollup.allSessionSummaries());
 		}
+		// Stamp last-published (distinct from the heartbeat's last-seen), so the roster can show a
+		// truthful "last published" vs "last seen" (C10).
+		await this.syncStore.markPublished();
+		return published;
 	}
 
 	/** Incrementally read peer aggregates (updated_at >= watermark) into the overlay maps. */
@@ -386,13 +409,30 @@ class Ingestion {
 		return false;
 	}
 
+	/**
+	 * LOCAL scan completeness only — the same signal as scanIsPartial() but EXCLUDING the `sync`
+	 * (PostgreSQL) provider. Gates local SQLite freezing (C4): a pooled PG outage must not
+	 * suppress freezing of local days, or a sustained outage past Claude's ~30-day log pruning
+	 * would lose those days permanently. The pooled coverage/partial display still uses
+	 * scanIsPartial() (which counts a sync error), so only the freeze decision changes.
+	 */
+	private localScanIsPartial(): boolean {
+		if (this.scanHadErrors) return true;
+		for (const [provider, msg] of Object.entries(this.providerStatus.snapshot())) {
+			if (provider === 'sync') continue; // a PG outage is not a LOCAL scan gap
+			if (msg) return true;
+		}
+		return false;
+	}
+
 	/** Freeze each past day (day < today UTC) that was scanned and is not yet frozen. */
 	private freezeNewDays(cfg: chachingConfig): void {
 		if (!cfg.history.enabled || !this.historyStore) return;
-		// A partial scan (unreadable file, provider error) may leave a past day incomplete.
-		// Freezing it would lock in the partial copy forever, so skip freezing this run and
-		// let a later clean run capture the complete day.
-		if (this.scanIsPartial()) return;
+		// A partial LOCAL scan (unreadable file, local provider error) may leave a past day
+		// incomplete. Freezing it would lock in the partial copy forever, so skip freezing this
+		// run and let a later clean run capture the complete day. A sync/PG error does NOT gate
+		// this (C4) — local freezing must keep running through a pooled outage.
+		if (this.localScanIsPartial()) return;
 		const today = isoDayUTC(this.now());
 		const frozen = this.rollup.frozenDaySet();
 		const newDays = new Set<string>();
@@ -494,7 +534,25 @@ class Ingestion {
 				email: email ?? undefined,
 				pageSize: 100
 			});
-			this.addProviderRecords(records);
+			if (this.cursorRollup) {
+				// Pooled: the Admin API returns a COMPLETE rolling 30-day window on every poll, so
+				// REBUILD the account-scoped rollup from this snapshot rather than add()ing into the
+				// existing one — re-adding re-counts every event each poll and inflates the published
+				// account totals monotonically (C1). The rebuild replaces the old rollup atomically;
+				// publishLocal always republishes cursor rows in full, so this stays coherent.
+				const fresh = new Rollup();
+				fresh.setCutover(this.resolvedConfig?.cutoverTs ?? null);
+				const localRecords: UsageRecord[] = [];
+				for (const raw of records) {
+					if (isPoolGlobalUsage(raw)) fresh.add(raw);
+					else localRecords.push(raw); // non-account cursor rows (none from the Admin API) stay local
+				}
+				this.cursorRollup = fresh;
+				if (localRecords.length > 0) this.addProviderRecords(localRecords);
+			} else {
+				// Solo mode: cursor spend feeds the local rollup, where per-poll dedup prevents re-count.
+				this.addProviderRecords(records);
+			}
 			this.providerStatus.clear('cursor');
 		} catch (error) {
 			this.providerStatus.recordError('cursor', error);
@@ -528,7 +586,14 @@ class Ingestion {
 	}
 
 	private syncHooks() {
-		if (!this.syncStore) return {};
+		// Gate on isConfigured, NOT syncStore: the cold scan runs BEFORE connectSync, so gating on
+		// syncStore left claude cold-scan rows un-stamped while live-tail rows (post-connect) got a
+		// machineId. The rollup day key includes machineId, so the same (day,provider,model) split
+		// into two rows and the single-statement publish upsert hit its conflict target twice
+		// ("cannot affect row a second time"), failing every burst permanently. Stamping in the
+		// cold scan too — matching prepareLocalRecord's own isConfigured gate — keeps one key (C2).
+		const cfg = this.resolvedConfig;
+		if (!cfg || !isConfigured(cfg.sync)) return {};
 		return { prepare: (record: UsageRecord) => this.prepareLocalRecord(record) };
 	}
 
@@ -585,7 +650,10 @@ class Ingestion {
 	 * (not setInterval) so the next fire is re-aligned to the grid after each burst.
 	 */
 	private startSyncScheduler(cfg: chachingConfig): void {
-		if (!this.syncStore || this.syncTimer || !isConfigured(cfg.sync)) return;
+		// Start whenever sync is CONFIGURED, even if syncStore is null because the boot connect
+		// failed: each burst re-attempts connectSync, so a transient PG outage at boot recovers
+		// without a process restart (C5).
+		if (this.syncTimer || !isConfigured(cfg.sync)) return;
 		const intervalMs = Math.max(1, cfg.sync.intervalMinutes) * 60_000;
 		const scheduleNext = () => {
 			if (this.disposed) return;
@@ -608,13 +676,23 @@ class Ingestion {
 	 * (self-healing — the dirty set is derived from the local rollup, no outbox to lose).
 	 */
 	private async runSyncBurst(cfg: chachingConfig): Promise<void> {
-		if (this.disposed || !this.syncStore || !isConfigured(cfg.sync)) return;
+		if (this.disposed || !isConfigured(cfg.sync)) return;
 		// A hung PG must not pile up overlapping bursts (mirrors localPollInFlight).
 		if (this.syncBurstInFlight) return;
 		this.syncBurstInFlight = true;
 		try {
-			await this.publishLocal(false);
-			this.rollup.clearPublishDirty();
+			// A transient PG outage at boot leaves syncStore null but the scheduler still runs
+			// (C5). Try to (re)connect first; connectSync on success does the full publish + peer
+			// load itself, so emit and return — don't double-publish this cycle.
+			if (!this.syncStore) {
+				await this.connectSync(cfg);
+				if (!this.syncStore) return; // still down; connectSync recorded the error
+				if (!this.disposed) this.emitSyncSnapshot();
+				return;
+			}
+			const published = await this.publishLocal(false);
+			// Clear only what was published; keys dirtied during the awaits survive to next burst (C3).
+			this.rollup.clearPublishDirty(published ?? undefined);
 			if (this.cursorRollup) this.cursorRollup.clearPublishDirty();
 			await this.syncStore.heartbeat(cfg.sync.machineName, hostname());
 			const fingerprint = await this.syncStore.mappingFingerprint();
@@ -649,7 +727,13 @@ class Ingestion {
 			this.peerSession.values(),
 			now
 		);
-		const merged = mergePooledSnapshot(local, peer, today);
+		// Days any peer flagged partial (its local scan was incomplete). The overlay renders these
+		// `partial`, not `frozen`, so a peer's undercount is never shown as authoritative (C8).
+		const peerPartialDays = new Set<string>();
+		for (const agg of this.peerDay.values()) {
+			if (agg.partial) peerPartialDays.add(agg.day);
+		}
+		const merged = mergePooledSnapshot(local, peer, today, peerPartialDays);
 		return attachSubscriptions(merged, this.syncSubscriptionIndex);
 	}
 

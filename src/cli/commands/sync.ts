@@ -105,9 +105,14 @@ function printStatus(status: SyncStatus): void {
 	if (typeof status.intervalMinutes === 'number') {
 		console.log(`Publish interval: ${status.intervalMinutes} min (peers refresh at most this often)`);
 	}
-	// The roster's last-seen timestamps double as each machine's last-burst signal.
+	// "Last seen" (heartbeat) and "last published" (a real publish burst) are distinct signals
+	// now — report each truthfully rather than passing the heartbeat off as a publish (C10).
 	const seen = status.machine.lastSeenAt;
-	if (seen) console.log(`This machine last published: ${new Date(seen).toLocaleString()}`);
+	if (seen) console.log(`This machine last seen: ${new Date(seen).toLocaleString()}`);
+	const published = status.machine.lastPublishedAt;
+	console.log(
+		`This machine last published: ${published ? new Date(published).toLocaleString() : 'not yet'}`
+	);
 }
 
 function flag(argv: string[], name: string): string | null {

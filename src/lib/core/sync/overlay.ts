@@ -40,21 +40,22 @@ export interface SubscriptionIndex {
 export function buildSubscriptionIndex(mappings: readonly SyncMapping[], ownMachineId: string): SubscriptionIndex {
 	const byMachineProvider = new Map<string, string | null>();
 	let ownCursor: string | null | undefined;
-	let fallbackCursor: string | null | undefined;
-	let fallbackMachine: string | undefined;
+	let peerCursor: string | null = null;
 	for (const mapping of mappings) {
 		byMachineProvider.set(mappingKey(mapping.machineId, mapping.provider), mapping.subscriptionId);
 		if (mapping.provider === 'cursor') {
 			if (mapping.machineId === ownMachineId) ownCursor = mapping.subscriptionId;
-			if (fallbackMachine === undefined || mapping.machineId < fallbackMachine) {
-				fallbackMachine = mapping.machineId;
-				fallbackCursor = mapping.subscriptionId;
-			}
+			// First peer (mappings arrive machine-id ordered) with a REAL mapping. An own
+			// explicit-null mapping must not suppress this, so peer attribution is the fallback
+			// whenever this machine has no non-null cursor mapping of its own (C11).
+			else if (mapping.subscriptionId != null && peerCursor == null) peerCursor = mapping.subscriptionId;
 		}
 	}
+	// Prefer this machine's own non-null cursor mapping; else any peer's non-null mapping; else
+	// null. `ownCursor != null` covers both "no own mapping" (undefined) and "own explicit null".
 	return {
 		byMachineProvider,
-		cursor: ownCursor !== undefined ? ownCursor : (fallbackCursor ?? null)
+		cursor: ownCursor != null ? ownCursor : peerCursor
 	};
 }
 
@@ -129,7 +130,8 @@ function mergeBlocks(local: BlockSummary[], peer: BlockSummary[], now: number): 
 export function mergePooledSnapshot(
 	local: RollupSnapshot,
 	peer: RollupSnapshot,
-	today: string
+	today: string,
+	peerPartialDays: ReadonlySet<string> = new Set()
 ): RollupSnapshot {
 	const dayModel = [...local.dayModel, ...peer.dayModel];
 	const sessions = [...local.sessions, ...peer.sessions].sort((a, b) => b.lastTs - a.lastTs);
@@ -155,14 +157,18 @@ export function mergePooledSnapshot(
 	const models = [...modelCost.entries()].sort((a, b) => b[1] - a[1]).map(([m]) => m);
 	const providers = [...providerCost.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
 
-	// Peer days are authoritative for their machine. Fold them into coverage without
-	// downgrading a local `partial` opinion (today, or a locally-unfrozen day this run).
+	// Peer days are authoritative for their machine UNLESS that machine flagged the day partial
+	// (its own local scan was incomplete): an incomplete peer day must render `partial`, never
+	// `frozen`, so the pool doesn't present an undercount as authoritative (C8). A partial peer
+	// day even downgrades a local `frozen` opinion, because the pooled total for that day is
+	// still incomplete.
 	const coverage: CoverageMap = { ...local.coverage };
 	for (const dm of peer.dayModel) {
 		if (dm.day === today) {
 			coverage[dm.day] = 'partial';
 		} else if (dm.requests > 0) {
-			if (coverage[dm.day] !== 'partial') coverage[dm.day] = 'frozen';
+			if (peerPartialDays.has(dm.day)) coverage[dm.day] = 'partial';
+			else if (coverage[dm.day] !== 'partial') coverage[dm.day] = 'frozen';
 		} else if (!coverage[dm.day]) {
 			coverage[dm.day] = 'zero';
 		}

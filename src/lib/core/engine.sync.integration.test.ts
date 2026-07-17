@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { mkdtemp, mkdir, writeFile, appendFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SUBSCRIPTION, type chachingConfig } from './config';
 import { createEngine } from './engine';
@@ -51,6 +54,27 @@ function dayAgg(day: string, over: Partial<FrozenAgg> = {}): FrozenAgg {
 		webFetchRequests: 0,
 		...over
 	};
+}
+
+function claudeAssistantLine(msgId: string, day: string, model = 'claude-opus-4-8'): string {
+	return JSON.stringify({
+		type: 'assistant',
+		timestamp: `${day}T09:00:00.000Z`,
+		requestId: `req_${msgId}`,
+		sessionId: 's1',
+		isSidechain: false,
+		message: {
+			id: msgId,
+			model,
+			usage: {
+				input_tokens: 100,
+				output_tokens: 50,
+				cache_creation_input_tokens: 0,
+				cache_read_input_tokens: 0,
+				service_tier: 'standard'
+			}
+		}
+	});
 }
 
 function peerSession(machineIdLabel: string): SessionSummary {
@@ -187,6 +211,79 @@ suite('engine PostgreSQL sync mode (v2 aggregate ledger)', () => {
 			} finally {
 				await peer.close();
 			}
+		} finally {
+			engine?.dispose();
+			await store.close();
+		}
+	});
+
+	it('C2 — cold-scan + live claude rows for one day publish as a single machine-stamped row', { timeout: 30_000 }, async () => {
+		const poolId = randomUUID();
+		const kinto = randomUUID();
+		const store = new PostgresSyncStore(databaseUrl!);
+		const root = await mkdtemp(join(tmpdir(), 'chaching-c2-'));
+		let engine: ReturnType<typeof createEngine> | null = null;
+		try {
+			await store.createPool({ poolId, poolName: 'c2', machineId: kinto, machineName: 'kinto', hostname: 'kinto' });
+			const projectsDir = join(root, 'projects', '-x');
+			await mkdir(projectsDir, { recursive: true });
+			const sessionFile = join(projectsDir, 'session.jsonl');
+			const day = '2026-07-15';
+			// Cold-scan row: written BEFORE the engine starts (and so before connectSync).
+			await writeFile(sessionFile, `${claudeAssistantLine('msg_cold', day)}\n`);
+
+			const cfg = baseConfig(poolId, kinto);
+			cfg.providers.claude = { enabled: true, roots: [root], subscription: { ...DEFAULT_SUBSCRIPTION } };
+			engine = createEngine(cfg, () => Date.parse('2026-07-17T08:00:00Z'));
+			await engine.ensureStarted(); // cold scan runs, THEN connectSync sets syncStore
+
+			// A live claude row for the SAME day lands after connect and is tailed.
+			await appendFile(sessionFile, `${claudeAssistantLine('msg_live', day)}\n`);
+			await (engine as unknown as { tailFile: (f: string) => Promise<void> }).tailFile(sessionFile);
+
+			// Pre-C2 the cold row was un-stamped and the live row stamped → the machineId-keyed
+			// rollup split them into TWO rows for the same (day, provider, model). The fix stamps
+			// the cold scan too, so they merge into ONE machine-stamped row.
+			const claudeRows = engine
+				.snapshot()
+				.dayModel.filter((dm) => dm.provider === 'claude' && dm.day === day);
+			expect(claudeRows).toHaveLength(1);
+			expect(claudeRows[0].machineId).toBe(kinto);
+			expect(claudeRows[0].requests).toBe(2);
+
+			// Two same-key rows would make the single-statement upsert hit its conflict target
+			// twice ("cannot affect row a second time") and fail the burst; one row publishes clean.
+			await (engine as unknown as { runSyncBurst: (c: chachingConfig) => Promise<void> }).runSyncBurst(cfg);
+			expect(engine.stats.providerErrors.sync).toBeFalsy();
+		} finally {
+			engine?.dispose();
+			await store.close();
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	it('C8 — a peer day published as partial renders as partial coverage, not frozen', { timeout: 30_000 }, async () => {
+		const poolId = randomUUID();
+		const nimbus = randomUUID();
+		const kinto = randomUUID();
+		const store = new PostgresSyncStore(databaseUrl!);
+		let engine: ReturnType<typeof createEngine> | null = null;
+		try {
+			await store.createPool({ poolId, poolName: 'c8', machineId: nimbus, machineName: 'nimbus', hostname: 'nimbus' });
+			await store.joinPool({ poolId, machineId: kinto, machineName: 'kinto', hostname: 'kinto' });
+			store.setIdentity(poolId, nimbus);
+			const nimbusScope: PublishScope = { sourceScope: machineScope(nimbus), machineId: nimbus };
+			// nimbus publishes an INCOMPLETE past day (its own local scan was partial).
+			await store.publishDayAggregates(nimbusScope, [{ ...dayAgg('2026-07-15'), partial: true }]);
+
+			const cfg = baseConfig(poolId, kinto);
+			engine = createEngine(cfg, () => Date.parse('2026-07-17T08:00:00Z'));
+			await engine.ensureStarted();
+
+			const snap = engine.snapshot();
+			expect(snap.dayModel.some((dm) => dm.day === '2026-07-15')).toBe(true);
+			// The undercount must NOT be presented as authoritative.
+			expect(snap.coverage['2026-07-15']).toBe('partial');
 		} finally {
 			engine?.dispose();
 			await store.close();

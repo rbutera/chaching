@@ -139,7 +139,10 @@
 								<strong>{machine.name}</strong>
 								<small>{machine.hostname}{machine.current ? ' · this machine' : ''}</small>
 							</span>
-							<small>{machine.lastSeenAt ? new Date(machine.lastSeenAt).toLocaleString() : 'not seen yet'}</small>
+							<small>
+								seen {machine.lastSeenAt ? new Date(machine.lastSeenAt).toLocaleString() : 'never'}
+								· published {machine.lastPublishedAt ? new Date(machine.lastPublishedAt).toLocaleString() : 'never'}
+							</small>
 						</li>
 					{/each}
 				</ul>
