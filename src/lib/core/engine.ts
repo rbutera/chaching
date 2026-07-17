@@ -68,6 +68,7 @@ class Ingestion {
 	private localProviderTimer: NodeJS.Timeout | null = null;
 	private syncTimer: NodeJS.Timeout | null = null;
 	private localPollInFlight = false;
+	private syncPollInFlight = false;
 	/** codex session files already counted in stats.filesScanned (re-polls don't re-count) */
 	private codexSeenFiles = new Set<string>();
 	/** incremental floor for the next codex re-poll (wall clock, NOT the `now` seam) */
@@ -91,7 +92,7 @@ class Ingestion {
 	private syncStore: PostgresSyncStore | null = null;
 	private syncCursor = 0;
 	private syncQueue: UsageRecord[] = [];
-	private syncFlush: Promise<void> | null = null;
+	private syncFlush: Promise<boolean> | null = null;
 	private syncMappings: Record<string, string | null> = {};
 	private syncMappingFingerprint = '[]';
 	/** any read/parse failure during the cold scan makes a day potentially partial -> don't freeze. */
@@ -214,6 +215,11 @@ class Ingestion {
 					aggregate.machineId ? [{ machineId: aggregate.machineId, day: aggregate.day }] : []
 				)
 			);
+			this.rollup.setImportedCursorDays(
+				imported.aggregates.flatMap((aggregate) =>
+					aggregate.provider === 'cursor' ? [{ provider: aggregate.provider, day: aggregate.day }] : []
+				)
+			);
 			const loaded = await store.loadAllRecords();
 			this.syncCursor = loaded.cursor;
 			const durableDays = new Set(imported.aggregates.map((aggregate) => aggregate.day));
@@ -231,6 +237,16 @@ class Ingestion {
 			this.providerStatus.recordError('sync', error);
 			void store.close().catch(() => {});
 			this.syncStore = null;
+			// Sync is configured but unreachable. Fall back to the retained local SQLite
+			// frozen history so the rollup still seeds every past day instead of only the
+			// live-log window (~30 days) — local-first, not PG-dependent (B1). Reset the
+			// rollup/dedup first so a partially-applied loadSync can't compound with the
+			// local aggregates. The recorded sync error keeps scanIsPartial() true, so
+			// freezeNewDays() stays blocked this run and no partial copy is locked in.
+			this.rollup = new Rollup();
+			this.dedup = new DedupSet();
+			this.rollup.setCutover(cfg.cutoverTs);
+			this.loadHistory(cfg);
 		}
 	}
 
@@ -419,19 +435,21 @@ class Ingestion {
 		};
 	}
 
-	private async flushSyncQueue(): Promise<void> {
+	/** Resolves true only when the queue drained completely (nothing left un-inserted). */
+	private async flushSyncQueue(): Promise<boolean> {
 		if (this.syncFlush) return this.syncFlush;
 		const task = this.drainSyncQueue();
 		this.syncFlush = task;
 		try {
-			await task;
+			return await task;
 		} finally {
 			if (this.syncFlush === task) this.syncFlush = null;
 		}
 	}
 
-	private async drainSyncQueue(): Promise<void> {
-		if (!this.syncStore) return;
+	/** Returns false (and records the sync error) if a batch failed to insert. */
+	private async drainSyncQueue(): Promise<boolean> {
+		if (!this.syncStore) return true;
 		while (this.syncQueue.length > 0) {
 			// Remove before awaiting so producers append behind this in-flight batch.
 			// On failure, restore exactly this batch at the front for idempotent retry.
@@ -444,9 +462,10 @@ class Ingestion {
 			} catch (error) {
 				this.syncQueue.unshift(...pending);
 				this.providerStatus.recordError('sync', error);
-				return;
+				return false;
 			}
 		}
+		return true;
 	}
 
 	/**
@@ -506,8 +525,14 @@ class Ingestion {
 
 	private async pollSync(cfg: chachingConfig): Promise<void> {
 		if (this.disposed || !this.syncStore || !isConfigured(cfg.sync)) return;
+		// A hung PG must not pile up overlapping 15s ticks (mirrors localPollInFlight).
+		if (this.syncPollInFlight) return;
+		this.syncPollInFlight = true;
 		try {
-			await this.flushSyncQueue();
+			// Only a fully-drained queue lets us report sync healthy at the end of the
+			// tick. A failed drain records the error inside drainSyncQueue; clearing it
+			// below would lie about liveness while the outbound queue keeps growing.
+			const drained = await this.flushSyncQueue();
 			const mappings = await this.syncStore.mappedSubscriptions();
 			const fingerprint = await this.syncStore.mappingFingerprint();
 			if (
@@ -521,13 +546,15 @@ class Ingestion {
 				await this.pullSyncRecords();
 			}
 			await this.syncStore.heartbeat(cfg.sync.machineName, hostname());
-			this.providerStatus.clear('sync');
+			if (drained) this.providerStatus.clear('sync');
 			if (this.rollup.hasDirty()) {
 				const delta = this.rollup.drainDelta(this.now(), this.coverageInput());
 				if (delta) for (const fn of this.listeners) fn(delta);
 			}
 		} catch (error) {
 			this.providerStatus.recordError('sync', error);
+		} finally {
+			this.syncPollInFlight = false;
 		}
 	}
 
@@ -558,6 +585,11 @@ class Ingestion {
 		nextRollup.setImportedMachineDays(
 			imported.aggregates.flatMap((aggregate) =>
 				aggregate.machineId ? [{ machineId: aggregate.machineId, day: aggregate.day }] : []
+			)
+		);
+		nextRollup.setImportedCursorDays(
+			imported.aggregates.flatMap((aggregate) =>
+				aggregate.provider === 'cursor' ? [{ provider: aggregate.provider, day: aggregate.day }] : []
 			)
 		);
 		const loaded = await this.syncStore.loadAllRecords();

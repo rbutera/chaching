@@ -1,6 +1,7 @@
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SUBSCRIPTION, type chachingConfig } from './config';
 
@@ -8,7 +9,22 @@ import { DEFAULT_SUBSCRIPTION, type chachingConfig } from './config';
 // resolution. If this module loaded any framework runtime, this import would fail
 // under a plain Node/vitest context.
 import { createEngine, runOnce } from './engine';
+import { HistoryStore } from './history/store';
+import type { FrozenAgg } from './rollup/rollup';
 import type { UsageRecord } from '../types';
+
+function syncConfiguredConfig(databaseUrl = 'postgresql://u:p@127.0.0.1:1/db'): chachingConfig {
+	const cfg = disabledConfig();
+	cfg.sync = {
+		enabled: true,
+		databaseUrl,
+		poolId: randomUUID(),
+		machineId: randomUUID(),
+		machineName: 'test-machine',
+		providerSubscriptions: {}
+	};
+	return cfg;
+}
 
 function disabledConfig(): chachingConfig {
 	return {
@@ -224,5 +240,163 @@ describe('codex liveness — a session written AFTER the cold scan reaches the r
 		} finally {
 			engine.dispose();
 		}
+	});
+});
+
+describe('B1 — sync configured but unreachable falls back to local frozen history', () => {
+	function frozenAgg(day: string): FrozenAgg {
+		return {
+			day,
+			provider: 'claude',
+			model: 'claude-opus-4-8',
+			tokens: { input: 100, output: 20, cacheCreation: 0, cacheRead: 0 },
+			requests: 3,
+			cost: 1.5,
+			costUnknownRequests: 0,
+			cacheCreation1h: 0,
+			cacheCreation5m: 0,
+			webSearchRequests: 0,
+			webFetchRequests: 0
+		};
+	}
+
+	it('seeds the retained SQLite history and blocks new freezes when PG is down', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'chaching-b1-'));
+		tmpRoots.push(root);
+
+		// A past day already frozen in local SQLite (the copy that must survive PG being down).
+		const frozenDay = '2026-07-10';
+		const historyPath = join(root, 'history.db');
+		const seed = new HistoryStore();
+		seed.open(historyPath);
+		seed.freezeDays([frozenDay], [frozenAgg(frozenDay)], []);
+		seed.close();
+
+		// A different past day that is scanned live (codex) but NOT yet frozen.
+		const codexRoot = join(root, 'codex');
+		const codexDay = '2026-07-11';
+		await mkdir(join(codexRoot, '2026/07/11'), { recursive: true });
+		await writeFile(
+			join(codexRoot, '2026/07/11/rollout.jsonl'),
+			[
+				JSON.stringify({
+					timestamp: '2026-07-11T09:00:00.000Z',
+					type: 'turn_context',
+					payload: { model: 'gpt-5.5' }
+				}),
+				JSON.stringify({
+					timestamp: '2026-07-11T09:00:01.000Z',
+					type: 'event_msg',
+					payload: {
+						type: 'token_count',
+						info: {
+							total_token_usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 110 },
+							last_token_usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 110 }
+						}
+					}
+				})
+			].join('\n')
+		);
+
+		// Sync configured, but the URL points at a refused port so loadSync throws.
+		const cfg = syncConfiguredConfig();
+		cfg.history = { enabled: true, dbPath: historyPath };
+		cfg.providers.codex = { enabled: true, root: codexRoot, subscription: { ...DEFAULT_SUBSCRIPTION } };
+
+		const engine = createEngine(cfg, () => Date.parse('2026-07-17T12:00:00Z'));
+		try {
+			await engine.ensureStarted();
+			const snap = engine.snapshot();
+
+			// FALLBACK: the local frozen day is present. On the old code (no loadHistory in
+			// the loadSync catch) this row is absent and this assertion fails.
+			const frozenRow = snap.dayModel.find((dm) => dm.day === frozenDay);
+			expect(frozenRow).toBeTruthy();
+			expect(frozenRow?.cost).toBeCloseTo(1.5);
+			expect(snap.coverage[frozenDay]).toBe('frozen');
+
+			// The live codex past-day was still scanned.
+			expect(snap.dayModel.some((dm) => dm.day === codexDay && dm.provider === 'codex')).toBe(true);
+
+			// The sync provider error is recorded.
+			expect(engine.stats.providerErrors.sync).toBeTruthy();
+
+			// NO NEW FREEZE: the sync error keeps scanIsPartial() true, so the freshly-scanned
+			// codex day must NOT have been frozen into SQLite this run.
+			const check = new HistoryStore();
+			check.openReadOnly(historyPath);
+			const frozen = check.frozenDays();
+			check.close();
+			expect(frozen.has(frozenDay)).toBe(true);
+			expect(frozen.has(codexDay)).toBe(false);
+		} finally {
+			engine.dispose();
+		}
+	});
+});
+
+describe('M5 — pollSync reliability', () => {
+	it('does not interleave overlapping ticks (in-flight guard)', async () => {
+		const engine = createEngine(disabledConfig());
+		const cfg = syncConfiguredConfig();
+		let mappedCalls = 0;
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const fakeStore = {
+			mappedSubscriptions: async () => {
+				mappedCalls++;
+				await gate;
+				return {};
+			},
+			mappingFingerprint: async () => '[]',
+			recordsSince: async () => [],
+			heartbeat: async () => {}
+		};
+		const internal = engine as unknown as {
+			syncStore: typeof fakeStore | null;
+			pollSync: (c: chachingConfig) => Promise<void>;
+		};
+		internal.syncStore = fakeStore;
+		const first = internal.pollSync(cfg);
+		const second = internal.pollSync(cfg); // must bail on the in-flight guard
+		await vi.waitFor(() => expect(mappedCalls).toBe(1));
+		await second; // the second tick returned immediately, it does not wait on the gate
+		expect(mappedCalls).toBe(1);
+		release();
+		await first;
+		expect(mappedCalls).toBe(1);
+		internal.syncStore = null;
+		engine.dispose();
+	});
+
+	it('leaves sync status errored after a failed queue drain', async () => {
+		const engine = createEngine(disabledConfig());
+		const cfg = syncConfiguredConfig();
+		const fakeStore = {
+			insertRecords: async () => {
+				throw new Error('pg unreachable mid-drain');
+			},
+			mappedSubscriptions: async () => ({}),
+			mappingFingerprint: async () => '[]',
+			recordsSince: async () => [],
+			heartbeat: async () => {}
+		};
+		const internal = engine as unknown as {
+			syncStore: typeof fakeStore | null;
+			syncQueue: UsageRecord[];
+			pollSync: (c: chachingConfig) => Promise<void>;
+		};
+		internal.syncStore = fakeStore;
+		internal.syncQueue.push(usage('unsent'));
+		await internal.pollSync(cfg);
+		// The rest of the tick succeeded, but the drain failed: old code called
+		// providerStatus.clear('sync') unconditionally and wiped this.
+		expect(engine.stats.providerErrors.sync).toBeTruthy();
+		// The record stays queued for idempotent retry.
+		expect(internal.syncQueue.map((record) => record.key)).toEqual(['unsent']);
+		internal.syncStore = null;
+		engine.dispose();
 	});
 });

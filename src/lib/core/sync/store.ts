@@ -23,7 +23,10 @@ export class PostgresSyncStore {
 		this.pool = new Pool({
 			connectionString: databaseUrl,
 			max: 4,
-			application_name: 'chaching-sync'
+			application_name: 'chaching-sync',
+			// A blackholed host must not hang status/poll requests forever; fail the
+			// connect attempt after ~5s so callers degrade instead of stalling.
+			connectionTimeoutMillis: 5000
 		});
 	}
 

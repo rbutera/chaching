@@ -12,6 +12,8 @@ import { PostgresSyncStore } from './store';
 import type { SyncAction, SyncStatus, SyncSubscription } from './types';
 import { HistoryStore } from '../history/store';
 import { expandPath } from '../fs-utils';
+import type { FrozenAgg } from '../rollup/rollup';
+import type { SessionSummary } from '../../types';
 
 export function localSyncStatus(error: string | null = null): SyncStatus {
 	return {
@@ -75,6 +77,7 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 
 	if (action.action === 'create') {
 		if (cfg.sync.enabled) throw new Error('Leave the current sync pool before creating another');
+		assertCursorScopeReady(cfg);
 		const databaseUrl = required(action.databaseUrl, 'Database URL');
 		const poolName = required(action.poolName, 'Pool name');
 		const machineName = required(action.machineName, 'Machine name');
@@ -112,6 +115,7 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 
 	if (action.action === 'join') {
 		if (cfg.sync.enabled) throw new Error('Leave the current sync pool before joining another');
+		assertCursorScopeReady(cfg);
 		const databaseUrl = required(action.databaseUrl, 'Database URL');
 		const poolId = required(action.poolId, 'Pool ID');
 		const machineName = required(action.machineName, 'Machine name');
@@ -244,6 +248,56 @@ async function ensurePendingPoolIdentity(
 	return { config, poolId };
 }
 
+/**
+ * Cursor spend is a shared cloud-account fact; every machine sees it. Pooled it must be
+ * scoped by account (`cursor-account:<email>`) so the pool-wide unique index and insert
+ * dedup keep it single-counted. Without an email there is no pool-level scope, so a per-
+ * machine fallback would defeat that dedup and double-count across machines (B2). Refuse
+ * to create/join a pool with cursor enabled but no email rather than silently mis-scope.
+ */
+export function assertCursorScopeReady(cfg: chachingConfig): void {
+	if (cfg.providers.cursor.enabled && !cfg.providers.cursor.email?.trim()) {
+		throw new Error(
+			'Cursor + sync needs providers.cursor.email set so pooled cursor spend dedupes across machines. Set it in config, or disable cursor first.'
+		);
+	}
+}
+
+export interface CursorImportPlan {
+	aggregates: readonly FrozenAgg[];
+	sessions: readonly SessionSummary[];
+	sourceScopes: Record<string, string>;
+	warning: string | null;
+}
+
+/**
+ * Decide how frozen cursor history enters the pool. With an email, cursor rows import
+ * under the pool-wide `cursor-account:<email>` scope. Without one, cursor rows are
+ * SKIPPED (never imported under a per-machine scope, which would double-count — B2) and
+ * a warning is surfaced. Non-cursor rows always import unchanged.
+ */
+export function planCursorImportScope(
+	cfg: chachingConfig,
+	aggregates: readonly FrozenAgg[],
+	sessions: readonly SessionSummary[]
+): CursorImportPlan {
+	const cursorEmail = cfg.providers.cursor.email?.trim().toLowerCase();
+	if (cursorEmail) {
+		return { aggregates, sessions, sourceScopes: { cursor: `cursor-account:${cursorEmail}` }, warning: null };
+	}
+	const hasCursor =
+		aggregates.some((aggregate) => aggregate.provider === 'cursor') ||
+		sessions.some((session) => session.provider === 'cursor');
+	if (!hasCursor) return { aggregates, sessions, sourceScopes: {}, warning: null };
+	return {
+		aggregates: aggregates.filter((aggregate) => aggregate.provider !== 'cursor'),
+		sessions: sessions.filter((session) => session.provider !== 'cursor'),
+		sourceScopes: {},
+		warning:
+			'Pool joined, but cursor history was skipped: set providers.cursor.email so pooled cursor spend dedupes across machines, then re-run import.'
+	};
+}
+
 async function importExistingHistory(
 	store: PostgresSyncStore,
 	cfg: chachingConfig
@@ -254,13 +308,9 @@ async function importExistingHistory(
 	const history = new HistoryStore();
 	try {
 		history.openReadOnly(dbPath);
-		const cursorEmail = cfg.providers.cursor.email?.trim().toLowerCase();
-		await store.importFrozenHistory(
-			history.loadAggregates(),
-			history.loadSessions(),
-			cursorEmail ? { cursor: `cursor-account:${cursorEmail}` } : {}
-		);
-		return null;
+		const plan = planCursorImportScope(cfg, history.loadAggregates(), history.loadSessions());
+		await store.importFrozenHistory(plan.aggregates, plan.sessions, plan.sourceScopes);
+		return plan.warning;
 	} catch (cause) {
 		return `Pool joined, but existing SQLite history could not be imported: ${message(cause)}`;
 	} finally {

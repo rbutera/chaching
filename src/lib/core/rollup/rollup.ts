@@ -91,6 +91,14 @@ export class Rollup {
 	/** Local SQLite frozen days also suppress source-log re-ingestion. */
 	private skipFrozenDays = new Set<string>();
 	private importedMachineDays = new Set<string>();
+	/**
+	 * (provider, day) pairs already represented by an imported cursor aggregate. Cursor
+	 * spend is pool-global (machineId undefined), so `importedMachineDays` can't gate it;
+	 * without this, a day that was live-synced and later imported would be counted twice
+	 * (the import only reconciles imported_day_model, never the existing usage_record rows).
+	 * A live cursor record whose (provider, day) is in this set is skipped in `add()`.
+	 */
+	private importedCursorDays = new Set<string>();
 
 	private totalTokens = zeroTokens();
 	private totalRequests = 0;
@@ -150,6 +158,16 @@ export class Rollup {
 			this.importedMachineDays.add(`${entry.machineId}${KEY_SEP}${entry.day}`);
 	}
 
+	/**
+	 * Days already covered by an imported (pool-global) cursor aggregate. A live cursor
+	 * usage_record for one of these (provider, day) pairs is skipped by `add()` so a
+	 * live-then-import (or import-then-live) ordering counts the day exactly once (B3).
+	 */
+	setImportedCursorDays(entries: Iterable<{ provider: string; day: string }>): void {
+		for (const entry of entries)
+			this.importedCursorDays.add(`${entry.provider}${KEY_SEP}${entry.day}`);
+	}
+
 	/** True if `day` is frozen in the DB (and so should be skipped on the live scan). */
 	isFrozenDay(day: string): boolean {
 		return this.frozenDays.has(day);
@@ -164,6 +182,9 @@ export class Rollup {
 			this.importedMachineDays.has(`${rec.machineId}${KEY_SEP}${rec.day}`)
 		)
 			return;
+		// Skip a live cursor record for a day already carried by an imported cursor
+		// aggregate — pool-global cursor spend has no machineId to gate on (B3).
+		if (this.importedCursorDays.has(`${rec.provider}${KEY_SEP}${rec.day}`)) return;
 
 		this.recordsCounted++;
 		this.dirtyAny = true;
