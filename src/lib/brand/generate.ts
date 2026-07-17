@@ -119,6 +119,11 @@ export function toCss(t: Tokens): string {
 		`\t--p-opencode: ${t.providers.opencode.hex};`,
 		`\t--p-cursor: ${t.providers.cursor.hex};`,
 		`\t--p-pi: ${t.providers.pi.hex};`,
+		'',
+		'\t/* ── Register chrome — structural warmth only (never a data mark) ── */',
+		`\t--chrome-brass: ${t.chrome.brass.hex};`,
+		`\t--chrome-ember: ${t.chrome.ember.hex};`,
+		`\t--chrome-edge: ${t.chrome.edge.hex};`,
 		CSS_END_MARKER
 	];
 	return lines.join('\n');

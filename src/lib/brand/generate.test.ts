@@ -109,7 +109,11 @@ describe('toCss', () => {
 			'--p-codex',
 			'--p-opencode',
 			'--p-cursor',
-			'--p-pi'
+			'--p-pi',
+			// register chrome
+			'--chrome-brass',
+			'--chrome-ember',
+			'--chrome-edge'
 		]) {
 			expect(css).toContain(`${name}: `);
 		}

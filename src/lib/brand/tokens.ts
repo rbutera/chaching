@@ -90,6 +90,16 @@ export interface BrandTokens {
 	};
 	focus: BrandToken;
 	/**
+	 * Register chrome — structural warmth only (rail edges, section frames), the
+	 * brass→ember range the escalation-ladder heat maps onto. NEVER applied to a
+	 * data mark, so these are excluded from the text-contrast invariant by design.
+	 */
+	chrome: {
+		brass: BrandToken;
+		ember: BrandToken;
+		edge: BrandToken;
+	};
+	/**
 	 * Raw scale ramps. Emitted as `:root` vars so the hand-authored `.paper`
 	 * scope and ladders can alias them by name. Not semantic on their own.
 	 */
@@ -187,6 +197,14 @@ export const tokens = {
 	},
 	// keyboard-focus ring; tracks the bright gold (#f7bc42 = gold-400).
 	focus: { hex: '#f7bc42', ansi: 'yellow' },
+	// register chrome — brass (money-warm, = gold-500) through ember (alarm-warm),
+	// with a bright edge highlight (= gold-400). Structural surfaces only; the
+	// escalation ladder interpolates brass→ember for --register-heat. Never text.
+	chrome: {
+		brass: { hex: '#eba92c', ansi: 'yellow' }, // gold-500
+		ember: { hex: '#e0662e', ansi: 'red' }, // warm ember (rail warms toward alarm)
+		edge: { hex: '#f7bc42', ansi: 'yellow' } // gold-400 bright edge highlight
+	},
 	// raw ramps — emitted as :root vars for the .paper scope + ladders to alias.
 	ramps: {
 		ink950: { hex: '#0e0d0b', ansi: 'black' },

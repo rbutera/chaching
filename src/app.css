@@ -176,6 +176,11 @@
 	--p-opencode: #54cc85;
 	--p-cursor: #f6be3f;
 	--p-pi: #f4787b;
+
+	/* ── Register chrome — structural warmth only (never a data mark) ── */
+	--chrome-brass: #eba92c;
+	--chrome-ember: #e0662e;
+	--chrome-edge: #f7bc42;
 	/* END GENERATED brand tokens */
 
 	/* ── Typography ──────────────────────────────────────────────────────── */
@@ -266,6 +271,23 @@
 	--maxw: 1280px;
 	--maxw-prose: 60ch;
 	--receipt-w: 360px;
+
+	/* Bento summary-rail sizing (the persistent money column on desktop). */
+	--rail-w: 264px;
+	--rail-w-min: 232px;
+	--bento-gap: var(--space-6);
+
+	/* ── Register texture + chrome geometry ──────────────────────────────────
+	   Non-color knobs for the paper grain + torn edges. Defined here (hand-
+	   authored, alongside the other non-color tokens) because they are geometry/
+	   opacity, not BrandToken colors; the brass/ember chrome COLORS live in the
+	   generated block above (single source: src/lib/brand/tokens.ts). Applied to
+	   structural surfaces in the restyle wave — declared now so both waves share
+	   one source. Grain sits at ≤4% opacity (restraint budget). */
+	--grain-opacity: 0.035;
+	--grain-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+	--tear-tooth: 9px; /* sawtooth tooth width for torn thermal-paper edges */
+	--tear-mask: conic-gradient(from -45deg at bottom, #0000 25%, #000 0);
 
 	/* ── Z-index ─────────────────────────────────────────────────────────── */
 	--z-base: 0;
