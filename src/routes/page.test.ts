@@ -77,6 +77,8 @@ function richSnap(): RollupSnapshot {
 // A fake EventSource that pushes a snapshot message on the next tick, so the page's
 // FeedStore lands a real snapshot and renders the data layout (not the loading state).
 let snapshotToEmit: RollupSnapshot | null = null;
+// Value returned by the mocked GET /api/sync. Default: local-only (sync disabled).
+let syncStatusToReturn: unknown = {};
 class FakeEventSource {
 	onmessage: ((ev: { data: string }) => void) | null = null;
 	onerror: (() => void) | null = null;
@@ -117,6 +119,11 @@ beforeEach(() => {
 					}),
 					{ status: 200, headers: { 'content-type': 'application/json' } }
 				);
+			if (String(url).startsWith('/api/sync'))
+				return new Response(JSON.stringify(syncStatusToReturn), {
+					status: 200,
+					headers: { 'content-type': 'application/json' }
+				});
 			return new Response('{}', { status: 200 });
 		})
 	);
@@ -124,6 +131,7 @@ beforeEach(() => {
 afterEach(() => {
 	cleanup();
 	snapshotToEmit = null;
+	syncStatusToReturn = {};
 	vi.unstubAllGlobals();
 });
 
@@ -271,6 +279,43 @@ describe('dashboard route — preservation contract P1–P18', () => {
 		// not just *something* in the value band.
 		expect(container.querySelector('#subsidy-heading')).toBeTruthy();
 		expect(container.querySelectorAll('.value-grid select, .value-grid button, .value-grid input').length).toBeGreaterThan(0);
+	});
+
+	it('M6: pooled subsidy card renders per-subscription value (shared fee counted once)', async () => {
+		syncStatusToReturn = {
+			enabled: true,
+			databaseConfigured: true,
+			pool: { id: 'pool-1', name: 'Rai machines' },
+			machine: { id: 'm-kinto', name: 'kinto', hostname: 'kinto', lastSeenAt: null, current: true },
+			machines: [
+				{ id: 'm-kinto', name: 'kinto', hostname: 'kinto', lastSeenAt: null, current: true }
+			],
+			subscriptions: [
+				{
+					id: 'sub-codex',
+					provider: 'codex',
+					name: 'Shared ChatGPT Pro',
+					account: '',
+					tier: 'pro',
+					monthlyUsd: 200
+				}
+			],
+			mappings: []
+		};
+		const snap = richSnap();
+		// Attribute the codex spend to the shared subscription so the card has value.
+		for (const row of snap.dayModel)
+			if (row.provider === 'codex')
+				(row as DayModelAgg & { subscriptionId?: string }).subscriptionId = 'sub-codex';
+		snapshotToEmit = snap;
+
+		const { container } = render(Page);
+		await flush();
+
+		// The pooled card replaced the single-machine SubsidisationCard.
+		expect(container.querySelector('#pool-subsidy-heading')).toBeTruthy();
+		expect(container.querySelector('#subsidy-heading')).toBeNull();
+		expect(container.textContent).toContain('Shared ChatGPT Pro');
 	});
 
 	it('P2 + hero: renders the brass register total figure', async () => {

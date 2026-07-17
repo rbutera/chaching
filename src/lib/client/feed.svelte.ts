@@ -55,7 +55,7 @@ export class FeedStore {
 	}
 
 	private connect(): void {
-		this.conn = this.snapshot ? 'connecting' : 'connecting';
+		this.conn = 'connecting';
 		try {
 			this.es = new EventSource(resolve('/api/feed'));
 		} catch {

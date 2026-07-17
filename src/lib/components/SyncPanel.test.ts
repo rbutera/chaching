@@ -94,6 +94,77 @@ describe('SyncPanel', () => {
 		});
 	});
 
+	const joinedStatus: SyncStatusView = {
+		enabled: true,
+		databaseConfigured: true,
+		pool: { id: 'pool-1', name: 'Rai machines' },
+		machine: {
+			id: 'machine-kinto',
+			name: 'kinto',
+			hostname: 'kinto',
+			lastSeenAt: '2026-07-17T08:00:00Z',
+			current: true
+		},
+		machines: [
+			{
+				id: 'machine-kinto',
+				name: 'kinto',
+				hostname: 'kinto',
+				lastSeenAt: '2026-07-17T08:00:00Z',
+				current: true
+			}
+		],
+		subscriptions: [],
+		mappings: []
+	};
+
+	it('shows a distinct offline state (identity + error, no onboarding form) when the pool is unreachable', () => {
+		const offlineStatus: SyncStatusView = {
+			enabled: true,
+			databaseConfigured: true,
+			unreachable: true,
+			localIdentity: { poolId: 'pool-xyz', machineId: 'machine-latios', machineName: 'latios' },
+			pool: null,
+			machine: null,
+			machines: [],
+			subscriptions: [],
+			mappings: [],
+			error: 'connect ECONNREFUSED 100.64.0.1:5432'
+		};
+
+		const { queryByLabelText, queryByRole, container } = render(SyncPanel, {
+			status: offlineStatus,
+			onAction: vi.fn(async () => {})
+		});
+
+		// Joined identity is shown, not treated as never-joined onboarding.
+		expect(container.textContent).toContain('latios');
+		expect(container.textContent).toContain('pool-xyz');
+		expect(container.textContent).toContain('unreachable');
+		expect(container.textContent).toContain('connect ECONNREFUSED');
+		// No create/join form and no destructive mutation control while offline.
+		expect(queryByLabelText('PostgreSQL URL')).toBeNull();
+		expect(queryByRole('button', { name: 'leave pool' })).toBeNull();
+	});
+
+	it('requires a two-step confirm before leaving, warning about the local-history gap', async () => {
+		const onAction = vi.fn(async () => {});
+		const { getByRole, queryByRole, container } = render(SyncPanel, {
+			status: joinedStatus,
+			onAction
+		});
+
+		// First click arms the confirm; it must NOT leave yet.
+		await fireEvent.click(getByRole('button', { name: 'leave pool' }));
+		expect(onAction).not.toHaveBeenCalled();
+		expect(container.textContent).toContain('will show a gap');
+		expect(queryByRole('button', { name: 'leave pool' })).toBeNull();
+
+		// Second click confirms and fires the leave.
+		await fireEvent.click(getByRole('button', { name: 'confirm leave' }));
+		expect(onAction).toHaveBeenCalledWith({ action: 'leave' });
+	});
+
 	it('renders remote dashboards as read-only for sync management', () => {
 		const { queryByLabelText, container } = render(SyncPanel, {
 			status: { ...localStatus, managementAllowed: false },

@@ -46,10 +46,18 @@ export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus
 		await store.heartbeat(cfg.sync.machineName, hostname());
 		return await store.status();
 	} catch (cause) {
+		// Configured but unreachable: keep the locally-known identity so the dashboard
+		// shows "joined, pool offline" instead of falling back to onboarding (M3).
 		return {
 			...localSyncStatus(message(cause)),
 			enabled: true,
-			databaseConfigured: true
+			databaseConfigured: true,
+			unreachable: true,
+			localIdentity: {
+				poolId: cfg.sync.poolId,
+				machineId: cfg.sync.machineId,
+				machineName: cfg.sync.machineName
+			}
 		};
 	} finally {
 		await store.close().catch(() => {});
@@ -108,6 +116,8 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 			clearConfigCache();
 			await saveConfig(next);
 			return { ...(await store.status()), error: migrationWarning };
+		} catch (cause) {
+			throw describeSyncFailure(cause);
 		} finally {
 			await store.close().catch(() => {});
 		}
@@ -142,6 +152,8 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 			clearConfigCache();
 			await saveConfig(next);
 			return { ...(await store.status()), error: migrationWarning };
+		} catch (cause) {
+			throw describeSyncFailure(cause);
 		} finally {
 			await store.close().catch(() => {});
 		}
@@ -224,6 +236,48 @@ function required(value: string, label: string): string {
 
 function message(cause: unknown): string {
 	return cause instanceof Error ? cause.message : String(cause);
+}
+
+/**
+ * Driver-level failures that mean "could not talk to PostgreSQL" — network refusal,
+ * DNS/host failure, connect timeout, or auth rejection. Domain errors thrown after a
+ * successful connect (e.g. "pool does not exist") are deliberately excluded so they
+ * keep their own message.
+ */
+const CONNECTION_ERROR_CODES = new Set([
+	'ECONNREFUSED',
+	'ENOTFOUND',
+	'ETIMEDOUT',
+	'EHOSTUNREACH',
+	'ENETUNREACH',
+	'ECONNRESET',
+	'EAI_AGAIN',
+	'28P01', // invalid_password
+	'28000', // invalid_authorization_specification
+	'3D000' // invalid_catalog_name (database does not exist)
+]);
+
+function isConnectionError(cause: unknown): boolean {
+	if (!(cause instanceof Error)) return false;
+	const code = (cause as { code?: unknown }).code;
+	if (typeof code === 'string' && CONNECTION_ERROR_CODES.has(code)) return true;
+	return /connection terminated|connect timeout|getaddrinfo|ECONNREFUSED|password authentication|timeout expired/i.test(
+		cause.message
+	);
+}
+
+/**
+ * Turn a raw pg connection/auth failure into a one-line actionable error, keeping the
+ * driver's own message. Non-connection errors pass through unchanged (M2c).
+ */
+function describeSyncFailure(cause: unknown): Error {
+	if (!isConnectionError(cause)) {
+		return cause instanceof Error ? cause : new Error(String(cause));
+	}
+	const driver = cause instanceof Error ? cause.message : String(cause);
+	return new Error(
+		`could not reach PostgreSQL at the configured URL: ${driver}; check the URL, that the server is running, and network/Tailscale reachability`
+	);
 }
 
 async function ensureMachineIdentity(

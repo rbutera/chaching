@@ -87,7 +87,7 @@ Chaching Sync:
   chaching sync status [--json]
   chaching sync import-history
   chaching sync subscription add --provider <name> --name <label>
-      --account <label> --tier <tier> --monthly-usd <amount>
+      [--account <label>] [--tier <tier>] --monthly-usd <amount>
   chaching sync map --provider <name> --subscription <id|none> [--machine <id>]
   chaching sync leave
 

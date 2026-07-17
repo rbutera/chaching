@@ -15,6 +15,10 @@
 	let machineName = $state('');
 	let busy = $state(false);
 	let error = $state('');
+	let confirmingLeave = $state(false);
+
+	// Configured but PostgreSQL unreachable: known joined identity, no live pool payload.
+	let offline = $derived(!!status?.enabled && !status?.pool && !!status?.localIdentity);
 
 	let provider = $state('claude');
 	let subscriptionName = $state('');
@@ -24,13 +28,15 @@
 
 	const providers = ['claude', 'codex', 'opencode', 'pi', 'cursor'];
 
-	async function run(action: SyncAction): Promise<void> {
+	async function run(action: SyncAction): Promise<boolean> {
 		error = '';
 		busy = true;
 		try {
 			await onAction(action);
+			return true;
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Sync configuration failed.';
+			return false;
 		} finally {
 			busy = false;
 		}
@@ -44,12 +50,13 @@
 			error = 'Database URL and machine name are required.';
 			return;
 		}
+		let ok: boolean;
 		if (mode === 'create') {
 			if (!poolName.trim()) {
 				error = 'Pool name is required.';
 				return;
 			}
-			await run({
+			ok = await run({
 				action: 'create',
 				databaseUrl: url,
 				poolName: poolName.trim(),
@@ -60,14 +67,15 @@
 				error = 'Pool ID is required.';
 				return;
 			}
-			await run({
+			ok = await run({
 				action: 'join',
 				databaseUrl: url,
 				poolId: poolId.trim(),
 				machineName: machine
 			});
 		}
-		databaseUrl = '';
+		// Keep the typed URL on failure so a bad connection doesn't force a re-type.
+		if (ok) databaseUrl = '';
 	}
 
 	async function addSubscription(event: SubmitEvent): Promise<void> {
@@ -77,7 +85,7 @@
 			error = 'Subscription name and a non-negative monthly fee are required.';
 			return;
 		}
-		await run({
+		const ok = await run({
 			action: 'add-subscription',
 			provider,
 			name: subscriptionName.trim(),
@@ -85,8 +93,10 @@
 			tier: tier.trim() || 'custom',
 			monthlyUsd: fee
 		});
-		subscriptionName = '';
-		account = '';
+		if (ok) {
+			subscriptionName = '';
+			account = '';
+		}
 	}
 
 	function mappedSubscription(machineId: string, mappedProvider: string): string {
@@ -104,8 +114,8 @@
 			<p class="eyebrow">Chaching Sync</p>
 			<h2 id="sync-heading">{status?.enabled ? status.pool?.name ?? 'sync pool' : 'pool your machines'}</h2>
 		</div>
-		<span class:live={status?.enabled} class="state">
-			{status?.enabled ? 'connected' : 'local only'}
+		<span class:live={status?.enabled && status.pool} class:offline class="state">
+			{offline ? 'unreachable' : status?.enabled ? 'connected' : 'local only'}
 		</span>
 	</div>
 
@@ -211,10 +221,34 @@
 			</div>
 
 			<div class="danger-zone">
-				<p>Leaving returns this machine to its local SQLite ledger. Pool data stays in PostgreSQL.</p>
-				<button type="button" class="danger" disabled={busy} onclick={() => run({ action: 'leave' })}>
-					leave pool
-				</button>
+				{#if confirmingLeave}
+					<p class="leave-warn">
+						Leaving forgets the stored database URL. Days recorded while pooled stay in
+						PostgreSQL only, so this machine's local view will show a gap for that period
+						until you rejoin.
+					</p>
+					<div class="confirm-row">
+						<button
+							type="button"
+							class="danger"
+							disabled={busy}
+							onclick={() => {
+								confirmingLeave = false;
+								run({ action: 'leave' });
+							}}
+						>
+							confirm leave
+						</button>
+						<button type="button" disabled={busy} onclick={() => (confirmingLeave = false)}>
+							cancel
+						</button>
+					</div>
+				{:else}
+					<p>Leaving returns this machine to its local SQLite ledger. Pool data stays in PostgreSQL.</p>
+					<button type="button" class="danger" disabled={busy} onclick={() => (confirmingLeave = true)}>
+						leave pool
+					</button>
+				{/if}
 			</div>
 		{:else}
 			<p class="warning">
@@ -222,6 +256,17 @@
 				loopback dashboard.
 			</p>
 		{/if}
+	{:else if offline && status?.localIdentity}
+		<p class="summary">
+			<strong>{status.localIdentity.machineName}</strong> is joined to pool
+			<code>{status.localIdentity.poolId}</code>, but PostgreSQL is currently unreachable. This
+			machine keeps its place in the pool; contributions resume automatically once the database is
+			back.
+		</p>
+		<p class="warning">
+			Pool roster and management are unavailable while the database is offline — no changes can be
+			made from here.
+		</p>
 	{:else}
 		<p class="summary">
 			Create one PostgreSQL-backed pool, then join every machine that should contribute. Machines can
@@ -331,6 +376,10 @@
 	.state.live {
 		border-color: color-mix(in srgb, var(--good) 50%, var(--border));
 		color: var(--good);
+	}
+	.state.offline {
+		border-color: color-mix(in srgb, var(--warn) 50%, var(--border));
+		color: var(--warn);
 	}
 	.summary,
 	.warning,
@@ -449,8 +498,19 @@
 		padding-top: 1rem;
 		border-top: 1px solid var(--border);
 	}
+	.danger-zone {
+		flex-wrap: wrap;
+	}
 	.danger-zone p {
 		margin: 0;
+	}
+	.leave-warn {
+		flex: 1 1 100%;
+		color: var(--warn);
+	}
+	.confirm-row {
+		display: flex;
+		gap: 0.5rem;
 	}
 	button.danger {
 		border-color: color-mix(in srgb, var(--bad) 45%, var(--border));

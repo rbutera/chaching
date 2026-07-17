@@ -13,9 +13,11 @@
 	interface Props {
 		rows: PoolSubsidyRow[];
 		windowLabel: string;
+		/** A machine filter is active: the fee shown is the whole shared-plan fee, not per-machine. */
+		wholePlanFee?: boolean;
 	}
 
-	let { rows, windowLabel }: Props = $props();
+	let { rows, windowLabel, wholePlanFee = false }: Props = $props();
 	let totalValue = $derived(rows.reduce((sum, row) => sum + row.valueUsd, 0));
 	let totalFee = $derived(rows.reduce((sum, row) => sum + row.feeUsd, 0));
 	let multiple = $derived(totalFee > 0 ? totalValue / totalFee : null);
@@ -27,7 +29,7 @@
 			<p class="eyebrow">pool subscriptions</p>
 			<h2 id="pool-subsidy-heading">{windowLabel}</h2>
 		</div>
-		<strong class="multiple">{multiple == null ? '∞' : `${multiple.toFixed(1)}×`}</strong>
+		<strong class="multiple">{multiple == null ? '—' : `${multiple.toFixed(1)}×`}</strong>
 	</div>
 
 	<ul>
@@ -51,6 +53,10 @@
 		<span>pro-rated fees</span>
 		<strong>{money(totalFee)}</strong>
 	</p>
+
+	{#if wholePlanFee}
+		<p class="fee-note">Fees shown are the whole shared-plan fee, not a per-machine share.</p>
+	{/if}
 </section>
 
 <style>
@@ -127,5 +133,11 @@
 	.total strong {
 		color: var(--text);
 		text-align: right;
+	}
+	.fee-note {
+		margin: 0.5rem 0 0;
+		font-family: var(--font-mono);
+		font-size: var(--text-2xs);
+		color: var(--text-dim);
 	}
 </style>

@@ -30,8 +30,16 @@ vi.mock('@clack/prompts', () => ({
 	log: { info: vi.fn() }
 }));
 
+// Mock the sync manager so create/join don't touch a real PostgreSQL. Only the wizard
+// consumes performSyncAction, and only in the create/join ledger branch.
+vi.mock('../lib/core/sync/manager.js', () => ({
+	performSyncAction: vi.fn()
+}));
+
 // Import clack after the mock is in place so vi.mocked() works
 import * as clack from '@clack/prompts';
+import { performSyncAction } from '../lib/core/sync/manager.js';
+const performSyncActionMock = vi.mocked(performSyncAction);
 
 // ── Pure logic tests (no mocks needed) ────────────────────────────────────────
 
@@ -323,6 +331,57 @@ describe('runWizard (mocked prompts — TTY bypassed via isTTY stub)', () => {
 
 		expect(result).toBeNull();
 		expect(vi.mocked(clack.cancel)).toHaveBeenCalled();
+	});
+
+	it('create pool prints the pool ID and a ready-to-paste join hint (M1a)', async () => {
+		// claude-only so the cursor secret prompt never fires; ledger = create.
+		vi.mocked(clack.multiselect).mockResolvedValue(['claude']);
+		vi.mocked(clack.select).mockResolvedValue('create' as never);
+		vi.mocked(clack.password).mockResolvedValue('postgresql://chaching@localhost/chaching');
+		vi.mocked(clack.text).mockResolvedValue('kinto');
+		performSyncActionMock.mockResolvedValue({
+			enabled: true,
+			databaseConfigured: true,
+			pool: { id: 'pool-abc', name: 'My machines' },
+			machine: { id: 'm1', name: 'kinto', hostname: 'kinto', lastSeenAt: null },
+			machines: [],
+			subscriptions: [],
+			mappings: [],
+			error: null
+		});
+
+		const { runWizard } = await import('./wizard.js');
+		const result = await runWizard({ env: {} });
+
+		expect(result).not.toBeNull();
+		expect(performSyncActionMock).toHaveBeenCalledWith(
+			expect.objectContaining({ action: 'create' })
+		);
+		const notes = vi.mocked(clack.note).mock.calls.map((call) => String(call[0]));
+		expect(
+			notes.some(
+				(msg) => msg.includes('pool-abc') && msg.includes('chaching sync join --pool pool-abc')
+			)
+		).toBe(true);
+	});
+
+	it('create failure exits gracefully, keeping saved provider config (M2b)', async () => {
+		vi.mocked(clack.multiselect).mockResolvedValue(['claude']);
+		vi.mocked(clack.select).mockResolvedValue('create' as never);
+		vi.mocked(clack.password).mockResolvedValue('postgresql://chaching@unreachable/chaching');
+		vi.mocked(clack.text).mockResolvedValue('kinto');
+		performSyncActionMock.mockRejectedValue(
+			new Error('could not reach PostgreSQL at the configured URL: connect ECONNREFUSED')
+		);
+
+		const { runWizard } = await import('./wizard.js');
+		// Must resolve, not throw, even though the sync action rejected.
+		const result = await runWizard({ env: {} });
+
+		expect(result).not.toBeNull();
+		expect(result!.providers.claude.enabled).toBe(true);
+		const notes = vi.mocked(clack.note).mock.calls.map((call) => String(call[0]));
+		expect(notes.some((msg) => msg.includes('could not reach PostgreSQL'))).toBe(true);
 	});
 });
 

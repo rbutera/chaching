@@ -62,6 +62,9 @@ the connection leaves a trusted tailnet.
 Back up the named Docker volume as you would any PostgreSQL database. Chaching creates and
 migrates its `chaching_sync` schema automatically, but it does not manage database backups.
 
+The schema requires PostgreSQL 15 or newer (it uses `ON DELETE SET NULL (column)` foreign keys);
+the bundled compose file ships PostgreSQL 17.
+
 ## Create and join a pool
 
 You can use the first-run wizard, the Sync panel at the bottom of the web dashboard, or the CLI.
@@ -79,9 +82,12 @@ chaching sync create \
   --machine kinto
 ```
 
-`create` prints the pool ID. On each additional machine:
+`create` prints the pool ID. On each additional machine, provide the same database URL
+first (`join` requires it), then join:
 
 ```sh
+read -rsp 'PostgreSQL URL: ' CHACHING_DATABASE_URL
+export CHACHING_DATABASE_URL
 chaching sync join \
   --pool '<pool-id>' \
   --machine nimbus
@@ -159,6 +165,9 @@ local SQLite history backend:
 ```sh
 chaching sync leave
 ```
+
+Leaving forgets the stored database URL. Days recorded while pooled stay in PostgreSQL only, so
+this machine's local view shows a gap for that period until it rejoins the pool.
 
 ## Dashboard
 

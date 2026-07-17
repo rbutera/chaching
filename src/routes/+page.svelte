@@ -327,6 +327,12 @@
 			.filter(
 				(subscription) => machineSubscriptions === null || machineSubscriptions.has(subscription.id)
 			)
+			// A provider filter must drop subscriptions it can't hold value for, otherwise
+			// their full fee counts against a ~$0 value (M6a).
+			.filter(
+				(subscription) =>
+					dash.providerFilter.size === 0 || dash.providerFilter.has(subscription.provider)
+			)
 			.map((subscription) => ({
 				id: subscription.id,
 				name: subscription.name,
@@ -706,7 +712,11 @@
 					<CachePanel breakdown={cacheBreakdown} />
 				{/if}
 				{#if syncStatus?.enabled && poolSubsidyRows.length > 0}
-					<PoolSubsidisationCard rows={poolSubsidyRows} windowLabel={heroLabel} />
+					<PoolSubsidisationCard
+						rows={poolSubsidyRows}
+						windowLabel={heroLabel}
+						wholePlanFee={dash.machineFilter.size > 0}
+					/>
 				{:else if subsidy && subsidyConfig}
 					<SubsidisationCard rollup={subsidy} windowLabel={heroLabel} config={subsidyConfig} {onTierChange} burnPace={pace} />
 				{/if}

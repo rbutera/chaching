@@ -290,23 +290,45 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 		if (ledger === 'create') {
 			const poolName = await text({ message: 'Pool name:', placeholder: 'My machines' });
 			if (isCancel(poolName)) return updated;
-			const status = await performSyncAction({
-				action: 'create',
-				databaseUrl: String(databaseUrl),
-				poolName: String(poolName),
-				machineName: String(machineAnswer)
-			});
-			if (status.error) note(status.error, 'SQLite migration warning');
+			try {
+				const status = await performSyncAction({
+					action: 'create',
+					databaseUrl: String(databaseUrl),
+					poolName: String(poolName),
+					machineName: String(machineAnswer)
+				});
+				if (status.error) note(status.error, 'SQLite migration warning');
+				// Print the pool ID + a ready-to-paste join hint so machine 2 can onboard
+				// from here alone (M1a — matches `chaching sync create`'s CLI output).
+				note(
+					`pool ${status.pool?.name} (${status.pool?.id})\n` +
+						`${status.machine?.name} joined; PostgreSQL is now the active ledger.\n\n` +
+						`On each other machine, set CHACHING_DATABASE_URL, then run:\n` +
+						`chaching sync join --pool ${status.pool?.id} --machine <name>`,
+					'sync pool created'
+				);
+			} catch (cause) {
+				return syncSetupFailed(cause, updated);
+			}
 		} else {
 			const poolId = await text({ message: 'Pool ID:' });
 			if (isCancel(poolId)) return updated;
-			const status = await performSyncAction({
-				action: 'join',
-				databaseUrl: String(databaseUrl),
-				poolId: String(poolId),
-				machineName: String(machineAnswer)
-			});
-			if (status.error) note(status.error, 'SQLite migration warning');
+			try {
+				const status = await performSyncAction({
+					action: 'join',
+					databaseUrl: String(databaseUrl),
+					poolId: String(poolId),
+					machineName: String(machineAnswer)
+				});
+				if (status.error) note(status.error, 'SQLite migration warning');
+				note(
+					`joined pool ${status.pool?.name ?? poolId} as ${status.machine?.name}. ` +
+						`PostgreSQL is now the active ledger.`,
+					'joined sync pool'
+				);
+			} catch (cause) {
+				return syncSetupFailed(cause, updated);
+			}
 		}
 	}
 
@@ -318,6 +340,22 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 	);
 
 	return updated;
+}
+
+/**
+ * Handle a create/join failure inside the wizard gracefully (M2b): surface the
+ * actionable message, remind the user their provider settings are already saved, and
+ * return the saved config so the wizard exits cleanly instead of crashing mid-init.
+ */
+function syncSetupFailed(cause: unknown, saved: chachingConfig): chachingConfig {
+	const msg = cause instanceof Error ? cause.message : String(cause);
+	note(
+		`${msg}\n\n` +
+			'Your provider settings are already saved. Once PostgreSQL is reachable, run\n' +
+			'`chaching sync create` or `chaching sync join` to finish pooling.',
+		'could not reach the sync pool'
+	);
+	return saved;
 }
 
 // ── Single-provider secret flow (for `chaching provider add`) ─────────────────

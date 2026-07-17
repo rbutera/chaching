@@ -27,4 +27,61 @@ describe('PoolSubsidisationCard', () => {
 		expect(text).toContain('$200');
 		expect(text.match(/Shared ChatGPT Pro/g)).toHaveLength(1);
 	});
+
+	it('renders an em dash, never ∞, when the total fee is zero', () => {
+		const { container } = render(PoolSubsidisationCard, {
+			windowLabel: 'Last 30 days',
+			rows: [
+				{
+					id: 'free-plan',
+					name: 'Free tier',
+					provider: 'claude',
+					account: '',
+					valueUsd: 40,
+					feeUsd: 0
+				}
+			]
+		});
+
+		const text = container.textContent ?? '';
+		expect(text).toContain('—');
+		expect(text).not.toContain('∞');
+	});
+
+	it('annotates the fee as a whole-plan fee when a machine filter is active', () => {
+		const { container } = render(PoolSubsidisationCard, {
+			windowLabel: 'Last 30 days',
+			wholePlanFee: true,
+			rows: [
+				{
+					id: 'shared-codex',
+					name: 'Shared ChatGPT Pro',
+					provider: 'codex',
+					account: '',
+					valueUsd: 800,
+					feeUsd: 200
+				}
+			]
+		});
+
+		expect(container.textContent).toContain('whole shared-plan fee');
+	});
+
+	it('omits the whole-plan annotation without a machine filter', () => {
+		const { container } = render(PoolSubsidisationCard, {
+			windowLabel: 'Last 30 days',
+			rows: [
+				{
+					id: 'shared-codex',
+					name: 'Shared ChatGPT Pro',
+					provider: 'codex',
+					account: '',
+					valueUsd: 800,
+					feeUsd: 200
+				}
+			]
+		});
+
+		expect(container.textContent).not.toContain('whole shared-plan fee');
+	});
 });

@@ -21,6 +21,17 @@ export interface SyncMapping {
 	subscriptionId: string | null;
 }
 
+/**
+ * Pool identity known from the local `0600` config alone, without reaching PostgreSQL.
+ * Surfaced when sync is configured but the database is unreachable so a joined-but-offline
+ * machine renders as "joined, pool unreachable" rather than falling back to onboarding.
+ */
+export interface SyncLocalIdentity {
+	poolId: string;
+	machineId: string;
+	machineName: string;
+}
+
 export interface SyncStatus {
 	enabled: boolean;
 	databaseConfigured: boolean;
@@ -31,6 +42,13 @@ export interface SyncStatus {
 	mappings: SyncMapping[];
 	/** False when viewed through a remote/reverse-proxied dashboard. */
 	managementAllowed?: boolean;
+	/**
+	 * True when sync is configured but PostgreSQL could not be reached for this status
+	 * read. Pairs with `localIdentity` so the UI can show a distinct offline state.
+	 */
+	unreachable?: boolean;
+	/** Locally-known pool identity, present when configured-but-unreachable. */
+	localIdentity?: SyncLocalIdentity | null;
 	error?: string | null;
 }
 
