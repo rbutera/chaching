@@ -85,7 +85,6 @@ Chaching Sync:
   CHACHING_DATABASE_URL=<url> chaching sync create --name <pool> [--machine <name>]
   CHACHING_DATABASE_URL=<url> chaching sync join --pool <id> [--machine <name>]
   chaching sync status [--json]
-  chaching sync import-history
   chaching sync subscription add --provider <name> --name <label>
       [--account <label>] [--tier <tier>] --monthly-usd <amount>
   chaching sync map --provider <name> --subscription <id|none> [--machine <id>]

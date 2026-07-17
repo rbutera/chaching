@@ -10,7 +10,7 @@ import { DEFAULT_SUBSCRIPTION, type chachingConfig } from './config';
 // under a plain Node/vitest context.
 import { createEngine, runOnce } from './engine';
 import { HistoryStore } from './history/store';
-import type { FrozenAgg } from './rollup/rollup';
+import type { FrozenAgg, Rollup } from './rollup/rollup';
 import type { UsageRecord } from '../types';
 
 function syncConfiguredConfig(databaseUrl = 'postgresql://u:p@127.0.0.1:1/db'): chachingConfig {
@@ -21,7 +21,8 @@ function syncConfiguredConfig(databaseUrl = 'postgresql://u:p@127.0.0.1:1/db'): 
 		poolId: randomUUID(),
 		machineId: randomUUID(),
 		machineName: 'test-machine',
-		providerSubscriptions: {}
+		providerSubscriptions: {},
+		intervalMinutes: 15
 	};
 	return cfg;
 }
@@ -37,7 +38,8 @@ function disabledConfig(): chachingConfig {
 			poolId: null,
 			machineId: null,
 			machineName: '',
-			providerSubscriptions: {}
+			providerSubscriptions: {},
+			intervalMinutes: 15
 		},
 		providers: {
 			claude: { enabled: false, roots: [], subscription: { ...DEFAULT_SUBSCRIPTION } },
@@ -147,38 +149,6 @@ describe('core engine (no SvelteKit)', () => {
 		expect(activeHandleCount()).toBeLessThanOrEqual(before);
 	});
 
-	it('serializes concurrent sync flushes without dropping records appended in flight', async () => {
-		const engine = createEngine(disabledConfig());
-		let releaseFirst!: () => void;
-		const firstInsert = new Promise<void>((resolve) => {
-			releaseFirst = resolve;
-		});
-		const writes: string[][] = [];
-		const fakeStore = {
-			insertRecords: async (records: readonly UsageRecord[]) => {
-				writes.push(records.map((record) => record.key));
-				if (writes.length === 1) await firstInsert;
-			}
-		};
-		const internal = engine as unknown as {
-			syncStore: typeof fakeStore | null;
-			syncQueue: UsageRecord[];
-			flushSyncQueue: () => Promise<void>;
-		};
-		internal.syncStore = fakeStore;
-		internal.syncQueue.push(usage('a'));
-		const first = internal.flushSyncQueue();
-		await vi.waitFor(() => expect(writes).toEqual([['a']]));
-		const concurrent = internal.flushSyncQueue();
-		internal.syncQueue.push(usage('b'));
-		releaseFirst();
-		await Promise.all([first, concurrent]);
-
-		expect(writes).toEqual([['a'], ['b']]);
-		expect(internal.syncQueue).toEqual([]);
-		internal.syncStore = null;
-		engine.dispose();
-	});
 });
 
 describe('codex liveness — a session written AFTER the cold scan reaches the rollup', () => {
@@ -335,67 +305,76 @@ describe('B1 — sync configured but unreachable falls back to local frozen hist
 	});
 });
 
-describe('M5 — pollSync reliability', () => {
-	it('does not interleave overlapping ticks (in-flight guard)', async () => {
+describe('M5 — sync burst reliability', () => {
+	function loadStub() {
+		return { dayAggregates: [], hourAggregates: [], sessions: [], watermark: null };
+	}
+
+	it('does not interleave overlapping bursts (in-flight guard)', async () => {
 		const engine = createEngine(disabledConfig());
 		const cfg = syncConfiguredConfig();
-		let mappedCalls = 0;
+		let loadCalls = 0;
 		let release!: () => void;
 		const gate = new Promise<void>((resolve) => {
 			release = resolve;
 		});
 		const fakeStore = {
-			mappedSubscriptions: async () => {
-				mappedCalls++;
-				await gate;
-				return {};
-			},
+			publishDayAggregates: async () => {},
+			publishHourAggregates: async () => {},
+			publishSessions: async () => {},
+			heartbeat: async () => {},
 			mappingFingerprint: async () => '[]',
-			recordsSince: async () => [],
-			heartbeat: async () => {}
+			allMappings: async () => [],
+			loadAggregates: async () => {
+				loadCalls++;
+				await gate;
+				return loadStub();
+			}
 		};
 		const internal = engine as unknown as {
 			syncStore: typeof fakeStore | null;
-			pollSync: (c: chachingConfig) => Promise<void>;
+			runSyncBurst: (c: chachingConfig) => Promise<void>;
 		};
 		internal.syncStore = fakeStore;
-		const first = internal.pollSync(cfg);
-		const second = internal.pollSync(cfg); // must bail on the in-flight guard
-		await vi.waitFor(() => expect(mappedCalls).toBe(1));
-		await second; // the second tick returned immediately, it does not wait on the gate
-		expect(mappedCalls).toBe(1);
+		const first = internal.runSyncBurst(cfg);
+		const second = internal.runSyncBurst(cfg); // must bail on the in-flight guard
+		await vi.waitFor(() => expect(loadCalls).toBe(1));
+		await second; // returned immediately; it does not wait on the gate
+		expect(loadCalls).toBe(1);
 		release();
 		await first;
-		expect(mappedCalls).toBe(1);
+		expect(loadCalls).toBe(1);
 		internal.syncStore = null;
 		engine.dispose();
 	});
 
-	it('leaves sync status errored after a failed queue drain', async () => {
+	it('leaves sync errored and publish-dirty intact after a failed publish', async () => {
 		const engine = createEngine(disabledConfig());
 		const cfg = syncConfiguredConfig();
 		const fakeStore = {
-			insertRecords: async () => {
-				throw new Error('pg unreachable mid-drain');
+			publishDayAggregates: async () => {
+				throw new Error('pg unreachable mid-publish');
 			},
-			mappedSubscriptions: async () => ({}),
+			publishHourAggregates: async () => {},
+			publishSessions: async () => {},
+			heartbeat: async () => {},
 			mappingFingerprint: async () => '[]',
-			recordsSince: async () => [],
-			heartbeat: async () => {}
+			allMappings: async () => [],
+			loadAggregates: async () => loadStub()
 		};
 		const internal = engine as unknown as {
 			syncStore: typeof fakeStore | null;
-			syncQueue: UsageRecord[];
-			pollSync: (c: chachingConfig) => Promise<void>;
+			rollup: Rollup;
+			runSyncBurst: (c: chachingConfig) => Promise<void>;
 		};
 		internal.syncStore = fakeStore;
-		internal.syncQueue.push(usage('unsent'));
-		await internal.pollSync(cfg);
-		// The rest of the tick succeeded, but the drain failed: old code called
-		// providerStatus.clear('sync') unconditionally and wiped this.
+		// A local record makes the publish-dirty set non-empty so the burst actually publishes.
+		internal.rollup.add({ ...usage('unsent'), machineId: cfg.sync.machineId ?? undefined });
+		await internal.runSyncBurst(cfg);
+		// Old code cleared 'sync' unconditionally; now a failed publish records the error and
+		// leaves publish-dirty untouched so the next burst self-heals by republishing.
 		expect(engine.stats.providerErrors.sync).toBeTruthy();
-		// The record stays queued for idempotent retry.
-		expect(internal.syncQueue.map((record) => record.key)).toEqual(['unsent']);
+		expect(internal.rollup.hasPublishDirty()).toBe(true);
 		internal.syncStore = null;
 		engine.dispose();
 	});

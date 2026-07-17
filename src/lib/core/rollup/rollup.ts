@@ -58,6 +58,31 @@ interface DayModelExtra {
 export type FrozenAgg = DayModelAgg & DayModelExtra;
 
 /**
+ * An hour-bucketed aggregate (epoch-ms floored to the hour, UTC). Published to the sync
+ * ledger for the last ~48h so pooled 5-hour-cap windows can be reconstructed at hour grain
+ * across machines. Coarser than the per-record local block accumulator by design (a pooled
+ * decision recorded for wave B).
+ */
+export interface HourAgg {
+	hourTs: number;
+	provider: string;
+	model: string;
+	tokens: TokenCounts;
+	requests: number;
+	cost: number;
+	costUnknownRequests: number;
+}
+
+interface HourState {
+	tokens: TokenCounts;
+	requests: number;
+	cost: number;
+	costUnknownRequests: number;
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
  * The two facts the engine owns that the rollup can't see, injected so the rollup can
  * classify per-day coverage (design D2):
  * - `today`: the canonical UTC day, so "today" reads `partial` (live tail).
@@ -90,15 +115,8 @@ export class Rollup {
 	private frozenDays = new Set<string>();
 	/** Local SQLite frozen days also suppress source-log re-ingestion. */
 	private skipFrozenDays = new Set<string>();
-	private importedMachineDays = new Set<string>();
-	/**
-	 * (provider, day) pairs already represented by an imported cursor aggregate. Cursor
-	 * spend is pool-global (machineId undefined), so `importedMachineDays` can't gate it;
-	 * without this, a day that was live-synced and later imported would be counted twice
-	 * (the import only reconciles imported_day_model, never the existing usage_record rows).
-	 * A live cursor record whose (provider, day) is in this set is skipped in `add()`.
-	 */
-	private importedCursorDays = new Set<string>();
+	/** parallel per-(hour, provider, model) buckets — published to the pooled ledger. */
+	private hourModel = new Map<string, HourState>();
 
 	private totalTokens = zeroTokens();
 	private totalRequests = 0;
@@ -118,6 +136,16 @@ export class Rollup {
 	private dirtyDayModel = new Set<string>();
 	private dirtySessions = new Set<string>();
 	private dirtyAny = false;
+
+	/**
+	 * Publish-dirty sets (independent of the delta-dirty sets above): (day,provider,model),
+	 * (hour,provider,model), and session keys touched by `add()` since the last
+	 * `clearPublishDirty()`. The pooled engine publishes only these each burst — a
+	 * full-replacement upsert per key, so a failed burst just republishes next time.
+	 */
+	private pubDirtyDays = new Set<string>();
+	private pubDirtyHours = new Set<string>();
+	private pubDirtySessions = new Set<string>();
 
 	setCutover(ts: number | null): void {
 		this.cutoverTs = ts;
@@ -147,27 +175,6 @@ export class Rollup {
 		}
 	}
 
-	/** PostgreSQL records are durable but must not suppress another machine's source scan. */
-	setDurableDays(days: Iterable<string>): void {
-		for (const d of days) this.frozenDays.add(d);
-	}
-
-	/** Migrated SQLite aggregates suppress only that machine's matching raw log days. */
-	setImportedMachineDays(entries: Iterable<{ machineId: string; day: string }>): void {
-		for (const entry of entries)
-			this.importedMachineDays.add(`${entry.machineId}${KEY_SEP}${entry.day}`);
-	}
-
-	/**
-	 * Days already covered by an imported (pool-global) cursor aggregate. A live cursor
-	 * usage_record for one of these (provider, day) pairs is skipped by `add()` so a
-	 * live-then-import (or import-then-live) ordering counts the day exactly once (B3).
-	 */
-	setImportedCursorDays(entries: Iterable<{ provider: string; day: string }>): void {
-		for (const entry of entries)
-			this.importedCursorDays.add(`${entry.provider}${KEY_SEP}${entry.day}`);
-	}
-
 	/** True if `day` is frozen in the DB (and so should be skipped on the live scan). */
 	isFrozenDay(day: string): boolean {
 		return this.frozenDays.has(day);
@@ -177,14 +184,6 @@ export class Rollup {
 	add(rec: UsageRecord): void {
 		// Skip records for days already frozen in the DB — the DB copy is authoritative.
 		if (this.skipFrozenDays.has(rec.day)) return;
-		if (
-			rec.machineId &&
-			this.importedMachineDays.has(`${rec.machineId}${KEY_SEP}${rec.day}`)
-		)
-			return;
-		// Skip a live cursor record for a day already carried by an imported cursor
-		// aggregate — pool-global cursor spend has no machineId to gate on (B3).
-		if (this.importedCursorDays.has(`${rec.provider}${KEY_SEP}${rec.day}`)) return;
 
 		this.recordsCounted++;
 		this.dirtyAny = true;
@@ -216,6 +215,7 @@ export class Rollup {
 		dm.cost += cost;
 		dm.costUnknownRequests += unknown;
 		this.dirtyDayModel.add(dmKey);
+		this.pubDirtyDays.add(dayKey(rec.day, rec.provider, rec.model));
 
 		// extras (persisted on freeze, omitted from the snapshot contract)
 		let extra = this.dayModelExtra.get(dmKey);
@@ -227,6 +227,20 @@ export class Rollup {
 		extra.cacheCreation5m += rec.cacheCreation5m;
 		extra.webSearchRequests += rec.webSearchRequests;
 		extra.webFetchRequests += rec.webFetchRequests;
+
+		// hour bucket (published to the pooled ledger for 5h-cap-window reconstruction)
+		const hrTs = Math.floor(rec.timestamp / HOUR_MS) * HOUR_MS;
+		const hrKey = hourKey(hrTs, rec.provider, rec.model);
+		let hour = this.hourModel.get(hrKey);
+		if (!hour) {
+			hour = { tokens: zeroTokens(), requests: 0, cost: 0, costUnknownRequests: 0 };
+			this.hourModel.set(hrKey, hour);
+		}
+		addTokens(hour.tokens, rec.tokens);
+		hour.requests++;
+		hour.cost += cost;
+		hour.costUnknownRequests += unknown;
+		this.pubDirtyHours.add(hrKey);
 
 		// session index
 		const recSessionKey = sessionKey(rec.provider, rec.sessionId, rec.machineId, rec.subscriptionId);
@@ -256,6 +270,7 @@ export class Rollup {
 		s.lastTs = Math.max(s.lastTs, rec.timestamp);
 		s.modelCounts.set(rec.model, (s.modelCounts.get(rec.model) ?? 0) + 1);
 		this.dirtySessions.add(recSessionKey);
+		this.pubDirtySessions.add(recSessionKey);
 
 		// totals
 		addTokens(this.totalTokens, rec.tokens);
@@ -386,6 +401,109 @@ export class Rollup {
 			if (days.has(isoDayUTC(s.lastTs))) sessions.push(this.sessionSummary(s));
 		}
 		return { aggregates, sessions };
+	}
+
+	// ── Pooled publish surface ────────────────────────────────────────────────────
+	// Full-row aggregates the pooled engine publishes to the ledger. Each row is the
+	// CURRENT total for its key, so publishing is an idempotent full-replacement upsert.
+
+	private aggregateForKey(dmKey: string, dm: DayModelAgg): FrozenAgg {
+		const extra = this.dayModelExtra.get(dmKey) ?? zeroExtra();
+		return {
+			...dm,
+			tokens: { ...dm.tokens },
+			cacheCreation1h: extra.cacheCreation1h,
+			cacheCreation5m: extra.cacheCreation5m,
+			webSearchRequests: extra.webSearchRequests,
+			webFetchRequests: extra.webFetchRequests
+		};
+	}
+
+	/** Every day aggregate currently held (used for the full publish on pool join/cold start). */
+	allDayAggregates(): FrozenAgg[] {
+		return [...this.dayModel].map(([key, dm]) => this.aggregateForKey(key, dm));
+	}
+
+	/** Day aggregates touched since the last `clearPublishDirty()` (the per-burst delta). */
+	dirtyDayAggregates(): FrozenAgg[] {
+		const out: FrozenAgg[] = [];
+		for (const [key, dm] of this.dayModel) {
+			if (this.pubDirtyDays.has(dayKey(dm.day, dm.provider, dm.model))) {
+				out.push(this.aggregateForKey(key, dm));
+			}
+		}
+		return out;
+	}
+
+	private hourAggregate(key: string, hour: HourState): HourAgg {
+		const [tsRaw, provider, model] = key.split(KEY_SEP);
+		return {
+			hourTs: Number(tsRaw),
+			provider,
+			model,
+			tokens: { ...hour.tokens },
+			requests: hour.requests,
+			cost: hour.cost,
+			costUnknownRequests: hour.costUnknownRequests
+		};
+	}
+
+	/** Hour aggregates at or after `minHourTs` (the retention floor, e.g. now − 48h). */
+	allHourAggregates(minHourTs: number): HourAgg[] {
+		const out: HourAgg[] = [];
+		for (const [key, hour] of this.hourModel) {
+			const agg = this.hourAggregate(key, hour);
+			if (agg.hourTs >= minHourTs) out.push(agg);
+		}
+		return out;
+	}
+
+	/** Hour aggregates touched since the last `clearPublishDirty()` and within the window. */
+	dirtyHourAggregates(minHourTs: number): HourAgg[] {
+		const out: HourAgg[] = [];
+		for (const key of this.pubDirtyHours) {
+			const hour = this.hourModel.get(key);
+			if (!hour) continue;
+			const agg = this.hourAggregate(key, hour);
+			if (agg.hourTs >= minHourTs) out.push(agg);
+		}
+		return out;
+	}
+
+	/** Every session summary currently held (full publish on pool join/cold start). */
+	allSessionSummaries(): SessionSummary[] {
+		return [...this.sessions.values()].map((s) => this.sessionSummary(s));
+	}
+
+	/** Session summaries touched since the last `clearPublishDirty()`. */
+	dirtySessionSummaries(): SessionSummary[] {
+		const out: SessionSummary[] = [];
+		for (const key of this.pubDirtySessions) {
+			const s = this.sessions.get(key);
+			if (s) out.push(this.sessionSummary(s));
+		}
+		return out;
+	}
+
+	/** True when any publish-dirty key is pending. */
+	hasPublishDirty(): boolean {
+		return this.pubDirtyDays.size > 0 || this.pubDirtyHours.size > 0 || this.pubDirtySessions.size > 0;
+	}
+
+	/** Reset the publish-dirty sets after a fully-successful publish burst. */
+	clearPublishDirty(): void {
+		this.pubDirtyDays.clear();
+		this.pubDirtyHours.clear();
+		this.pubDirtySessions.clear();
+	}
+
+	/**
+	 * Feed peer hour aggregates into the block accumulator so pooled 5-hour-cap windows
+	 * include every machine's recent spend (hour grain — see `HourAgg`). Used only on a
+	 * peer-overlay rollup, never on the local rollup.
+	 */
+	loadHourAggregates(hours: readonly HourAgg[]): void {
+		for (const h of hours) this.blockAccumulator.addBucket(h.hourTs, h.tokens, h.cost, h.requests);
 	}
 
 	/** The set of days currently marked frozen (seeded from the DB on load). */
@@ -600,4 +718,14 @@ function sessionKey(
 	subscriptionId?: string | null
 ): string {
 	return `${machineId ?? ''}${KEY_SEP}${subscriptionId ?? ''}${KEY_SEP}${provider}${KEY_SEP}${sessionId}`;
+}
+
+/** Publish-grain day key: (day, provider, model), independent of machine/subscription. */
+function dayKey(day: string, provider: string, model: string): string {
+	return `${day}${KEY_SEP}${provider}${KEY_SEP}${model}`;
+}
+
+/** Hour-bucket key: (hourTs, provider, model). `hourTs` is parsed back out on export. */
+function hourKey(hourTs: number, provider: string, model: string): string {
+	return `${hourTs}${KEY_SEP}${provider}${KEY_SEP}${model}`;
 }

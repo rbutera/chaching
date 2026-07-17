@@ -1,14 +1,43 @@
 import { Pool, type PoolClient } from 'pg';
-import type { SessionSummary, UsageRecord } from '../../types';
-import type { FrozenAgg } from '../rollup/rollup';
+import type { SessionSummary } from '../../types';
+import type { FrozenAgg, HourAgg } from '../rollup/rollup';
 import type { SyncMachine, SyncMapping, SyncStatus, SyncSubscription } from './types';
 
 const SCHEMA = 'chaching_sync';
-const INSERT_CHUNK = 250;
+const HOUR_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
-export interface StoredUsageRecord {
-	cursor: number;
-	record: UsageRecord;
+/**
+ * Which scope a published aggregate belongs to. Machine-local data publishes under
+ * `machine:<id>` with `machineId` set; account-global cursor data publishes under
+ * `cursor-account:<email>` with `machineId` null (every machine sees the same account
+ * facts, so last-writer-wins is idempotent-correct — see the engine's cursor handling).
+ */
+export interface PublishScope {
+	sourceScope: string;
+	machineId: string | null;
+}
+
+export function machineScope(machineId: string): string {
+	return `machine:${machineId}`;
+}
+
+export function cursorAccountScope(email: string): string {
+	return `cursor-account:${email.trim().toLowerCase()}`;
+}
+
+/** A peer day aggregate loaded from the ledger, carrying its scope for overlay keying. */
+export type PeerDayAgg = FrozenAgg & { sourceScope: string };
+/** A peer hour aggregate loaded from the ledger. */
+export type PeerHourAgg = HourAgg & { sourceScope: string; machineId?: string };
+/** A peer session summary loaded from the ledger. */
+export type PeerSession = SessionSummary & { sourceScope: string };
+
+export interface PeerLoad {
+	dayAggregates: PeerDayAgg[];
+	hourAggregates: PeerHourAgg[];
+	sessions: PeerSession[];
+	/** Max `updated_at` (ISO) observed across returned peer rows, or the passed-in watermark. */
+	watermark: string | null;
 }
 
 export class PostgresSyncStore {
@@ -24,7 +53,7 @@ export class PostgresSyncStore {
 			connectionString: databaseUrl,
 			max: 4,
 			application_name: 'chaching-sync',
-			// A blackholed host must not hang status/poll requests forever; fail the
+			// A blackholed host must not hang status/burst requests forever; fail the
 			// connect attempt after ~5s so callers degrade instead of stalling.
 			connectionTimeoutMillis: 5000
 		});
@@ -35,8 +64,12 @@ export class PostgresSyncStore {
 		const client = await this.pool.connect();
 		try {
 			await client.query('BEGIN');
+			// Schema DDL is the one place that mutates shared structure, so it stays under an
+			// advisory lock. Aggregate upserts do NOT take this (or any mapping) lock: each
+			// machine only ever writes its OWN source_scope rows and cursor-account rows are
+			// last-writer-wins idempotent, so there is nothing to serialize.
 			await client.query(
-				`SELECT pg_advisory_xact_lock(hashtextextended('chaching-sync-schema-v1', 0))`
+				`SELECT pg_advisory_xact_lock(hashtextextended('chaching-sync-schema-v2', 0))`
 			);
 			await migrate(client);
 			await client.query('COMMIT');
@@ -186,6 +219,13 @@ export class PostgresSyncStore {
 		);
 	}
 
+	/**
+	 * Set (or clear) a machine/provider -> subscription mapping. Attribution is now a
+	 * READ-TIME join (the engine resolves subscriptionId onto every day/session row from
+	 * the mapping when it builds a snapshot), so this is a single idempotent upsert of the
+	 * mapping row — there are no stored per-record subscription columns to sweep, and the
+	 * engine's mapping-fingerprint watch makes a remap retroactive on the next burst.
+	 */
 	async mapSubscription(
 		targetMachineId: string,
 		provider: string,
@@ -201,35 +241,19 @@ export class PostgresSyncStore {
 			if (match.rowCount === 0)
 				throw new Error('Subscription does not exist in this pool for that provider');
 		}
-		const client = await this.pool.connect();
-		try {
-			await client.query('BEGIN');
-			await lockMapping(client, poolId, targetMachineId, provider);
-			await client.query(
-				`INSERT INTO ${SCHEMA}.machine_subscription
-				 (pool_id, machine_id, provider, subscription_id)
-				 VALUES ($1, $2, $3, $4)
-				 ON CONFLICT (pool_id, machine_id, provider)
-				 DO UPDATE SET subscription_id = EXCLUDED.subscription_id`,
-				[poolId, targetMachineId, provider, subscriptionId]
-			);
-			for (const table of ['usage_record', 'imported_day_model', 'imported_session']) {
-				await client.query(
-					`UPDATE ${SCHEMA}.${table} SET subscription_id = $4
-					 WHERE pool_id = $1 AND machine_id = $2 AND provider = $3`,
-					[poolId, targetMachineId, provider, subscriptionId]
-				);
-			}
-			await client.query('COMMIT');
-		} catch (error) {
-			await client.query('ROLLBACK');
-			throw error;
-		} finally {
-			client.release();
-		}
+		await this.pool.query(
+			`INSERT INTO ${SCHEMA}.machine_subscription
+			 (pool_id, machine_id, provider, subscription_id)
+			 VALUES ($1, $2, $3, $4)
+			 ON CONFLICT (pool_id, machine_id, provider)
+			 DO UPDATE SET subscription_id = EXCLUDED.subscription_id`,
+			[poolId, targetMachineId, provider, subscriptionId]
+		);
 	}
 
-	async mappedSubscriptions(machineId = this.identity().machineId): Promise<Record<string, string | null>> {
+	async mappedSubscriptions(
+		machineId = this.identity().machineId
+	): Promise<Record<string, string | null>> {
 		const { poolId } = this.identity();
 		const result = await this.pool.query(
 			`SELECT provider, subscription_id FROM ${SCHEMA}.machine_subscription
@@ -244,231 +268,265 @@ export class PostgresSyncStore {
 		);
 	}
 
-	async mappingFingerprint(): Promise<string> {
+	/** All (machineId, provider) -> subscriptionId mappings in the pool, for read-time attribution. */
+	async allMappings(): Promise<SyncMapping[]> {
 		const { poolId } = this.identity();
 		const result = await this.pool.query(
-			`SELECT machine_id, provider, subscription_id
-			 FROM ${SCHEMA}.machine_subscription
+			`SELECT machine_id, provider, subscription_id FROM ${SCHEMA}.machine_subscription
 			 WHERE pool_id = $1 ORDER BY machine_id, provider`,
 			[poolId]
 		);
+		return result.rows.map((row) => ({
+			machineId: String(row.machine_id),
+			provider: String(row.provider),
+			subscriptionId: row.subscription_id == null ? null : String(row.subscription_id)
+		}));
+	}
+
+	async mappingFingerprint(): Promise<string> {
+		const mappings = await this.allMappings();
 		return JSON.stringify(
-			result.rows.map((row) => [
-				String(row.machine_id),
-				String(row.provider),
-				row.subscription_id == null ? null : String(row.subscription_id)
-			])
+			mappings.map((mapping) => [mapping.machineId, mapping.provider, mapping.subscriptionId])
 		);
 	}
 
-	async insertRecords(records: readonly UsageRecord[]): Promise<void> {
-		if (records.length === 0) return;
-		const { poolId, machineId } = this.identity();
-		for (let start = 0; start < records.length; start += INSERT_CHUNK) {
-			const payload = records.slice(start, start + INSERT_CHUNK).map((record) => ({
-				source_key: record.key,
-				provider: record.provider,
-				ts: record.timestamp,
-				day: record.day,
-				model: record.model,
-				input_tokens: record.tokens.input,
-				output_tokens: record.tokens.output,
-				cache_creation_tokens: record.tokens.cacheCreation,
-				cache_read_tokens: record.tokens.cacheRead,
-				cache_creation_1h: record.cacheCreation1h,
-				cache_creation_5m: record.cacheCreation5m,
-				web_search_requests: record.webSearchRequests,
-				web_fetch_requests: record.webFetchRequests,
-				session_id: record.sessionId,
-				project: record.project,
-				is_sidechain: record.isSidechain,
-				cost: record.cost,
-				subscription_id: record.subscriptionId ?? null
+	/**
+	 * Replace this scope's day aggregates with the supplied full rows. Idempotent
+	 * last-writer-wins: each row is the machine's current TOTAL for (day, provider, model),
+	 * so a failed burst simply republishes the same rows next time (self-healing — the
+	 * dirty-day set is derived from the local rollup, there is no in-memory outbox to lose).
+	 */
+	async publishDayAggregates(scope: PublishScope, aggregates: readonly FrozenAgg[]): Promise<void> {
+		if (aggregates.length === 0) return;
+		const { poolId } = this.identity();
+		const payload = aggregates.map((a) => ({
+			day: a.day,
+			provider: a.provider,
+			model: a.model,
+			input_tokens: a.tokens.input,
+			output_tokens: a.tokens.output,
+			cache_creation_tokens: a.tokens.cacheCreation,
+			cache_read_tokens: a.tokens.cacheRead,
+			cache_creation_1h: a.cacheCreation1h,
+			cache_creation_5m: a.cacheCreation5m,
+			web_search_requests: a.webSearchRequests,
+			web_fetch_requests: a.webFetchRequests,
+			requests: a.requests,
+			cost: a.cost,
+			cost_unknown_requests: a.costUnknownRequests
+		}));
+		await this.pool.query(
+			`INSERT INTO ${SCHEMA}.machine_day_agg (
+				pool_id, source_scope, machine_id, day, provider, model,
+				input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
+				cache_creation_1h, cache_creation_5m, web_search_requests, web_fetch_requests,
+				requests, cost, cost_unknown_requests, updated_at
+			)
+			SELECT $1, $2, $3, x.day, x.provider, x.model,
+				x.input_tokens, x.output_tokens, x.cache_creation_tokens, x.cache_read_tokens,
+				x.cache_creation_1h, x.cache_creation_5m, x.web_search_requests, x.web_fetch_requests,
+				x.requests, x.cost, x.cost_unknown_requests, now()
+			FROM jsonb_to_recordset($4::jsonb) AS x(
+				day text, provider text, model text,
+				input_tokens bigint, output_tokens bigint, cache_creation_tokens bigint,
+				cache_read_tokens bigint, cache_creation_1h bigint, cache_creation_5m bigint,
+				web_search_requests integer, web_fetch_requests integer,
+				requests integer, cost double precision, cost_unknown_requests integer
+			)
+			ON CONFLICT (pool_id, source_scope, day, provider, model) DO UPDATE SET
+				machine_id = EXCLUDED.machine_id,
+				input_tokens = EXCLUDED.input_tokens,
+				output_tokens = EXCLUDED.output_tokens,
+				cache_creation_tokens = EXCLUDED.cache_creation_tokens,
+				cache_read_tokens = EXCLUDED.cache_read_tokens,
+				cache_creation_1h = EXCLUDED.cache_creation_1h,
+				cache_creation_5m = EXCLUDED.cache_creation_5m,
+				web_search_requests = EXCLUDED.web_search_requests,
+				web_fetch_requests = EXCLUDED.web_fetch_requests,
+				requests = EXCLUDED.requests,
+				cost = EXCLUDED.cost,
+				cost_unknown_requests = EXCLUDED.cost_unknown_requests,
+				updated_at = now()`,
+			[poolId, scope.sourceScope, scope.machineId, JSON.stringify(payload)]
+		);
+	}
+
+	/**
+	 * Replace this scope's recent hour aggregates, then prune this scope's rows older than
+	 * the 7-day retention window (cheap DELETE on the hour_ts index). Callers publish only
+	 * the last ~48h of local hour buckets, so the ledger never grows unbounded.
+	 */
+	async publishHourAggregates(scope: PublishScope, hours: readonly HourAgg[], now: number): Promise<void> {
+		const { poolId } = this.identity();
+		if (hours.length > 0) {
+			const payload = hours.map((h) => ({
+				hour_ts: h.hourTs,
+				provider: h.provider,
+				model: h.model,
+				input_tokens: h.tokens.input,
+				output_tokens: h.tokens.output,
+				cache_creation_tokens: h.tokens.cacheCreation,
+				cache_read_tokens: h.tokens.cacheRead,
+				requests: h.requests,
+				cost: h.cost,
+				cost_unknown_requests: h.costUnknownRequests
 			}));
-			const client = await this.pool.connect();
-			try {
-				await client.query('BEGIN');
-				for (const provider of [...new Set(payload.map((record) => record.provider))].sort())
-					await lockMapping(client, poolId, machineId, provider);
-				await client.query(
-					`INSERT INTO ${SCHEMA}.usage_record (
-					pool_id, machine_id, source_key, provider, ts, day, model,
+			await this.pool.query(
+				`INSERT INTO ${SCHEMA}.machine_hour_agg (
+					pool_id, source_scope, machine_id, hour_ts, provider, model,
+					input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
+					requests, cost, cost_unknown_requests, updated_at
+				)
+				SELECT $1, $2, $3, x.hour_ts, x.provider, x.model,
+					x.input_tokens, x.output_tokens, x.cache_creation_tokens, x.cache_read_tokens,
+					x.requests, x.cost, x.cost_unknown_requests, now()
+				FROM jsonb_to_recordset($4::jsonb) AS x(
+					hour_ts bigint, provider text, model text,
+					input_tokens bigint, output_tokens bigint, cache_creation_tokens bigint,
+					cache_read_tokens bigint, requests integer, cost double precision,
+					cost_unknown_requests integer
+				)
+				ON CONFLICT (pool_id, source_scope, hour_ts, provider, model) DO UPDATE SET
+					machine_id = EXCLUDED.machine_id,
+					input_tokens = EXCLUDED.input_tokens,
+					output_tokens = EXCLUDED.output_tokens,
+					cache_creation_tokens = EXCLUDED.cache_creation_tokens,
+					cache_read_tokens = EXCLUDED.cache_read_tokens,
+					requests = EXCLUDED.requests,
+					cost = EXCLUDED.cost,
+					cost_unknown_requests = EXCLUDED.cost_unknown_requests,
+					updated_at = now()`,
+				[poolId, scope.sourceScope, scope.machineId, JSON.stringify(payload)]
+			);
+		}
+		await this.pool.query(
+			`DELETE FROM ${SCHEMA}.machine_hour_agg
+			 WHERE pool_id = $1 AND source_scope = $2 AND hour_ts < $3`,
+			[poolId, scope.sourceScope, now - HOUR_RETENTION_MS]
+		);
+	}
+
+	/** Replace this scope's session summaries with the supplied full payloads (LWW). */
+	async publishSessions(scope: PublishScope, sessions: readonly SessionSummary[]): Promise<void> {
+		if (sessions.length === 0) return;
+		const { poolId } = this.identity();
+		const payload = sessions.map((s) => ({
+			provider: s.provider,
+			session_id: s.sessionId,
+			payload: s
+		}));
+		await this.pool.query(
+			`INSERT INTO ${SCHEMA}.machine_session_agg (
+				pool_id, source_scope, machine_id, provider, session_id, payload, updated_at
+			)
+			SELECT $1, $2, $3, x.provider, x.session_id, x.payload, now()
+			FROM jsonb_to_recordset($4::jsonb) AS x(
+				provider text, session_id text, payload jsonb
+			)
+			ON CONFLICT (pool_id, source_scope, provider, session_id) DO UPDATE SET
+				machine_id = EXCLUDED.machine_id,
+				payload = EXCLUDED.payload,
+				updated_at = now()`,
+			[poolId, scope.sourceScope, scope.machineId, JSON.stringify(payload)]
+		);
+	}
+
+	/**
+	 * Load peer aggregates whose `updated_at >= since` (all rows on the first call, when
+	 * `since` is null), EXCLUDING this machine's own `machine:<id>` rows — those are already
+	 * present in the local rollup and overlaying them would double-count. Account-scoped
+	 * cursor rows are always included (every machine, including the one that polls the
+	 * Cursor Admin API, renders cursor spend from this overlay, never from its local rollup).
+	 * The `>=` boundary is safe because the caller keys the overlay by row identity and a
+	 * re-read simply replaces the same key.
+	 */
+	async loadAggregates(since: string | null): Promise<PeerLoad> {
+		const { poolId, machineId } = this.identity();
+		const ownScope = machineScope(machineId);
+		const params = since === null ? [poolId, ownScope] : [poolId, ownScope, since];
+		const clause =
+			since === null
+				? `pool_id = $1 AND source_scope <> $2`
+				: `pool_id = $1 AND source_scope <> $2 AND updated_at >= $3`;
+		const [dayResult, hourResult, sessionResult] = await Promise.all([
+			this.pool.query(
+				`SELECT source_scope, machine_id, day, provider, model,
 					input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
 					cache_creation_1h, cache_creation_5m, web_search_requests, web_fetch_requests,
-					session_id, project, is_sidechain, cost, subscription_id
-				)
-				SELECT $1, $2, x.source_key, x.provider, x.ts, x.day, x.model,
-					x.input_tokens, x.output_tokens, x.cache_creation_tokens, x.cache_read_tokens,
-					x.cache_creation_1h, x.cache_creation_5m, x.web_search_requests,
-					x.web_fetch_requests, x.session_id, x.project, x.is_sidechain, x.cost,
-					mapping.subscription_id
-				FROM jsonb_to_recordset($3::jsonb) AS x(
-					source_key text, provider text, ts bigint, day text, model text,
-					input_tokens bigint, output_tokens bigint, cache_creation_tokens bigint,
-					cache_read_tokens bigint, cache_creation_1h bigint, cache_creation_5m bigint,
-					web_search_requests integer, web_fetch_requests integer, session_id text,
-					project text, is_sidechain boolean, cost double precision, subscription_id text
-				)
-				LEFT JOIN ${SCHEMA}.machine_subscription AS mapping
-					ON mapping.pool_id = $1
-					AND mapping.machine_id = $2
-					AND mapping.provider = x.provider
-				WHERE NOT (
-					x.source_key LIKE 'cursor:%'
-					AND EXISTS (
-						SELECT 1 FROM ${SCHEMA}.imported_day_model AS imported
-						WHERE imported.pool_id = $1
-							AND imported.day = x.day
-							AND imported.provider = x.provider
-							AND imported.model = x.model
-							AND imported.source_scope IN (
-								'machine:' || $2,
-								'cursor-account:' || lower(x.project)
-							)
-					)
-				)
-				ON CONFLICT DO NOTHING`,
-					[poolId, machineId, JSON.stringify(payload)]
-				);
-				await client.query('COMMIT');
-			} catch (error) {
-				await client.query('ROLLBACK');
-				throw error;
-			} finally {
-				client.release();
-			}
-		}
-	}
-
-	async importFrozenHistory(
-		aggregates: readonly FrozenAgg[],
-		sessions: readonly SessionSummary[],
-		sourceScopes: Readonly<Record<string, string>> = {}
-	): Promise<void> {
-		const { poolId, machineId } = this.identity();
-		const client = await this.pool.connect();
-		try {
-			await client.query('BEGIN');
-			const providers = [
-				...new Set([
-					...aggregates.map((aggregate) => aggregate.provider),
-					...sessions.map((session) => session.provider)
-				])
-			].sort();
-			for (const provider of providers) await lockMapping(client, poolId, machineId, provider);
-			const mappingRows = await client.query(
-				`SELECT provider, subscription_id FROM ${SCHEMA}.machine_subscription
-				 WHERE pool_id = $1 AND machine_id = $2`,
-				[poolId, machineId]
-			);
-			const mappings = Object.fromEntries(
-				mappingRows.rows.map((row) => [
-					String(row.provider),
-					row.subscription_id == null ? null : String(row.subscription_id)
-				])
-			);
-			for (const aggregate of aggregates) {
-				const sourceScope =
-					sourceScopes[aggregate.provider] ?? `machine:${machineId}`;
-				await client.query(
-					`INSERT INTO ${SCHEMA}.imported_day_model
-					 (pool_id, machine_id, day, provider, model, source_scope, subscription_id, payload)
-					 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
-					 ON CONFLICT DO NOTHING`,
-					[
-						poolId,
-						machineId,
-						aggregate.day,
-						aggregate.provider,
-						aggregate.model,
-						sourceScope,
-						mappings[aggregate.provider] ?? null,
-						JSON.stringify(aggregate)
-					]
-				);
-			}
-			for (const session of sessions) {
-				const sourceScope = sourceScopes[session.provider] ?? `machine:${machineId}`;
-				await client.query(
-					`INSERT INTO ${SCHEMA}.imported_session
-					 (pool_id, machine_id, provider, session_id, source_scope, subscription_id, payload)
-					 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
-					 ON CONFLICT DO NOTHING`,
-					[
-						poolId,
-						machineId,
-						session.provider,
-						session.sessionId,
-						sourceScope,
-						mappings[session.provider] ?? null,
-						JSON.stringify(session)
-					]
-				);
-			}
-			await client.query('COMMIT');
-		} catch (error) {
-			await client.query('ROLLBACK');
-			throw error;
-		} finally {
-			client.release();
-		}
-	}
-
-	async loadImportedHistory(): Promise<{
-		aggregates: FrozenAgg[];
-		sessions: SessionSummary[];
-	}> {
-		const { poolId } = this.identity();
-		const [aggregateResult, sessionResult] = await Promise.all([
-			this.pool.query(
-				`SELECT machine_id, subscription_id, payload FROM ${SCHEMA}.imported_day_model
-				 WHERE pool_id = $1 ORDER BY day, provider, model, machine_id`,
-				[poolId]
+					requests, cost, cost_unknown_requests, updated_at
+				 FROM ${SCHEMA}.machine_day_agg WHERE ${clause}`,
+				params
 			),
 			this.pool.query(
-				`SELECT machine_id, subscription_id, payload FROM ${SCHEMA}.imported_session
-				 WHERE pool_id = $1 ORDER BY provider, session_id, machine_id`,
-				[poolId]
+				`SELECT source_scope, machine_id, hour_ts, provider, model,
+					input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
+					requests, cost, cost_unknown_requests, updated_at
+				 FROM ${SCHEMA}.machine_hour_agg WHERE ${clause}`,
+				params
+			),
+			this.pool.query(
+				`SELECT source_scope, machine_id, payload, updated_at
+				 FROM ${SCHEMA}.machine_session_agg WHERE ${clause}`,
+				params
 			)
 		]);
-		return {
-			aggregates: aggregateResult.rows.map((row) => {
-				const payload = jsonObject(row.payload) as unknown as FrozenAgg;
-				return {
-					...payload,
-					machineId: payload.provider === 'cursor' ? undefined : String(row.machine_id),
-					subscriptionId: row.subscription_id == null ? null : String(row.subscription_id)
-				};
-			}),
-			sessions: sessionResult.rows.map((row) => {
-				const payload = jsonObject(row.payload) as unknown as SessionSummary;
-				return {
-					...payload,
-					machineId: payload.provider === 'cursor' ? undefined : String(row.machine_id),
-					subscriptionId: row.subscription_id == null ? null : String(row.subscription_id)
-				};
-			})
+		let watermark = since;
+		const advance = (value: unknown) => {
+			const iso = dateString(value);
+			if (iso && (watermark === null || iso > watermark)) watermark = iso;
 		};
-	}
-
-	async loadAllRecords(): Promise<{ records: StoredUsageRecord[]; cursor: number }> {
-		const { poolId } = this.identity();
-		const result = await this.pool.query(
-			`SELECT * FROM ${SCHEMA}.usage_record WHERE pool_id = $1 ORDER BY id`,
-			[poolId]
-		);
-		const records = result.rows.map(rowToStoredRecord);
-		return { records, cursor: records.at(-1)?.cursor ?? 0 };
-	}
-
-	async recordsSince(cursor: number): Promise<StoredUsageRecord[]> {
-		const { poolId } = this.identity();
-		const result = await this.pool.query(
-			`SELECT * FROM ${SCHEMA}.usage_record
-			 WHERE pool_id = $1 AND id > $2 ORDER BY id LIMIT 5000`,
-			[poolId, cursor]
-		);
-		return result.rows.map(rowToStoredRecord);
+		const dayAggregates: PeerDayAgg[] = dayResult.rows.map((row) => {
+			advance(row.updated_at);
+			return {
+				sourceScope: String(row.source_scope),
+				machineId: row.machine_id == null ? undefined : String(row.machine_id),
+				day: String(row.day),
+				provider: String(row.provider),
+				model: String(row.model),
+				tokens: {
+					input: Number(row.input_tokens),
+					output: Number(row.output_tokens),
+					cacheCreation: Number(row.cache_creation_tokens),
+					cacheRead: Number(row.cache_read_tokens)
+				},
+				requests: Number(row.requests),
+				cost: Number(row.cost),
+				costUnknownRequests: Number(row.cost_unknown_requests),
+				cacheCreation1h: Number(row.cache_creation_1h),
+				cacheCreation5m: Number(row.cache_creation_5m),
+				webSearchRequests: Number(row.web_search_requests),
+				webFetchRequests: Number(row.web_fetch_requests)
+			};
+		});
+		const hourAggregates: PeerHourAgg[] = hourResult.rows.map((row) => {
+			advance(row.updated_at);
+			return {
+				sourceScope: String(row.source_scope),
+				machineId: row.machine_id == null ? undefined : String(row.machine_id),
+				hourTs: Number(row.hour_ts),
+				provider: String(row.provider),
+				model: String(row.model),
+				tokens: {
+					input: Number(row.input_tokens),
+					output: Number(row.output_tokens),
+					cacheCreation: Number(row.cache_creation_tokens),
+					cacheRead: Number(row.cache_read_tokens)
+				},
+				requests: Number(row.requests),
+				cost: Number(row.cost),
+				costUnknownRequests: Number(row.cost_unknown_requests)
+			};
+		});
+		const sessions: PeerSession[] = sessionResult.rows.map((row) => {
+			advance(row.updated_at);
+			const payload = jsonObject(row.payload) as unknown as SessionSummary;
+			return {
+				...payload,
+				sourceScope: String(row.source_scope),
+				machineId: row.machine_id == null ? undefined : String(row.machine_id)
+			};
+		});
+		return { dayAggregates, hourAggregates, sessions, watermark };
 	}
 
 	async close(): Promise<void> {
@@ -478,6 +536,13 @@ export class PostgresSyncStore {
 
 async function migrate(client: PoolClient): Promise<void> {
 	await client.query(`CREATE SCHEMA IF NOT EXISTS ${SCHEMA}`);
+	// v1 (never shipped) stored raw usage records + a join-time frozen-history import. The
+	// v2 aggregate ledger replaces that outright, so drop the v1 tables instead of migrating.
+	await client.query(`
+		DROP TABLE IF EXISTS ${SCHEMA}.usage_record CASCADE;
+		DROP TABLE IF EXISTS ${SCHEMA}.imported_day_model CASCADE;
+		DROP TABLE IF EXISTS ${SCHEMA}.imported_session CASCADE;
+	`);
 	await client.query(`
 		CREATE TABLE IF NOT EXISTS ${SCHEMA}.pool (
 			id text PRIMARY KEY,
@@ -513,14 +578,12 @@ async function migrate(client: PoolClient): Promise<void> {
 			FOREIGN KEY (pool_id, subscription_id)
 				REFERENCES ${SCHEMA}.subscription(pool_id, id) ON DELETE SET NULL (subscription_id)
 		);
-		CREATE TABLE IF NOT EXISTS ${SCHEMA}.usage_record (
-			id bigserial PRIMARY KEY,
+		CREATE TABLE IF NOT EXISTS ${SCHEMA}.machine_day_agg (
 			pool_id text NOT NULL REFERENCES ${SCHEMA}.pool(id) ON DELETE CASCADE,
-			machine_id text NOT NULL,
-			source_key text NOT NULL,
-			provider text NOT NULL,
-			ts bigint NOT NULL,
+			source_scope text NOT NULL,
+			machine_id text,
 			day text NOT NULL,
+			provider text NOT NULL,
 			model text NOT NULL,
 			input_tokens bigint NOT NULL,
 			output_tokens bigint NOT NULL,
@@ -530,78 +593,53 @@ async function migrate(client: PoolClient): Promise<void> {
 			cache_creation_5m bigint NOT NULL,
 			web_search_requests integer NOT NULL,
 			web_fetch_requests integer NOT NULL,
-			session_id text NOT NULL,
-			project text NOT NULL,
-			is_sidechain boolean NOT NULL,
-			cost double precision,
-			subscription_id text,
-			created_at timestamptz NOT NULL DEFAULT now(),
-			UNIQUE (pool_id, machine_id, source_key),
+			requests integer NOT NULL,
+			cost double precision NOT NULL,
+			cost_unknown_requests integer NOT NULL,
+			updated_at timestamptz NOT NULL DEFAULT now(),
+			PRIMARY KEY (pool_id, source_scope, day, provider, model),
 			FOREIGN KEY (pool_id, machine_id)
-				REFERENCES ${SCHEMA}.machine(pool_id, id) ON DELETE CASCADE,
-			FOREIGN KEY (pool_id, subscription_id)
-				REFERENCES ${SCHEMA}.subscription(pool_id, id) ON DELETE SET NULL (subscription_id)
+				REFERENCES ${SCHEMA}.machine(pool_id, id) ON DELETE CASCADE
 		);
-		CREATE INDEX IF NOT EXISTS usage_record_pool_cursor
-			ON ${SCHEMA}.usage_record(pool_id, id);
-		CREATE INDEX IF NOT EXISTS usage_record_pool_day
-			ON ${SCHEMA}.usage_record(pool_id, day);
-		CREATE TABLE IF NOT EXISTS ${SCHEMA}.imported_day_model (
+		CREATE INDEX IF NOT EXISTS machine_day_agg_pool_updated
+			ON ${SCHEMA}.machine_day_agg(pool_id, updated_at);
+		CREATE TABLE IF NOT EXISTS ${SCHEMA}.machine_hour_agg (
 			pool_id text NOT NULL REFERENCES ${SCHEMA}.pool(id) ON DELETE CASCADE,
-			machine_id text NOT NULL,
-			day text NOT NULL,
+			source_scope text NOT NULL,
+			machine_id text,
+			hour_ts bigint NOT NULL,
 			provider text NOT NULL,
 			model text NOT NULL,
-			source_scope text NOT NULL DEFAULT '',
-			subscription_id text,
-			payload jsonb NOT NULL,
-			PRIMARY KEY (pool_id, machine_id, day, provider, model),
+			input_tokens bigint NOT NULL,
+			output_tokens bigint NOT NULL,
+			cache_creation_tokens bigint NOT NULL,
+			cache_read_tokens bigint NOT NULL,
+			requests integer NOT NULL,
+			cost double precision NOT NULL,
+			cost_unknown_requests integer NOT NULL,
+			updated_at timestamptz NOT NULL DEFAULT now(),
+			PRIMARY KEY (pool_id, source_scope, hour_ts, provider, model),
 			FOREIGN KEY (pool_id, machine_id)
-				REFERENCES ${SCHEMA}.machine(pool_id, id) ON DELETE CASCADE,
-			FOREIGN KEY (pool_id, subscription_id)
-				REFERENCES ${SCHEMA}.subscription(pool_id, id) ON DELETE SET NULL (subscription_id)
+				REFERENCES ${SCHEMA}.machine(pool_id, id) ON DELETE CASCADE
 		);
-		CREATE TABLE IF NOT EXISTS ${SCHEMA}.imported_session (
+		CREATE INDEX IF NOT EXISTS machine_hour_agg_pool_updated
+			ON ${SCHEMA}.machine_hour_agg(pool_id, updated_at);
+		CREATE INDEX IF NOT EXISTS machine_hour_agg_pool_hour
+			ON ${SCHEMA}.machine_hour_agg(pool_id, hour_ts);
+		CREATE TABLE IF NOT EXISTS ${SCHEMA}.machine_session_agg (
 			pool_id text NOT NULL REFERENCES ${SCHEMA}.pool(id) ON DELETE CASCADE,
-			machine_id text NOT NULL,
+			source_scope text NOT NULL,
+			machine_id text,
 			provider text NOT NULL,
 			session_id text NOT NULL,
-			source_scope text NOT NULL DEFAULT '',
-			subscription_id text,
 			payload jsonb NOT NULL,
-			PRIMARY KEY (pool_id, machine_id, provider, session_id),
+			updated_at timestamptz NOT NULL DEFAULT now(),
+			PRIMARY KEY (pool_id, source_scope, provider, session_id),
 			FOREIGN KEY (pool_id, machine_id)
-				REFERENCES ${SCHEMA}.machine(pool_id, id) ON DELETE CASCADE,
-			FOREIGN KEY (pool_id, subscription_id)
-				REFERENCES ${SCHEMA}.subscription(pool_id, id) ON DELETE SET NULL (subscription_id)
+				REFERENCES ${SCHEMA}.machine(pool_id, id) ON DELETE CASCADE
 		);
-		DELETE FROM ${SCHEMA}.usage_record AS duplicate
-			USING ${SCHEMA}.usage_record AS keeper
-			WHERE duplicate.source_key LIKE 'cursor:%'
-				AND duplicate.pool_id = keeper.pool_id
-				AND duplicate.source_key = keeper.source_key
-				AND duplicate.id > keeper.id;
-		ALTER TABLE ${SCHEMA}.imported_day_model
-			ADD COLUMN IF NOT EXISTS source_scope text NOT NULL DEFAULT '';
-		ALTER TABLE ${SCHEMA}.imported_session
-			ADD COLUMN IF NOT EXISTS source_scope text NOT NULL DEFAULT '';
-		UPDATE ${SCHEMA}.imported_day_model
-			SET source_scope = 'machine:' || machine_id
-			WHERE source_scope = '';
-		UPDATE ${SCHEMA}.imported_session
-			SET source_scope = 'machine:' || machine_id
-			WHERE source_scope = '';
-		DROP INDEX IF EXISTS ${SCHEMA}.imported_day_model_pool_cursor;
-		DROP INDEX IF EXISTS ${SCHEMA}.imported_session_pool_cursor;
-		CREATE UNIQUE INDEX IF NOT EXISTS usage_record_pool_cursor_event
-			ON ${SCHEMA}.usage_record(pool_id, source_key)
-			WHERE source_key LIKE 'cursor:%';
-		CREATE UNIQUE INDEX IF NOT EXISTS imported_day_model_pool_cursor
-			ON ${SCHEMA}.imported_day_model(pool_id, source_scope, day, provider, model)
-			WHERE provider = 'cursor';
-		CREATE UNIQUE INDEX IF NOT EXISTS imported_session_pool_cursor
-			ON ${SCHEMA}.imported_session(pool_id, source_scope, provider, session_id)
-			WHERE provider = 'cursor';
+		CREATE INDEX IF NOT EXISTS machine_session_agg_pool_updated
+			ON ${SCHEMA}.machine_session_agg(pool_id, updated_at);
 	`);
 }
 
@@ -621,54 +659,6 @@ async function upsertMachine(
 	);
 }
 
-async function lockMapping(
-	client: PoolClient,
-	poolId: string,
-	machineId: string,
-	provider: string
-): Promise<void> {
-	// Serialize attribution changes with inserts for one machine/provider. A row
-	// lock cannot cover the "no mapping row yet" case, so use a transaction-scoped
-	// advisory lock derived from the identity.
-	await client.query(
-		`SELECT pg_advisory_xact_lock(
-			hashtextextended($1 || chr(31) || $2 || chr(31) || $3, 0)
-		)`,
-		[poolId, machineId, provider]
-	);
-}
-
-function rowToStoredRecord(row: Record<string, unknown>): StoredUsageRecord {
-	const timestamp = Number(row.ts);
-	const key = String(row.source_key);
-	return {
-		cursor: Number(row.id),
-		record: {
-			key,
-			provider: String(row.provider),
-			timestamp,
-			day: String(row.day),
-			model: String(row.model),
-			tokens: {
-				input: Number(row.input_tokens),
-				output: Number(row.output_tokens),
-				cacheCreation: Number(row.cache_creation_tokens),
-				cacheRead: Number(row.cache_read_tokens)
-			},
-			cacheCreation1h: Number(row.cache_creation_1h),
-			cacheCreation5m: Number(row.cache_creation_5m),
-			webSearchRequests: Number(row.web_search_requests),
-			webFetchRequests: Number(row.web_fetch_requests),
-			sessionId: String(row.session_id),
-			project: String(row.project),
-			isSidechain: Boolean(row.is_sidechain),
-			cost: row.cost == null ? null : Number(row.cost),
-			machineId: key.startsWith('cursor:') ? undefined : String(row.machine_id),
-			subscriptionId: row.subscription_id == null ? null : String(row.subscription_id)
-		}
-	};
-}
-
 function dateString(value: unknown): string | null {
 	if (value instanceof Date) return value.toISOString();
 	if (typeof value === 'string') return new Date(value).toISOString();
@@ -678,5 +668,5 @@ function dateString(value: unknown): string | null {
 function jsonObject(value: unknown): Record<string, unknown> {
 	if (value && typeof value === 'object') return value as Record<string, unknown>;
 	if (typeof value === 'string') return JSON.parse(value) as Record<string, unknown>;
-	throw new Error('Invalid JSON payload in sync history');
+	throw new Error('Invalid JSON payload in sync session');
 }

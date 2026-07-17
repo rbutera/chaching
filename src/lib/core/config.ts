@@ -114,6 +114,13 @@ export interface SyncConfig {
 	machineName: string;
 	/** Local ingestion attribution: harness provider -> pooled subscription id. */
 	providerSubscriptions: Record<string, string | null>;
+	/**
+	 * Wall-clock-aligned sync burst cadence in minutes (min 1, default 15). Every pooled
+	 * machine fires on the SAME aligned instants (epoch-grid multiples of this interval,
+	 * hour-aligned for divisors of 60) plus a small jitter, so their PostgreSQL traffic
+	 * lands in one narrow window and Neon's scale-to-zero engages between bursts.
+	 */
+	intervalMinutes: number;
 }
 
 export interface chachingConfig {
@@ -179,7 +186,8 @@ export function defaultConfig(): chachingConfig {
 			poolId: null,
 			machineId: null,
 			machineName: '',
-			providerSubscriptions: {}
+			providerSubscriptions: {},
+			intervalMinutes: 15
 		},
 		providers: {
 			claude: {
@@ -225,7 +233,8 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 			poolId: nullableStringOr(sync.poolId, defaults.sync.poolId),
 			machineId: nullableStringOr(sync.machineId, defaults.sync.machineId),
 			machineName: stringOrEmpty(sync.machineName, defaults.sync.machineName),
-			providerSubscriptions: nullableStringRecord(sync.providerSubscriptions)
+			providerSubscriptions: nullableStringRecord(sync.providerSubscriptions),
+			intervalMinutes: positiveIntOr(sync.intervalMinutes, defaults.sync.intervalMinutes)
 		},
 		providers: {
 			claude: {
@@ -267,6 +276,7 @@ export function publicConfig(cfg: chachingConfig): PublicchachingConfig {
 			machineId: cfg.sync.machineId,
 			machineName: cfg.sync.machineName,
 			providerSubscriptions: { ...cfg.sync.providerSubscriptions },
+			intervalMinutes: cfg.sync.intervalMinutes,
 			databaseConfigured: cfg.sync.databaseUrl.length > 0
 		},
 		providers: {

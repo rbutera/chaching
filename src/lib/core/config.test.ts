@@ -97,6 +97,7 @@ describe('config', () => {
 			machineId: 'machine-1',
 			machineName: 'kinto',
 			providerSubscriptions: { claude: 'work-claude' },
+			intervalMinutes: 15,
 			databaseConfigured: true
 		});
 		expect(JSON.stringify(publicConfig(cfg))).not.toContain('secret@kinto');

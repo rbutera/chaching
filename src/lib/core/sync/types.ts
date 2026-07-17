@@ -66,7 +66,6 @@ export type SyncAction =
 			machineName: string;
 	  }
 	| { action: 'leave' }
-	| { action: 'import-history' }
 	| {
 			action: 'add-subscription';
 			provider: string;

@@ -38,12 +38,6 @@ export async function runSync(argv: string[]): Promise<void> {
 		console.log('left sync pool; local SQLite history is active again');
 		return;
 	}
-	if (command === 'import-history') {
-		const status = await performSyncAction({ action: 'import-history' });
-		if (status.error) throw new Error(status.error);
-		console.log('local SQLite history imported into the sync pool');
-		return;
-	}
 	if (command === 'subscription' && rest[0] === 'add') {
 		const args = rest.slice(1);
 		const status = await performSyncAction({
@@ -71,7 +65,7 @@ export async function runSync(argv: string[]): Promise<void> {
 		return;
 	}
 	throw new Error(
-		'chaching sync: expected create|join|status|leave|import-history|subscription add|map (run chaching --help)'
+		'chaching sync: expected create|join|status|leave|subscription add|map (run chaching --help)'
 	);
 }
 

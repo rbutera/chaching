@@ -2,95 +2,103 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SUBSCRIPTION, type chachingConfig } from './config';
 import { createEngine } from './engine';
-import { PostgresSyncStore } from './sync/store';
+import { Rollup } from './rollup/rollup';
+import type { FrozenAgg } from './rollup/rollup';
+import type { SessionSummary, UsageRecord } from '../types';
+import { PostgresSyncStore, cursorAccountScope, machineScope, type PublishScope } from './sync/store';
 
 const databaseUrl = process.env.CHACHING_TEST_DATABASE_URL;
 const suite = databaseUrl ? describe : describe.skip;
 
-suite('engine PostgreSQL sync mode', () => {
-	it('loads peer records and bypasses the configured SQLite history path', async () => {
+function baseConfig(poolId: string, machineId: string, over: Partial<chachingConfig['providers']['cursor']> = {}): chachingConfig {
+	return {
+		cutoverTs: null,
+		server: { host: '127.0.0.1', port: 5178, origin: '' },
+		// history OFF so the test isolates the pooled overlay path (local-first history is
+		// covered by engine.test.ts B1). The peer overlay is the subject here.
+		history: { enabled: false, dbPath: '' },
+		sync: {
+			enabled: true,
+			databaseUrl: databaseUrl!,
+			poolId,
+			machineId,
+			machineName: 'kinto',
+			providerSubscriptions: {},
+			intervalMinutes: 15
+		},
+		providers: {
+			claude: { enabled: false, roots: [], subscription: { ...DEFAULT_SUBSCRIPTION } },
+			codex: { enabled: false, root: '', subscription: { ...DEFAULT_SUBSCRIPTION } },
+			cursor: { enabled: false, adminApiToken: '', email: null, pollSeconds: 3600, ...over },
+			opencode: { enabled: false, dbPath: '' },
+			pi: { enabled: false, root: '' }
+		}
+	};
+}
+
+function dayAgg(day: string, over: Partial<FrozenAgg> = {}): FrozenAgg {
+	return {
+		day,
+		provider: 'codex',
+		model: 'gpt-5.6-sol',
+		tokens: { input: 100, output: 20, cacheCreation: 0, cacheRead: 40 },
+		requests: 1,
+		cost: 1.23,
+		costUnknownRequests: 0,
+		cacheCreation1h: 0,
+		cacheCreation5m: 0,
+		webSearchRequests: 0,
+		webFetchRequests: 0,
+		...over
+	};
+}
+
+function peerSession(machineIdLabel: string): SessionSummary {
+	return {
+		sessionId: 'peer-session',
+		provider: 'codex',
+		project: `/${machineIdLabel}/project`,
+		firstTs: Date.parse('2026-07-15T10:00:00Z'),
+		lastTs: Date.parse('2026-07-15T11:00:00Z'),
+		tokens: { input: 100, output: 20, cacheCreation: 0, cacheRead: 40 },
+		requests: 1,
+		cost: 1.23,
+		costUnknownRequests: 0,
+		models: ['gpt-5.6-sol']
+	};
+}
+
+suite('engine PostgreSQL sync mode (v2 aggregate ledger)', () => {
+	it('overlays peer aggregates and remaps subscription at read time (replace)', { timeout: 30_000 }, async () => {
 		const poolId = randomUUID();
 		const nimbus = randomUUID();
 		const kinto = randomUUID();
 		const store = new PostgresSyncStore(databaseUrl!);
-		let liveEngine: ReturnType<typeof createEngine> | null = null;
+		let engine: ReturnType<typeof createEngine> | null = null;
 		try {
-			await store.createPool({
-				poolId,
-				poolName: 'engine integration',
-				machineId: nimbus,
-				machineName: 'nimbus',
-				hostname: 'nimbus'
-			});
-			await store.joinPool({
-				poolId,
-				machineId: kinto,
-				machineName: 'kinto',
-				hostname: 'kinto'
-			});
+			await store.createPool({ poolId, poolName: 'engine v2', machineId: nimbus, machineName: 'nimbus', hostname: 'nimbus' });
+			await store.joinPool({ poolId, machineId: kinto, machineName: 'kinto', hostname: 'kinto' });
 			store.setIdentity(poolId, nimbus);
-			await store.insertRecords([
-				{
-					key: 'peer-record',
-					provider: 'codex',
-					timestamp: Date.parse('2026-07-16T10:00:00Z'),
-					day: '2026-07-16',
-					model: 'gpt-5.6-sol',
-					tokens: { input: 100, output: 20, cacheCreation: 0, cacheRead: 40 },
-					cacheCreation1h: 0,
-					cacheCreation5m: 0,
-					webSearchRequests: 0,
-					webFetchRequests: 0,
-					sessionId: 'peer-session',
-					project: '/nimbus/project',
-					isSidechain: false,
-					cost: 1.23,
-					machineId: nimbus,
-					subscriptionId: null
-				}
-			]);
+			const nimbusScope: PublishScope = { sourceScope: machineScope(nimbus), machineId: nimbus };
+			await store.publishDayAggregates(nimbusScope, [dayAgg('2026-07-15')]);
+			await store.publishSessions(nimbusScope, [peerSession('nimbus')]);
 
-			const cfg: chachingConfig = {
-				cutoverTs: null,
-				server: { host: '127.0.0.1', port: 5178, origin: '' },
-				history: { enabled: true, dbPath: '/definitely/not/used/history.db' },
-				sync: {
-					enabled: true,
-					databaseUrl: databaseUrl!,
-					poolId,
-					machineId: kinto,
-					machineName: 'kinto',
-					providerSubscriptions: {}
-				},
-				providers: {
-					claude: { enabled: false, roots: [], subscription: { ...DEFAULT_SUBSCRIPTION } },
-					codex: { enabled: false, root: '', subscription: { ...DEFAULT_SUBSCRIPTION } },
-					cursor: {
-						enabled: false,
-						adminApiToken: '',
-						email: null,
-						pollSeconds: 3600
-					},
-					opencode: { enabled: false, dbPath: '' },
-					pi: { enabled: false, root: '' }
-				}
-			};
-
-			const engine = createEngine(cfg, () => Date.parse('2026-07-17T08:00:00Z'));
-			liveEngine = engine;
+			const cfg = baseConfig(poolId, kinto);
+			engine = createEngine(cfg, () => Date.parse('2026-07-17T08:00:00Z'));
 			await engine.ensureStarted();
-			const snap = engine.snapshot();
-			expect(snap.dayModel).toHaveLength(1);
-			expect(snap.dayModel[0]).toMatchObject({
-				machineId: nimbus,
-				provider: 'codex',
-				model: 'gpt-5.6-sol',
-				cost: 1.23
-			});
-			expect(snap.coverage['2026-07-16']).toBe('frozen');
-			expect(snap.sessions[0]?.machineId).toBe(nimbus);
-			expect(snap.stats.recordsCounted).toBe(1);
 
+			const snap = engine.snapshot();
+			// Peer row overlaid (kinto has no local data of its own).
+			expect(snap.dayModel).toHaveLength(1);
+			expect(snap.dayModel[0]).toMatchObject({ machineId: nimbus, provider: 'codex', cost: 1.23 });
+			expect(snap.coverage['2026-07-15']).toBe('frozen');
+			expect(snap.sessions[0]?.machineId).toBe(nimbus);
+			expect(snap.totals.cost).toBeCloseTo(1.23);
+			// No subscription mapped yet -> read-time join resolves null.
+			expect(snap.dayModel[0].subscriptionId).toBeNull();
+
+			// Map nimbus/codex to a subscription; a burst re-reads mappings and the read-time
+			// join stamps it — no re-scan, no re-import.
 			const subscriptionId = randomUUID();
 			await store.addSubscription({
 				id: subscriptionId,
@@ -100,125 +108,88 @@ suite('engine PostgreSQL sync mode', () => {
 				tier: 'pro',
 				monthlyUsd: 200
 			});
-			let replacementSeen = false;
-			const unsubscribe = engine.subscribe((delta) => {
-				replacementSeen ||= Boolean(delta.replace);
-			});
 			await store.mapSubscription(nimbus, 'codex', subscriptionId);
-			await (
-				engine as unknown as { pollSync: (config: chachingConfig) => Promise<void> }
-			).pollSync(cfg);
+
+			let replaceSeen = false;
+			const unsubscribe = engine.subscribe((delta) => {
+				replaceSeen ||= Boolean(delta.replace);
+			});
+			await (engine as unknown as { runSyncBurst: (c: chachingConfig) => Promise<void> }).runSyncBurst(cfg);
 			expect(engine.snapshot().dayModel[0]?.subscriptionId).toBe(subscriptionId);
-			expect(replacementSeen).toBe(true);
+			expect(replaceSeen).toBe(true);
 			unsubscribe();
-			engine.dispose();
-			liveEngine = null;
 		} finally {
-			liveEngine?.dispose();
+			engine?.dispose();
 			await store.close();
 		}
 	});
 
-	it('counts a cursor day once when it was live-synced first, then imported (B3)', async () => {
+	it('the cursor poller publishes account-scoped spend and renders it once from the overlay', { timeout: 30_000 }, async () => {
 		const poolId = randomUUID();
-		const nimbus = randomUUID();
 		const kinto = randomUUID();
-		const storeA = new PostgresSyncStore(databaseUrl!);
-		const storeB = new PostgresSyncStore(databaseUrl!);
-		let liveEngine: ReturnType<typeof createEngine> | null = null;
+		const store = new PostgresSyncStore(databaseUrl!);
+		let engine: ReturnType<typeof createEngine> | null = null;
 		try {
-			await storeA.createPool({
-				poolId,
-				poolName: 'b3 ordering',
-				machineId: nimbus,
-				machineName: 'nimbus',
-				hostname: 'nimbus'
-			});
-			await storeB.joinPool({ poolId, machineId: kinto, machineName: 'kinto', hostname: 'kinto' });
+			await store.createPool({ poolId, poolName: 'cursor once', machineId: kinto, machineName: 'kinto', hostname: 'kinto' });
 
-			const cursorDay = '2026-07-16';
-			// 1) nimbus LIVE-syncs a pool-global cursor event for that day.
-			await storeA.insertRecords([
-				{
-					key: 'cursor:cloud-event-b3',
-					provider: 'cursor',
-					timestamp: Date.parse(`${cursorDay}T10:00:00Z`),
-					day: cursorDay,
-					model: 'claude-opus-4-8',
-					tokens: { input: 100, output: 20, cacheCreation: 0, cacheRead: 0 },
-					cacheCreation1h: 0,
-					cacheCreation5m: 0,
-					webSearchRequests: 0,
-					webFetchRequests: 0,
-					sessionId: 'cursor-session',
-					project: 'shared@example.com',
-					isSidechain: false,
-					cost: 0.5,
-					machineId: nimbus,
-					subscriptionId: null
-				}
-			]);
-			// 2) kinto LATER imports frozen history covering the same day (import does not
-			//    reconcile the existing usage_record row — both representations now exist).
-			await storeB.importFrozenHistory(
-				[
-					{
-						day: cursorDay,
-						provider: 'cursor',
-						model: 'claude-opus-4-8',
-						tokens: { input: 100, output: 20, cacheCreation: 0, cacheRead: 0 },
-						cacheCreation1h: 0,
-						cacheCreation5m: 0,
-						webSearchRequests: 0,
-						webFetchRequests: 0,
-						requests: 1,
-						cost: 0.5,
-						costUnknownRequests: 0
-					}
-				],
-				[],
-				{ cursor: 'cursor-account:shared@example.com' }
-			);
-
-			const cfg: chachingConfig = {
-				cutoverTs: null,
-				server: { host: '127.0.0.1', port: 5178, origin: '' },
-				history: { enabled: true, dbPath: '/definitely/not/used/history.db' },
-				sync: {
-					enabled: true,
-					databaseUrl: databaseUrl!,
-					poolId,
-					machineId: kinto,
-					machineName: 'kinto',
-					providerSubscriptions: {}
-				},
-				providers: {
-					claude: { enabled: false, roots: [], subscription: { ...DEFAULT_SUBSCRIPTION } },
-					codex: { enabled: false, root: '', subscription: { ...DEFAULT_SUBSCRIPTION } },
-					cursor: { enabled: true, adminApiToken: '', email: 'shared@example.com', pollSeconds: 3600 },
-					opencode: { enabled: false, dbPath: '' },
-					pi: { enabled: false, root: '' }
-				}
-			};
-
-			const engine = createEngine(cfg, () => Date.parse('2026-07-17T08:00:00Z'));
-			liveEngine = engine;
+			// kinto is the cursor poller (email set; adminApiToken empty so no live fetch fires).
+			const cfg = baseConfig(poolId, kinto, { enabled: true, email: 'shared@example.com' });
+			engine = createEngine(cfg, () => Date.parse('2026-07-17T08:00:00Z'));
 			await engine.ensureStarted();
+
+			// Simulate a cursor Admin API poll: an account-global record. It must feed ONLY the
+			// publish-side cursor rollup, never the local rollup.
+			const cursorRecord: UsageRecord = {
+				key: 'cursor:cloud-event-1',
+				provider: 'cursor',
+				timestamp: Date.parse('2026-07-16T10:00:00Z'),
+				day: '2026-07-16',
+				model: 'claude-opus-4-8',
+				tokens: { input: 100, output: 20, cacheCreation: 0, cacheRead: 0 },
+				cacheCreation1h: 0,
+				cacheCreation5m: 0,
+				webSearchRequests: 0,
+				webFetchRequests: 0,
+				sessionId: 'cursor-session',
+				project: 'shared@example.com',
+				isSidechain: false,
+				cost: 0.75,
+				machineId: undefined,
+				subscriptionId: null
+			};
+			const internal = engine as unknown as {
+				cursorRollup: Rollup | null;
+				runSyncBurst: (c: chachingConfig) => Promise<void>;
+			};
+			expect(internal.cursorRollup).not.toBeNull();
+			internal.cursorRollup!.add(cursorRecord);
+
+			// Burst: publishes the account-scoped cursor row and reads it back into the overlay.
+			await internal.runSyncBurst(cfg);
+
 			const snap = engine.snapshot();
-			const cursorRows = snap.dayModel.filter((dm) => dm.provider === 'cursor' && dm.day === cursorDay);
-			// Old behaviour: the live usage_record is added on top of the imported aggregate
-			// (same machineId-undefined key) -> cost 1.0, requests 2. The read-side guard
-			// suppresses the live row so the day is counted exactly once.
+			const cursorRows = snap.dayModel.filter((dm) => dm.provider === 'cursor' && dm.day === '2026-07-16');
+			// Rendered exactly once (from the overlay). The poller did NOT also count it locally.
 			expect(cursorRows).toHaveLength(1);
-			expect(cursorRows[0].cost).toBeCloseTo(0.5);
+			expect(cursorRows[0].machineId).toBeUndefined();
+			expect(cursorRows[0].cost).toBeCloseTo(0.75);
 			expect(cursorRows[0].requests).toBe(1);
-			expect(snap.totals.cost).toBeCloseTo(0.5);
-			engine.dispose();
-			liveEngine = null;
+			expect(snap.totals.cost).toBeCloseTo(0.75);
+
+			// It landed under the account scope, so a peer with a DIFFERENT machine id also sees it.
+			const peer = new PostgresSyncStore(databaseUrl!, poolId, randomUUID());
+			try {
+				const load = await peer.loadAggregates(null);
+				const accountRows = load.dayAggregates.filter(
+					(d) => d.sourceScope === cursorAccountScope('shared@example.com')
+				);
+				expect(accountRows).toHaveLength(1);
+			} finally {
+				await peer.close();
+			}
 		} finally {
-			liveEngine?.dispose();
-			await storeA.close();
-			await storeB.close();
+			engine?.dispose();
+			await store.close();
 		}
 	});
 });

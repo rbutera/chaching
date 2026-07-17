@@ -35,6 +35,30 @@ export class BlockAccumulator {
 		b.cost += rec.cost ?? 0;
 	}
 
+	/**
+	 * Add a pre-aggregated hour bucket (pooled peer overlay). Same 5-hour windowing as
+	 * `add()` but folds in a whole hour's tokens/cost/requests at once, anchored at the
+	 * bucket's hour timestamp (hour grain, coarser than per-record — a pooled trade-off).
+	 */
+	addBucket(hourTs: number, tokens: TokenCounts, cost: number, requests: number): void {
+		const start = Math.floor(hourTs / FIVE_HOURS_MS) * FIVE_HOURS_MS;
+		let b = this.blocks.get(start);
+		if (!b) {
+			b = {
+				startTs: start,
+				endTs: start + FIVE_HOURS_MS,
+				tokens: zeroTokens(),
+				requests: 0,
+				cost: 0,
+				isActive: false
+			};
+			this.blocks.set(start, b);
+		}
+		addTokens(b.tokens, tokens);
+		b.requests += requests;
+		b.cost += cost;
+	}
+
 	snapshot(now: number): BlockSummary[] {
 		return [...this.blocks.values()]
 			.map((b) => ({ ...b, tokens: { ...b.tokens }, isActive: now < b.endTs }))

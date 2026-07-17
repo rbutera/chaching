@@ -69,7 +69,8 @@ function cfg(root: string, dbPath: string): chachingConfig {
 			poolId: null,
 			machineId: null,
 			machineName: '',
-			providerSubscriptions: {}
+			providerSubscriptions: {},
+			intervalMinutes: 15
 		},
 		providers: {
 			claude: { enabled: true, roots: [root], subscription: { ...DEFAULT_SUBSCRIPTION } },
