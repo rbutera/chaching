@@ -2,6 +2,13 @@
 
 All notable changes to chaching. Follows [semver](https://semver.org/); dates are UTC.
 
+## Unreleased
+
+### Added
+
+- **Kimi K3 pricing** across Kimi/Moonshot, OpenCode Zen, and OpenCode Go at the published launch rates, including cached-input billing.
+- **Chaching Sync** for opt-in multi-machine pools backed by PostgreSQL, with shared subscription mapping, CLI/wizard/web setup, and dashboard machine/subscription filters. Local SQLite remains the zero-config default.
+
 ## 1.13.0 — 2026-07-11
 
 ### Added

@@ -14,6 +14,8 @@
 	import SubsidisationCard from '$lib/components/SubsidisationCard.svelte';
 	import PoolFilters from '$lib/components/PoolFilters.svelte';
 	import SyncPanel from '$lib/components/SyncPanel.svelte';
+	import PoolSubsidisationCard from '$lib/components/PoolSubsidisationCard.svelte';
+	import type { PoolSubsidyRow } from '$lib/components/PoolSubsidisationCard.svelte';
 	// Register & Receipt design-system primitives (chaching-ds-components).
 	import BrandMark from '$lib/components/ds/BrandMark.svelte';
 	import Badge from '$lib/components/ds/Badge.svelte';
@@ -281,6 +283,45 @@
 			: null
 	);
 	let subsidy = $derived(snap && subsidyConfig ? dash.subsidisation(snap, subsidyConfig) : null);
+
+	// A pooled ledger can contain several subscriptions for the same provider, shared
+	// by any number of machines. Reconcile each subscription exactly once against the
+	// API-priced value attributed to its id; never multiply the fee by machine count.
+	let poolSubsidyRows = $derived.by((): PoolSubsidyRow[] => {
+		if (!snap || !syncStatus?.enabled) return [];
+		const window = dash.periodWindow(snap);
+		const from = focusedDay ?? window.from;
+		const to = focusedDay ?? window.to;
+		const days =
+			Math.round(
+				(new Date(to + 'T00:00:00Z').getTime() -
+					new Date(from + 'T00:00:00Z').getTime()) /
+					86400000
+			) + 1;
+		const valueBySubscription = new Map<string, number>();
+		for (const row of snap.dayModel) {
+			if (row.day < from || row.day > to) continue;
+			const subscriptionId = (
+				row as typeof row & { subscriptionId?: string | null }
+			).subscriptionId;
+			if (!subscriptionId) continue;
+			valueBySubscription.set(
+				subscriptionId,
+				(valueBySubscription.get(subscriptionId) ?? 0) + row.cost
+			);
+		}
+		const selected = dash.subscriptionFilter;
+		return syncStatus.subscriptions
+			.filter((subscription) => selected.size === 0 || selected.has(subscription.id))
+			.map((subscription) => ({
+				id: subscription.id,
+				name: subscription.name,
+				provider: subscription.provider,
+				account: subscription.account,
+				valueUsd: valueBySubscription.get(subscription.id) ?? 0,
+				feeUsd: subscription.monthlyUsd * (days / 30)
+			}));
+	});
 
 	// Burn-pace projection ("on pace for ~$X this month") — same month-basis, does-NOT-follow-
 	// the-period-selector semantics as the subsidy above (design D5). null when the cost-honesty
@@ -650,7 +691,9 @@
 				{#if cacheBreakdown}
 					<CachePanel breakdown={cacheBreakdown} />
 				{/if}
-				{#if subsidy && subsidyConfig}
+				{#if syncStatus?.enabled && poolSubsidyRows.length > 0}
+					<PoolSubsidisationCard rows={poolSubsidyRows} windowLabel={heroLabel} />
+				{:else if subsidy && subsidyConfig}
 					<SubsidisationCard rollup={subsidy} windowLabel={heroLabel} config={subsidyConfig} {onTierChange} burnPace={pace} />
 				{/if}
 			</section>
