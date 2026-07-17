@@ -12,6 +12,8 @@
 	import DayNavigator from '$lib/components/DayNavigator.svelte';
 	import CachePanel from '$lib/components/CachePanel.svelte';
 	import SubsidisationCard from '$lib/components/SubsidisationCard.svelte';
+	import PoolFilters from '$lib/components/PoolFilters.svelte';
+	import SyncPanel from '$lib/components/SyncPanel.svelte';
 	// Register & Receipt design-system primitives (chaching-ds-components).
 	import BrandMark from '$lib/components/ds/BrandMark.svelte';
 	import Badge from '$lib/components/ds/Badge.svelte';
@@ -22,6 +24,7 @@
 	import Divider from '$lib/components/ds/Divider.svelte';
 	import type { SubsidisedProvider } from '$lib/core/subsidisation';
 	import type { PublicchachingConfig } from '$lib/core/config';
+	import type { SyncAction, SyncStatusView } from '$lib/client/sync';
 	// Baked at build time (Vite JSON import) — the header version badge.
 	import { version } from '../../package.json';
 	import {
@@ -59,6 +62,7 @@
 	// change POSTs to /api/config and merges the echoed config back in. Held separate
 	// from the feed snapshot so a live SSE delta and a tier write never reset each other.
 	let config = $state<PublicchachingConfig | null>(null);
+	let syncStatus = $state<SyncStatusView | null>(null);
 
 	async function loadPublicConfig() {
 		try {
@@ -66,6 +70,32 @@
 			if (res.ok) config = (await res.json()) as PublicchachingConfig;
 		} catch {
 			/* config stays null → cards fall back to defaults */
+		}
+	}
+
+	async function loadSyncStatus() {
+		try {
+			const res = await fetch(resolve('/api/sync'));
+			if (res.ok) syncStatus = (await res.json()) as SyncStatusView;
+		} catch {
+			/* sync stays unavailable; the local dashboard remains fully usable */
+		}
+	}
+
+	async function onSyncAction(action: SyncAction): Promise<void> {
+		const res = await fetch(resolve('/api/sync'), {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(action)
+		});
+		const body = (await res.json().catch(() => ({}))) as SyncStatusView & { error?: string };
+		if (!res.ok) throw new Error(body.error || `Sync request failed (${res.status}).`);
+		syncStatus = body;
+		if (action.action === 'create' || action.action === 'join' || action.action === 'leave') {
+			// The persistence backend changed. Reconnect the SSE feed so the server
+			// builds a fresh engine against PostgreSQL (or SQLite after leaving).
+			feed.stop();
+			feed.start();
 		}
 	}
 
@@ -80,6 +110,7 @@
 	onMount(() => {
 		feed.start();
 		void loadPublicConfig();
+		void loadSyncStatus();
 		suppressArt = webSuppressArt();
 		const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
 		reducedMotion = mq.matches;
@@ -294,7 +325,12 @@
 	let totalTok = $derived(totalTokens(scopedTotals.tokens));
 
 	// 5h cap-proximity active block
-	let activeBlock = $derived(snap?.blocks.find((b) => b.isActive) ?? null);
+	let poolFilterActive = $derived(
+		dash.machineFilter.size > 0 || dash.subscriptionFilter.size > 0
+	);
+	// Five-hour blocks currently carry no attribution dimension. Suppress this one
+	// panel under a pool filter instead of showing a whole-pool number in a scoped view.
+	let activeBlock = $derived(poolFilterActive ? null : (snap?.blocks.find((b) => b.isActive) ?? null));
 
 	// Escalation flourish — the affectionate daily ladder keyed off the scoped hero cost
 	// (design D6), sourced from the SHARED voice module so web/TUI/receipt speak one
@@ -562,6 +598,17 @@
 				{#if dash.modelFilter.size > 0}
 					<button class="clear-filter" onclick={() => dash.clearModelFilter()}>Clear model filter ✕</button>
 				{/if}
+				{#if syncStatus?.enabled}
+					<PoolFilters
+						machines={syncStatus.machines}
+						subscriptions={syncStatus.subscriptions}
+						machineFilter={dash.machineFilter}
+						subscriptionFilter={dash.subscriptionFilter}
+						onMachineToggle={(id) => dash.toggleMachine(id)}
+						onSubscriptionToggle={(id) => dash.toggleSubscription(id)}
+						onClear={() => dash.clearPoolFilters()}
+					/>
+				{/if}
 			</div>
 
 			<!-- REGION 4 · STAT ROW -->
@@ -661,6 +708,8 @@
 					{#if activeBlock}
 						<SpendMeter amount={activeBlock.cost} context="block" label={`closes ${new Date(activeBlock.endTs).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`} />
 						<p class="cap-sub">{compactTokens(totalTokens(activeBlock.tokens))} tokens this window</p>
+					{:else if poolFilterActive}
+						<p class="empty">5-hour windows are whole-pool only. Clear pool filters to view them.</p>
 					{:else}
 						<p class="empty">No active window right now.</p>
 					{/if}
@@ -720,6 +769,8 @@
 					/>
 				</div>
 			</section>
+
+			<SyncPanel status={syncStatus} onAction={onSyncAction} />
 
 			<!-- REGION 9 · HONESTY FOOTER -->
 			<footer class="honesty">
