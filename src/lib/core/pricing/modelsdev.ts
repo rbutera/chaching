@@ -107,8 +107,16 @@ const PROVIDER_CATALOGS: Record<string, string[]> = {
 	'zai-anthropic': ['zai', 'anthropic'],
 	openai: ['openai'],
 	anthropic: ['anthropic'],
-	opencode: ['opencode'],
-	'opencode-go': ['opencode-go'],
+	// Kimi Code / Pi uses the upstream provider id `moonshotai`. Keep aliases
+	// for older harness configs that call the same provider `moonshot` or `kimi`.
+	moonshotai: ['moonshotai'],
+	moonshot: ['moonshotai'],
+	kimi: ['moonshotai'],
+	// Prefer each OpenCode catalog's own rate, then use Moonshot's canonical
+	// catalog during rollout windows where Zen/Go exposes a Kimi model before
+	// models.dev has copied it into that aggregator catalog.
+	opencode: ['opencode', 'moonshotai'],
+	'opencode-go': ['opencode-go', 'moonshotai'],
 	google: ['google'],
 	// Pi emits the upstream provider id on each turn. Map the two that don't already
 	// name a catalog so a Pi row prices against the vendor's canonical list rate:
@@ -128,6 +136,7 @@ const CROSS_CATALOG_ORDER = [
 	'anthropic',
 	'openai',
 	'google',
+	'moonshotai',
 	'opencode',
 	'opencode-go',
 	'zai'

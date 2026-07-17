@@ -168,7 +168,10 @@ describe('pi provider parser — pricing', () => {
 		const cases = [
 			{ provider: 'anthropic', model: 'claude-sonnet-4-5' },
 			{ provider: 'openai-codex', model: 'gpt-5.6-sol' },
-			{ provider: 'zai', model: 'glm-5.1' }
+			{ provider: 'zai', model: 'glm-5.1' },
+			{ provider: 'moonshotai', model: 'kimi-k3' },
+			{ provider: 'opencode', model: 'kimi-k3' },
+			{ provider: 'opencode-go', model: 'kimi-k3' }
 		];
 		for (const c of cases) {
 			const parser = createPiLineParser({ sessionId: 'f', project: 'pi' });

@@ -20,7 +20,15 @@ const SOURCE = 'https://models.dev/api.json';
 
 // The OpenCode-reachable provider catalogs chaching needs to price. `cursor-acp` and
 // `zai-anthropic` are OpenCode-internal providerIDs that map onto these at resolve time.
-const WANTED_PROVIDERS = ['opencode', 'opencode-go', 'openai', 'anthropic', 'zai', 'google'];
+const WANTED_PROVIDERS = [
+	'opencode',
+	'opencode-go',
+	'openai',
+	'anthropic',
+	'moonshotai',
+	'zai',
+	'google'
+];
 
 interface ModelsDevModel {
 	name?: string;

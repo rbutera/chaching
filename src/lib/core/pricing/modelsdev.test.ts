@@ -43,6 +43,18 @@ describe('resolveModelsDevPrice', () => {
 		expect(p!.cache_read_input_token_cost).toBeGreaterThan(0);
 	});
 
+	it.each(['moonshotai', 'moonshot', 'kimi', 'opencode', 'opencode-go'])(
+		'prices Kimi K3 through %s at the canonical launch rates',
+		(provider) => {
+			const p = resolveModelsDevPrice(provider, 'kimi-k3');
+			expect(p).not.toBeNull();
+			expect(p!.input_cost_per_token).toBe(3e-6);
+			expect(p!.output_cost_per_token).toBe(15e-6);
+			expect(p!.cache_read_input_token_cost).toBe(0.3e-6);
+			expect(p!.cache_creation_input_token_cost).toBe(0);
+		}
+	);
+
 	it('normalises cursor-acp opus-4.6 to the Anthropic Opus entry with a cache-write rate', () => {
 		const p = resolveModelsDevPrice('cursor-acp', 'opus-4.6');
 		expect(p).not.toBeNull();
