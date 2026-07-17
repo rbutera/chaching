@@ -147,7 +147,7 @@ describe('SyncPanel', () => {
 		expect(queryByRole('button', { name: 'leave pool' })).toBeNull();
 	});
 
-	it('requires a two-step confirm before leaving, warning about the local-history gap', async () => {
+	it('requires a two-step confirm before leaving, promising no local-history gap', async () => {
 		const onAction = vi.fn(async () => {});
 		const { getByRole, queryByRole, container } = render(SyncPanel, {
 			status: joinedStatus,
@@ -157,12 +157,24 @@ describe('SyncPanel', () => {
 		// First click arms the confirm; it must NOT leave yet.
 		await fireEvent.click(getByRole('button', { name: 'leave pool' }));
 		expect(onAction).not.toHaveBeenCalled();
-		expect(container.textContent).toContain('will show a gap');
+		// v2: local SQLite never paused while pooled, so leaving creates NO local gap. The
+		// warning must promise the own-history is intact, not threaten a gap (the old v1 copy).
+		expect(container.textContent).toContain('history stays intact');
+		expect(container.textContent).not.toContain('gap');
 		expect(queryByRole('button', { name: 'leave pool' })).toBeNull();
 
 		// Second click confirms and fires the leave.
 		await fireEvent.click(getByRole('button', { name: 'confirm leave' }));
 		expect(onAction).toHaveBeenCalledWith({ action: 'leave' });
+	});
+
+	it('surfaces the publish interval + its serverless trade-off when the status carries it', () => {
+		const { container } = render(SyncPanel, {
+			status: { ...joinedStatus, intervalMinutes: 30 },
+			onAction: vi.fn(async () => {})
+		});
+		expect(container.textContent).toContain('30 min');
+		expect(container.textContent).toContain('chaching sync interval');
 	});
 
 	it('renders remote dashboards as read-only for sync management', () => {

@@ -15,7 +15,8 @@
 		"poolId": null,
 		"machineId": null,
 		"machineName": "",
-		"providerSubscriptions": {}
+		"providerSubscriptions": {},
+		"intervalMinutes": 15
 	},
 	"providers": {
 		"claude": {

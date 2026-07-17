@@ -43,6 +43,12 @@ export interface SyncStatus {
 	/** False when viewed through a remote/reverse-proxied dashboard. */
 	managementAllowed?: boolean;
 	/**
+	 * Wall-clock-aligned publish cadence in minutes (config `sync.intervalMinutes`). Attached
+	 * by `getSyncStatus` from the local config so the CLI/dashboard can show the cadence and
+	 * its serverless trade-off. Absent on raw store payloads that never touch config.
+	 */
+	intervalMinutes?: number;
+	/**
 	 * True when sync is configured but PostgreSQL could not be reached for this status
 	 * read. Pairs with `localIdentity` so the UI can show a distinct offline state.
 	 */

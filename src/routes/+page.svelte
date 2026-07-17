@@ -780,6 +780,12 @@
 					{:else}
 						<p class="empty">No active window right now.</p>
 					{/if}
+					{#if syncStatus?.enabled}
+						<p class="cap-note">
+							Pooled windows fold in peers at hour grain, so a shared block is approximate
+							to the hour; this machine's own contribution stays per-request exact.
+						</p>
+					{/if}
 					{#if snap.blocks.length > 0}
 						<div class="cap-recent">
 							<Divider variant="solid" />
@@ -1300,6 +1306,13 @@
 		font-family: var(--font-mono);
 		font-size: 0.76rem;
 		color: var(--text-muted);
+	}
+	.cap-note {
+		margin: 0.6rem 0 0;
+		font-family: var(--font-mono);
+		font-size: 0.7rem;
+		line-height: 1.5;
+		color: var(--text-dim);
 	}
 	.cap-recent {
 		margin-top: 1rem;

@@ -221,10 +221,12 @@ Two consequences worth knowing:
 
 ### Chaching Sync: one ledger, several machines
 
-Chaching Sync is an optional PostgreSQL-backed pool. Each machine still reads its own local AI
-tool logs, then writes namespaced usage records to the shared ledger. Define each paid
-subscription once and map any number of machine/provider pairs to it. The dashboard can filter by
-machine or subscription and counts a shared plan's monthly fee once.
+Chaching Sync is an optional PostgreSQL-backed pool. Each machine stays local-first — it reads its
+own local AI tool logs, dedupes, and freezes days into local SQLite exactly as in local mode — and
+additionally **publishes compact aggregates** (day/hour/session roll-ups) to the shared pool on a
+wall-clock-aligned burst. Raw records never leave the machine; only the token/cost totals are
+published. Define each paid subscription once and map any number of machine/provider pairs to it.
+The dashboard can filter by machine or subscription and counts a shared plan's monthly fee once.
 
 ```sh
 export CHACHING_POSTGRES_PASSWORD='choose-a-long-random-password'
@@ -236,10 +238,12 @@ chaching sync create \
   --name 'My machines' --machine kinto
 ```
 
-Create/join is also available in `chaching init` and the web dashboard. Existing frozen SQLite
-history is imported automatically, and the SQLite file is retained as a rollback copy. See
-**[Chaching Sync](docs/sync.md)** for Tailscale setup, subscription mapping, security, migration,
-and troubleshooting.
+Create/join is also available in `chaching init` and the web dashboard. Joining loses nothing and
+leaving creates no local gap — local SQLite keeps running throughout, so your own history is always
+intact; peers' data is simply invisible until you rejoin. The aligned bursts (`chaching sync
+interval`, default 15 min) let a 3-machine 24/7 pool sit inside a serverless Postgres free tier
+(≈62 of Neon's 100 CU-hours/month). See **[Chaching Sync](docs/sync.md)** for Tailscale setup,
+subscription mapping, the interval/cost trade-off, security, and troubleshooting.
 
 ---
 
@@ -277,7 +281,8 @@ Missing file = sensible defaults (Claude Code, Codex, OpenCode on; Cursor off un
     "poolId": null,
     "machineId": null,
     "machineName": "",
-    "providerSubscriptions": {}
+    "providerSubscriptions": {},
+    "intervalMinutes": 15
   },
   "providers": {
     "claude": { "enabled": true, "roots": ["~/.claude", "~/.config/claude"] },

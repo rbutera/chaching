@@ -1,5 +1,9 @@
 import { hostname } from 'node:os';
-import { getSyncStatus, performSyncAction } from '../../lib/core/sync/manager.js';
+import {
+	getSyncStatus,
+	performSyncAction,
+	setSyncInterval
+} from '../../lib/core/sync/manager.js';
 import type { SyncStatus } from '../../lib/core/sync/types.js';
 
 export async function runSync(argv: string[]): Promise<void> {
@@ -18,8 +22,20 @@ export async function runSync(argv: string[]): Promise<void> {
 			machineName: flag(rest, '--machine') ?? hostname()
 		});
 		console.log(`created pool ${status.pool?.name} (${status.pool?.id})`);
-		console.log(`machine ${status.machine?.name} joined; PostgreSQL is now the active ledger`);
+		console.log(
+			`machine ${status.machine?.name} joined; it now publishes aggregates to the shared pool (local SQLite keeps running)`
+		);
 		if (status.error) console.error(`warning: ${status.error}`);
+		return;
+	}
+	if (command === 'interval') {
+		const raw = rest[0];
+		if (!raw) throw new Error('usage: chaching sync interval <minutes> (whole number >= 1)');
+		const saved = await setSyncInterval(Number(raw));
+		console.log(`sync interval set to ${saved} min`);
+		console.log(
+			'higher = cheaper on serverless Postgres (fewer wake windows); only peers’ data goes staler, your own numbers stay live'
+		);
 		return;
 	}
 	if (command === 'join') {
@@ -35,7 +51,9 @@ export async function runSync(argv: string[]): Promise<void> {
 	}
 	if (command === 'leave') {
 		await performSyncAction({ action: 'leave' });
-		console.log('left sync pool; local SQLite history is active again');
+		console.log(
+			'left sync pool; this machine is local-only again. Your own history is intact (local SQLite never stopped); peers’ machines are simply no longer visible until you rejoin'
+		);
 		return;
 	}
 	if (command === 'subscription' && rest[0] === 'add') {
@@ -65,7 +83,7 @@ export async function runSync(argv: string[]): Promise<void> {
 		return;
 	}
 	throw new Error(
-		'chaching sync: expected create|join|status|leave|subscription add|map (run chaching --help)'
+		'chaching sync: expected create|join|status|leave|interval|subscription add|map (run chaching --help)'
 	);
 }
 
@@ -84,6 +102,12 @@ function printStatus(status: SyncStatus): void {
 	console.log(`This machine: ${status.machine.name} (${status.machine.id})`);
 	console.log(`Machines: ${status.machines.map((machine) => machine.name).join(', ') || 'none'}`);
 	console.log(`Subscriptions: ${status.subscriptions.map((sub) => sub.name).join(', ') || 'none'}`);
+	if (typeof status.intervalMinutes === 'number') {
+		console.log(`Publish interval: ${status.intervalMinutes} min (peers refresh at most this often)`);
+	}
+	// The roster's last-seen timestamps double as each machine's last-burst signal.
+	const seen = status.machine.lastSeenAt;
+	if (seen) console.log(`This machine last published: ${new Date(seen).toLocaleString()}`);
 }
 
 function flag(argv: string[], name: string): string | null {

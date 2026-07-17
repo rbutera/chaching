@@ -25,10 +25,14 @@ export function localSyncStatus(error: string | null = null): SyncStatus {
 
 export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus> {
 	const cfg = config ?? (await loadConfig());
+	// The publish cadence lives only in the local 0600 config, so attach it to every status
+	// branch here rather than in the store (which never reads config).
+	const intervalMinutes = cfg.sync.intervalMinutes;
 	if (!isConfigured(cfg.sync)) {
 		return {
 			...localSyncStatus(),
-			databaseConfigured: cfg.sync.databaseUrl.length > 0
+			databaseConfigured: cfg.sync.databaseUrl.length > 0,
+			intervalMinutes
 		};
 	}
 	const store = new PostgresSyncStore(
@@ -39,7 +43,7 @@ export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus
 	try {
 		await store.open();
 		await store.heartbeat(cfg.sync.machineName, hostname());
-		return await store.status();
+		return { ...(await store.status()), intervalMinutes };
 	} catch (cause) {
 		// Configured but unreachable: keep the locally-known identity so the dashboard
 		// shows "joined, pool offline" instead of falling back to onboarding (M3).
@@ -48,6 +52,7 @@ export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus
 			enabled: true,
 			databaseConfigured: true,
 			unreachable: true,
+			intervalMinutes,
 			localIdentity: {
 				poolId: cfg.sync.poolId,
 				machineId: cfg.sync.machineId,
@@ -205,6 +210,26 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 	} finally {
 		await store.close().catch(() => {});
 	}
+}
+
+/**
+ * Coerce a user-supplied interval into a valid minute count (integer >= 1) or throw. The
+ * cadence is a per-machine serverless-cost knob: higher = fewer PostgreSQL wake windows.
+ */
+export function parseIntervalMinutes(raw: string | number): number {
+	const value = typeof raw === 'number' ? raw : Number(raw.trim());
+	if (!Number.isFinite(value) || !Number.isInteger(value) || value < 1)
+		throw new Error('interval must be a whole number of minutes >= 1');
+	return value;
+}
+
+/** Persist the sync publish cadence (minutes). Validates via parseIntervalMinutes. */
+export async function setSyncInterval(minutes: number): Promise<number> {
+	const intervalMinutes = parseIntervalMinutes(minutes);
+	const cfg = await loadConfig();
+	clearConfigCache();
+	await saveConfig({ ...cfg, sync: { ...cfg.sync, intervalMinutes } });
+	return intervalMinutes;
 }
 
 export function isConfigured(

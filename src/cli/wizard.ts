@@ -16,7 +16,7 @@ import {
 	text
 } from '@clack/prompts';
 import { loadConfig, saveConfig, clearConfigCache, type chachingConfig } from '../lib/core/config.js';
-import { performSyncAction } from '../lib/core/sync/manager.js';
+import { parseIntervalMinutes, performSyncAction } from '../lib/core/sync/manager.js';
 import { hostname } from 'node:os';
 import { noArt, accent } from './theme/personality.js';
 import { bannerLine } from './tui/theme.js';
@@ -277,6 +277,7 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 		cancel('Setup cancelled. Provider changes were already saved; sync was not changed.');
 		return updated;
 	}
+	let synced = updated;
 	if (ledger === 'create' || ledger === 'join') {
 		const databaseUrl = await password({
 			message: 'PostgreSQL connection URL (stored in the 0600 config):'
@@ -287,9 +288,23 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 			initialValue: base.sync.machineName || hostname()
 		});
 		if (isCancel(machineAnswer)) return updated;
+		// Publish cadence: higher = cheaper on serverless Postgres (Neon free tier), because
+		// all machines share fewer wake windows. It only affects how stale PEERS' data is; this
+		// machine's own numbers are always live. 15 min keeps a 3-machine pool well inside free.
+		const intervalAnswer = await text({
+			message: 'Sync interval in minutes (how often machines publish to the pool):',
+			initialValue: String(base.sync.intervalMinutes),
+			placeholder: '15'
+		});
+		if (isCancel(intervalAnswer)) return updated;
+		const intervalMinutes = parseWizardInterval(String(intervalAnswer), base.sync.intervalMinutes);
+		// Persist the interval BEFORE create/join so the action's config write carries it.
+		synced = { ...updated, sync: { ...updated.sync, intervalMinutes } };
+		clearConfigCache();
+		await saveConfig(synced);
 		if (ledger === 'create') {
 			const poolName = await text({ message: 'Pool name:', placeholder: 'My machines' });
-			if (isCancel(poolName)) return updated;
+			if (isCancel(poolName)) return synced;
 			try {
 				const status = await performSyncAction({
 					action: 'create',
@@ -297,22 +312,23 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 					poolName: String(poolName),
 					machineName: String(machineAnswer)
 				});
-				if (status.error) note(status.error, 'SQLite migration warning');
+				if (status.error) note(status.error, 'pool warning');
 				// Print the pool ID + a ready-to-paste join hint so machine 2 can onboard
 				// from here alone (M1a — matches `chaching sync create`'s CLI output).
 				note(
 					`pool ${status.pool?.name} (${status.pool?.id})\n` +
-						`${status.machine?.name} joined; PostgreSQL is now the active ledger.\n\n` +
+						`${status.machine?.name} now publishes aggregates to the pool every ${intervalMinutes} min ` +
+						`(local SQLite keeps running).\n\n` +
 						`On each other machine, set CHACHING_DATABASE_URL, then run:\n` +
 						`chaching sync join --pool ${status.pool?.id} --machine <name>`,
 					'sync pool created'
 				);
 			} catch (cause) {
-				return syncSetupFailed(cause, updated);
+				return syncSetupFailed(cause, synced);
 			}
 		} else {
 			const poolId = await text({ message: 'Pool ID:' });
-			if (isCancel(poolId)) return updated;
+			if (isCancel(poolId)) return synced;
 			try {
 				const status = await performSyncAction({
 					action: 'join',
@@ -320,14 +336,14 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 					poolId: String(poolId),
 					machineName: String(machineAnswer)
 				});
-				if (status.error) note(status.error, 'SQLite migration warning');
+				if (status.error) note(status.error, 'pool warning');
 				note(
 					`joined pool ${status.pool?.name ?? poolId} as ${status.machine?.name}. ` +
-						`PostgreSQL is now the active ledger.`,
+						`This machine publishes to the pool every ${intervalMinutes} min; local SQLite keeps running.`,
 					'joined sync pool'
 				);
 			} catch (cause) {
-				return syncSetupFailed(cause, updated);
+				return syncSetupFailed(cause, synced);
 			}
 		}
 	}
@@ -339,7 +355,20 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 			: 'Config saved with no providers enabled. Run `chaching init` to reconfigure.'
 	);
 
-	return updated;
+	return synced;
+}
+
+/**
+ * Coerce the wizard's free-text interval answer into a valid minute count, falling back to
+ * the current config value when the entry is blank or non-numeric (the prompt must never
+ * hard-fail setup — a bad number just keeps the existing cadence).
+ */
+export function parseWizardInterval(raw: string, fallback: number): number {
+	try {
+		return parseIntervalMinutes(raw);
+	} catch {
+		return fallback;
+	}
 }
 
 /**

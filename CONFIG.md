@@ -65,7 +65,8 @@ current logs cover). Uses Node's built-in `node:sqlite`, so it requires Node `>=
 	"poolId": null,
 	"machineId": null,
 	"machineName": "",
-	"providerSubscriptions": {}
+	"providerSubscriptions": {},
+	"intervalMinutes": 15
 }
 ```
 
@@ -74,13 +75,20 @@ setup wizard, or the web Sync panel. `databaseUrl` is a PostgreSQL connection st
 secret. The config file is written atomically with mode `0600`, and the URL is omitted from the
 web public-config and sync-status APIs.
 
-When `sync.enabled` is true and the connection identity is complete, PostgreSQL replaces SQLite
-as the active durable ledger. Existing SQLite history is imported on create/join and the original
-file is retained. `providerSubscriptions` is a local cache of this machine's mappings; PostgreSQL
-is authoritative and refreshes it at runtime.
+When `sync.enabled` is true and the connection identity is complete, this machine stays local-first
+(local SQLite keeps recording and freezing) and additionally publishes compact aggregates to the
+shared PostgreSQL pool. Raw records never leave the machine. `providerSubscriptions` is a local
+cache of this machine's mappings; PostgreSQL is authoritative and refreshes it at runtime.
 
-See [docs/sync.md](docs/sync.md) for Docker, Tailscale, subscription mapping, migration,
-dashboard filters, and the threat model.
+`intervalMinutes` (integer, min 1, default 15) is the wall-clock-aligned publish cadence: all pool
+machines burst on the same grid instants so a serverless Postgres endpoint wakes once per window
+and scales back to zero between them. Higher = cheaper on serverless Postgres; it only affects how
+stale *peers'* data is (your own numbers are always live). Set it with `chaching sync interval
+<minutes>` or the wizard. On a serverless free tier keep it at 15 or higher — see the Neon
+arithmetic in docs/sync.md.
+
+See [docs/sync.md](docs/sync.md) for Docker, Tailscale, subscription mapping, the interval/cost
+trade-off, dashboard filters, and the threat model.
 
 ## Providers
 

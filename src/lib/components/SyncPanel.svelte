@@ -122,7 +122,11 @@
 	{#if status?.enabled && status.pool && status.machine}
 		<p class="summary">
 			<strong>{status.machine.name}</strong> is contributing to pool
-			<code>{status.pool.id}</code>. PostgreSQL is the active ledger; local SQLite history is paused.
+			<code>{status.pool.id}</code>. It publishes compact aggregates to the shared PostgreSQL pool;
+			local SQLite history keeps running, so this machine's own numbers are always live.
+			{#if status.intervalMinutes}
+				Peers refresh at most every {status.intervalMinutes} min.
+			{/if}
 		</p>
 
 		<div class="sync-grid">
@@ -160,6 +164,14 @@
 				{/if}
 			</div>
 		</div>
+
+		{#if status.intervalMinutes}
+			<p class="settings">
+				<strong>publish interval:</strong> {status.intervalMinutes} min. Higher = cheaper on
+				serverless Postgres; it only delays peers' data — your own machine's numbers are always
+				live. Change it with <code>chaching sync interval &lt;minutes&gt;</code>.
+			</p>
+		{/if}
 
 		{#if status.managementAllowed !== false}
 			<div class="sync-grid forms">
@@ -223,8 +235,8 @@
 			<div class="danger-zone">
 				{#if confirmingLeave}
 					<p class="leave-warn">
-						Leaving forgets the stored database URL. Days recorded while pooled stay in
-						PostgreSQL only, so this machine's local view will show a gap for that period
+						Leaving forgets the stored database URL. Your own history stays intact — local SQLite
+						never stopped recording. You just lose visibility of the other pool machines' data
 						until you rejoin.
 					</p>
 					<div class="confirm-row">
@@ -244,7 +256,7 @@
 						</button>
 					</div>
 				{:else}
-					<p>Leaving returns this machine to its local SQLite ledger. Pool data stays in PostgreSQL.</p>
+					<p>Leaving returns this machine to local-only view. Your own history is intact; the pool's shared data stays in PostgreSQL.</p>
 					<button type="button" class="danger" disabled={busy} onclick={() => (confirmingLeave = true)}>
 						leave pool
 					</button>
@@ -345,6 +357,7 @@
 	label,
 	.state,
 	.summary,
+	.settings,
 	.warning,
 	.error,
 	.muted,
@@ -382,6 +395,7 @@
 		color: var(--warn);
 	}
 	.summary,
+	.settings,
 	.warning,
 	.error,
 	.muted,
@@ -389,6 +403,11 @@
 		font-size: 0.76rem;
 		line-height: 1.5;
 		color: var(--text-muted);
+	}
+	.settings {
+		margin: 0.75rem 0 0;
+		padding-top: 0.75rem;
+		border-top: 1px solid var(--border);
 	}
 	code {
 		color: var(--accent);

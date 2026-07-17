@@ -30,10 +30,17 @@ vi.mock('@clack/prompts', () => ({
 	log: { info: vi.fn() }
 }));
 
-// Mock the sync manager so create/join don't touch a real PostgreSQL. Only the wizard
-// consumes performSyncAction, and only in the create/join ledger branch.
+// Mock the sync manager so create/join don't touch a real PostgreSQL. The wizard consumes
+// performSyncAction (create/join branch) and parseIntervalMinutes (interval prompt); the latter
+// keeps its real validating behaviour so parseWizardInterval's fallback logic is exercised.
 vi.mock('../lib/core/sync/manager.js', () => ({
-	performSyncAction: vi.fn()
+	performSyncAction: vi.fn(),
+	parseIntervalMinutes: (raw: string | number) => {
+		const value = typeof raw === 'number' ? raw : Number(raw.trim());
+		if (!Number.isFinite(value) || !Number.isInteger(value) || value < 1)
+			throw new Error('interval must be a whole number of minutes >= 1');
+		return value;
+	}
 }));
 
 // Import clack after the mock is in place so vi.mocked() works
@@ -45,10 +52,27 @@ const performSyncActionMock = vi.mocked(performSyncAction);
 
 import {
 	applySelectionToConfig,
+	parseWizardInterval,
 	resolveEnvSecret,
 	KNOWN_PROVIDERS
 } from './wizard.js';
 import { defaultConfig, saveConfig, configFilePath, clearConfigCache } from '../lib/core/config.js';
+
+describe('parseWizardInterval', () => {
+	it('returns a valid whole-minute entry', () => {
+		expect(parseWizardInterval('30', 15)).toBe(30);
+	});
+
+	it('falls back to the current value for blank / non-numeric / sub-1 entries', () => {
+		// The wizard mocks clack.text to return a machine name for every text prompt, so the
+		// interval prompt must never hard-fail on a non-numeric answer — it keeps the existing
+		// cadence instead. Pre-change there was no interval prompt at all.
+		expect(parseWizardInterval('kinto', 15)).toBe(15);
+		expect(parseWizardInterval('', 15)).toBe(15);
+		expect(parseWizardInterval('0', 20)).toBe(20);
+		expect(parseWizardInterval('2.5', 15)).toBe(15);
+	});
+});
 
 describe('applySelectionToConfig', () => {
 	it('accept defaults: all providers enabled when all are selected', () => {

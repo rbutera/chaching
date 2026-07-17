@@ -7,7 +7,8 @@ All notable changes to chaching. Follows [semver](https://semver.org/); dates ar
 ### Added
 
 - **Kimi K3 pricing** across Kimi/Moonshot, OpenCode Zen, and OpenCode Go at the published launch rates, including cached-input billing.
-- **Chaching Sync** for opt-in multi-machine pools backed by PostgreSQL, with shared subscription mapping, CLI/wizard/web setup, and dashboard machine/subscription filters. Local SQLite remains the zero-config default.
+- **Chaching Sync** for opt-in multi-machine pools backed by PostgreSQL, with shared subscription mapping, CLI/wizard/web setup, and dashboard machine/subscription filters. Local SQLite remains the zero-config default. Each machine stays local-first and publishes compact day/hour/session **aggregates** — raw usage records never leave the machine. Subscription attribution is a read-time join (remaps are instant and retroactive), joining loses nothing, and leaving creates no local gap because local SQLite never stops recording.
+- **`sync.intervalMinutes`** (`chaching sync interval <minutes>`, wizard prompt, default 15): a wall-clock-aligned publish cadence so all pool machines burst in one window and a serverless Postgres endpoint (e.g. Neon free tier) scales to zero between them. A 3-machine 24/7 pool at 15 min lands ≈62 of Neon's 100 free CU-hours/month; higher only makes peers' data staler, never your own. `chaching sync status` reports the interval and this machine's last-published time.
 
 ## 1.13.0 — 2026-07-11
 

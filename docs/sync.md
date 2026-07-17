@@ -1,9 +1,25 @@
 # Chaching Sync
 
 Chaching Sync is an opt-in pooled ledger for people who use AI subscriptions across several
-machines. Local mode stays the default. Joining a pool switches durable history from the local
-SQLite aggregate store to a shared PostgreSQL database while each machine continues reading its
-own local Claude, Codex, OpenCode, Pi, and Cursor sources.
+machines. Local mode stays the default. Joining a pool keeps every machine local-first — it still
+reads its own Claude, Codex, OpenCode, Pi, and Cursor sources, dedupes them, and freezes completed
+days into local SQLite — and additionally **publishes compact aggregates** to a shared PostgreSQL
+database so the dashboard can show the whole pool.
+
+## What is (and isn't) stored server-side
+
+The pool stores **aggregates only**, never raw usage records:
+
+- `machine_day_agg` — one row per machine × day × provider × model, upserted as a full replacement
+  each burst (~100 rows/day pool-wide, versus thousands of raw records).
+- `machine_hour_agg` — last-48h hour buckets (7-day server retention) so shared 5-hour cap windows
+  can be reconstructed pool-wide.
+- `machine_session_agg` — per-session summaries.
+- pool / machine / subscription / mapping rows — the roster and attribution tables.
+
+**Raw records never leave the machine.** Prompts, file paths, session contents, and per-request
+rows all stay in local SQLite; only the rolled-up token/cost counts are published. That is a
+privacy win as well as a bandwidth one.
 
 ## Mental model
 
@@ -16,22 +32,18 @@ A pool has three independent concepts:
 - **Mappings** connect a provider on a machine to a subscription. Several machines can map to the
   same subscription. A machine can map Claude and Codex to different subscriptions.
 
-Every raw usage record is namespaced by machine ID. The same provider source key can therefore
-arrive from two machines without colliding, while retries from one machine remain idempotent.
-Changing a mapping also updates that machine's existing records for the provider, so dashboard
-filters and pooled subscription accounting remain internally consistent.
+Each machine's aggregates are namespaced by machine ID, so the same provider arriving from two
+machines never collides, and a machine republishing its rows is an idempotent full-replacement
+upsert. Subscription attribution is a **read-time join** on the mapping table: changing a mapping
+takes effect instantly and retroactively, with no UPDATE sweep over historical rows.
 
-Cursor Admin API events are the exception: they describe a cloud account event that every
-configured machine would otherwise ingest. Their `cursor:*` source keys deduplicate pool-wide.
-They are shown as pool-global rather than attributed to whichever machine won the insert race, so
-an individual-machine filter excludes them. Cursor events reached through the local OpenCode
-bridge remain machine-scoped.
-
-Frozen Cursor aggregates cannot recover event IDs after SQLite has banked them. When the Cursor
-provider has an `email` filter, migration uses that normalized account as the deduplication scope.
-Two machines importing the same account therefore collapse safely, while different accounts stay
-separate. Without an email filter, migration preserves machine scope rather than guessing and
-risking data loss.
+Cursor Admin API spend is the exception: it describes a cloud-account fact every configured
+machine would otherwise ingest. It is scoped to the account (`cursor-account:<email>`) with
+last-writer-wins upserts, so every machine polling the same account computes identical aggregates
+that collapse to one pool-wide row. It is shown as pool-global rather than attributed to a single
+machine. Cursor usage reached through the local OpenCode bridge stays machine-scoped as normal.
+Because of the account scope, creating or joining a pool with the Cursor Admin API enabled
+requires `providers.cursor.email` to be set (Chaching refuses otherwise rather than mis-scope).
 
 ## Start PostgreSQL with Docker
 
@@ -135,39 +147,70 @@ chaching sync map \
   --subscription '<subscription-id>'
 ```
 
-Use `--subscription none` to clear a mapping. The web Sync panel exposes the same operations with
-forms and selectors.
+Use `--subscription none` to clear a mapping. Because attribution is a read-time join, a remap is
+instant and retroactive — no historical rows are rewritten. The web Sync panel exposes the same
+operations with forms and selectors.
 
-## Existing local history
+## The publish cadence (interval)
 
-When a machine creates or joins a pool, Chaching imports its existing frozen SQLite aggregates
-and sessions into PostgreSQL before activating pooled mode. The local SQLite file is retained as
-a rollback copy and is not modified or deleted.
+Each running Chaching instance publishes its aggregates on **wall-clock-aligned bursts**: at every
+`intervalMinutes` grid instant (`:00/:15/:30/:45` for the default 15) plus a small random jitter.
+All pool machines therefore fire in the *same* narrow window, so a serverless PostgreSQL endpoint
+(see below) wakes once, absorbs the burst, and scales back to zero between windows.
 
-Imported history is attributed to that machine. If you add a subscription mapping after joining,
-the mapping is applied retroactively to imported aggregates and raw pooled records for that
-machine and provider. The installation's machine ID is retained when it leaves, so interrupted
-setup and deliberate rejoin attempts reuse one machine row and keep the import idempotent.
+Set the cadence per machine:
+
+```sh
+chaching sync interval 15    # default; >= 1
+```
+
+The wizard prompts for it during create/join. Higher = cheaper on serverless Postgres, because the
+pool shares fewer wake windows. The only thing a larger interval affects is how stale **peers'**
+data is on this machine — your own machine's numbers are always live (they come straight from the
+local rollup, never a round-trip). `chaching sync status` shows the current interval and this
+machine's last-published time.
 
 ## Runtime synchronization
 
 Each running Chaching instance:
 
-1. loads pooled imported history and raw records for the initial snapshot;
-2. scans its local provider sources;
-3. tags new records with its machine and mapped subscription;
-4. inserts them idempotently into PostgreSQL;
-5. polls PostgreSQL every 15 seconds for records written by peers.
+1. seeds the initial snapshot from its local rollup (frozen SQLite history ∪ live tail) merged with
+   the pool's peer aggregates;
+2. reads its local provider sources continuously (tail + poll), exactly as in local mode;
+3. on each aligned burst, publishes its dirty day/hour/session aggregates (full-replacement
+   upserts), heartbeats, and reads back peers' aggregates incrementally;
+4. renders the pool as a read-time subscription join over local + peer rows.
 
-The TUI, one-shot commands, and web server all use the same engine. Leaving a pool restores the
-local SQLite history backend:
+The TUI, one-shot commands, and web server all use the same engine.
+
+## Leaving a pool
 
 ```sh
 chaching sync leave
 ```
 
-Leaving forgets the stored database URL. Days recorded while pooled stay in PostgreSQL only, so
-this machine's local view shows a gap for that period until it rejoins the pool.
+Leaving forgets the stored database URL and returns this machine to local-only view. **There is no
+local gap:** local SQLite kept recording and freezing the whole time this machine was pooled, so
+its own history is fully intact. What you lose is visibility of the *other* pool machines' data,
+until you rejoin. The machine ID is retained, so a later rejoin reuses the same identity.
+
+## Serverless Postgres (Neon free tier)
+
+The aligned-burst design targets a serverless Postgres endpoint with scale-to-zero, such as Neon's
+free tier. The arithmetic for a 3-machine, 24/7 pool at the default 15-minute interval:
+
+- **Compute.** Neon free gives 100 CU-hours/month and scales to zero after 5 minutes idle at
+  0.25 CU minimum. Aligned 15-minute bursts wake the endpoint ~4×/hour; each wake stays up for the
+  ~5-minute idle floor, so ≈ 4 × 5.5 min ≈ 22 active min/hour ≈ 250 active hours/month × 0.25 CU
+  ≈ **62 CU-hours/month against the 100 free.**
+- **Storage.** Aggregates only, ~1-2 MB/month of growth against the **512 MB** cap.
+- **Egress.** A few MB/month of aggregate reads, well inside the **5 GB** allowance.
+
+The 5-minute scale-to-zero is exactly what the aligned grid exploits: because every machine bursts
+in the same window, the endpoint sleeps the rest of the time. **Lowering the interval below ~10
+minutes on a 3-machine pool defeats this** — the wake windows start to overlap the idle floor and
+keep the endpoint awake continuously, which blows the CU-hour budget. Keep the interval at 15 (or
+higher) on the free tier; only drop it if you are on a paid plan or an always-on Postgres.
 
 ## Dashboard
 
@@ -176,17 +219,22 @@ When sync is enabled, the web dashboard shows:
 - machine and subscription filter chips, which AND-compose with period, provider, and model
   filters;
 - per-subscription value and fee accounting, counting a shared plan's fee once;
-- the pool roster, last-seen timestamps, subscriptions, and machine/provider mappings.
+- the pool roster, last-seen timestamps, subscriptions, and machine/provider mappings;
+- the publish interval and its serverless trade-off in the Sync panel.
 
-Five-hour cap windows are intentionally hidden while a machine or subscription filter is active.
-Those windows come from provider-level activity and do not yet carry pool attribution.
+Peers' data is at most `intervalMinutes` stale; the roster's last-seen timestamps show when each
+machine last published. Five-hour cap windows fold peers in at **hour grain** (a pooled block is
+approximate to the hour, while this machine's own contribution stays per-request exact), and are
+hidden entirely while a machine or subscription filter is active — those windows carry no pool
+attribution dimension.
 
 ## Troubleshooting
 
-- `chaching sync status` reports PostgreSQL connection and pool identity errors.
+- `chaching sync status` reports PostgreSQL connection and pool identity errors, plus the current
+  publish interval and this machine's last-published time.
 - Confirm the database is listening on the expected Tailscale address, not only `127.0.0.1`.
 - Confirm TCP port 5432 is allowed between the two tailnet devices.
 - Run `docker compose -f docker-compose.sync.yml ps` and inspect PostgreSQL health.
-- If the initial SQLite import reports a warning, the pool remains joined and live records still
-  sync. Keep the SQLite file, repair access to it, then run `chaching sync import-history`. The
-  import is idempotent for the current machine identity.
+- A failed burst is self-healing: the dirty aggregates are re-derived from the local rollup and
+  republished on the next burst, so a transient PostgreSQL outage costs nothing but a little
+  staleness in peers' view of this machine.
