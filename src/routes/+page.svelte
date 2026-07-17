@@ -3,35 +3,25 @@
 	import { resolve } from '$app/paths';
 	import { FeedStore } from '$lib/client/feed.svelte';
 	import { Dashboard } from '$lib/client/dashboard.svelte';
-	import TrendChart from '$lib/components/TrendChart.svelte';
-	import Donut from '$lib/components/Donut.svelte';
-	import SessionExplorer from '$lib/components/SessionExplorer.svelte';
 	import DetailSheet from '$lib/components/DetailSheet.svelte';
-	import CalendarHeatmap from '$lib/components/CalendarHeatmap.svelte';
 	import SyncPanel from '$lib/components/SyncPanel.svelte';
 	import HeroRegion from '$lib/components/regions/HeroRegion.svelte';
 	import ControlsRegion from '$lib/components/regions/ControlsRegion.svelte';
 	import StatRowRegion from '$lib/components/regions/StatRowRegion.svelte';
 	import ValueBandRegion from '$lib/components/regions/ValueBandRegion.svelte';
 	import LifetimeRegion from '$lib/components/regions/LifetimeRegion.svelte';
+	import HeatmapRegion from '$lib/components/regions/HeatmapRegion.svelte';
+	import ByModelRegion from '$lib/components/regions/ByModelRegion.svelte';
+	import ByProjectRegion from '$lib/components/regions/ByProjectRegion.svelte';
+	import SessionsRegion from '$lib/components/regions/SessionsRegion.svelte';
+	import HonestyFooterRegion from '$lib/components/regions/HonestyFooterRegion.svelte';
 	// Register & Receipt design-system primitives (chaching-ds-components).
 	import BrandMark from '$lib/components/ds/BrandMark.svelte';
-	import SpendMeter from '$lib/components/ds/SpendMeter.svelte';
-	import Divider from '$lib/components/ds/Divider.svelte';
 	import type { SubsidisedProvider } from '$lib/core/subsidisation';
 	import type { PublicchachingConfig } from '$lib/core/config';
 	import type { SyncAction, SyncStatusView } from '$lib/client/sync';
 	// Baked at build time (Vite JSON import) — the header version badge.
 	import { version } from '../../package.json';
-	import {
-		money,
-		compactTokens,
-		fmtDay,
-		fmtPeriodKey,
-		int
-	} from '$lib/format';
-	import { totalTokens, dayCoverageState } from '$lib/core/aggregate';
-	import type { PeriodBucket } from '$lib/core/aggregate';
 	// Shared voice (escalation ladder) — the joy crossings key off the same ladder.
 	import {
 		tierIndex,
@@ -113,12 +103,8 @@
 
 	let snap = $derived(feed.snapshot);
 
-	// UTC today (YYYY-MM-DD): the live tail. Matches the engine's isoDayUTC(now()); used to
-	// tell a "so far today" partial bar from a PAST day a gated scan left partial.
-	let todayUTC = $derived(new Date(snap?.generatedAt ?? Date.now()).toISOString().slice(0, 10));
-
-	// The zoomed-in pin (null = rolling-period mode). When set, the hero/cards/donut/session
-	// list scope to this single day; the heatmap + trend stay full-range and highlight it.
+	// The zoomed-in pin (null = rolling-period mode). Retained at page level for the
+	// joy escalation chain and the arrow-key day stepper; regions derive their own.
 	let focusedDay = $derived(dash.focusedDay);
 
 	// Clamp/clear a persisted out-of-range pin once the snapshot (and its data range) lands.
@@ -126,43 +112,12 @@
 		if (snap) dash.reconcileFocusedDay(snap);
 	});
 
-	// hero chain retained at page level only for the cross-cutting joy effect
-	// (heroCost) and the not-yet-extracted value band (heroLabel). The hero's own
-	// figure, delta, receipt action, sparkline, count-up cadence, and flourish live
-	// in HeroRegion.
+	// hero chain retained at page level only for the cross-cutting joy effect (heroCost).
+	// The hero's own figure, delta, receipt action, sparkline, count-up cadence, and
+	// flourish live in HeroRegion.
 	let hero = $derived(snap ? dash.heroTotals(snap) : null);
 	let focusedTotals = $derived(snap && focusedDay ? dash.focusedTotals(snap, focusedDay) : null);
 	let heroCost = $derived(focusedTotals ? focusedTotals.cost : (hero?.current.cost ?? 0));
-
-	// trend buckets (always full rolling window — the navigation surface)
-	let trend = $derived<PeriodBucket[]>(snap ? dash.trend(snap) : []);
-
-	// calendar heatmap series: one cell per banked day (full range), cost-shaded + coverage.
-	let dayCells = $derived(snap ? dash.byDay(snap) : []);
-	// Wire the real coverage state from the snapshot map (the sibling change landed) rather
-	// than the heatmap's all-frozen default.
-	function coverageFor(day: string): import('$lib/types').DayCoverage {
-		return snap ? dayCoverageState(day, snap.coverage) : 'frozen';
-	}
-
-	// scoped models / totals — pinned-day-scoped when focused, else period-scoped.
-	let modelTotals = $derived(
-		snap ? (focusedDay ? dash.focusedModels(snap, focusedDay) : dash.models(snap)) : []
-	);
-	// Per-project spend (scoped): which repo/client is eating the money. Follows the same
-	// period + filter + focusedDay scoping as the session list (design D4 shared lineage).
-	let projectTotals = $derived(snap ? dash.projectTotals(snap) : []);
-	const PROJECT_TOP_N = 8;
-	let projectTop = $derived(projectTotals.slice(0, PROJECT_TOP_N));
-	let projectMore = $derived(Math.max(0, projectTotals.length - PROJECT_TOP_N));
-	// The explorer is cross-day by default (design D6): all banked sessions, frozen ∪ live.
-	// A pinned focusedDay deep-links it to that single day (design D8 drill-target scope).
-	let explorerSessions = $derived(
-		snap ? (focusedDay ? dash.focusedSessions(snap, focusedDay) : dash.allSessions(snap)) : []
-	);
-
-	// stacking order = models by cost (scoped)
-	let stackModels = $derived(modelTotals.map((m) => m.model));
 
 	// Commit a tier change for one provider: optimistically update the local config
 	// copy (so the switcher + card move immediately), then persist via /api/config and
@@ -192,14 +147,6 @@
 			/* keep the optimistic local copy on failure */
 		}
 	}
-
-	// 5h cap-proximity active block
-	let poolFilterActive = $derived(
-		dash.machineFilter.size > 0 || dash.subscriptionFilter.size > 0
-	);
-	// Five-hour blocks currently carry no attribution dimension. Suppress this one
-	// panel under a pool filter instead of showing a whole-pool number in a scoped view.
-	let activeBlock = $derived(poolFilterActive ? null : (snap?.blocks.find((b) => b.isActive) ?? null));
 
 	// Lifetime ladder, keyed off the all-time total (snapshot.totals.cost). Drives the
 	// lifetime milestone crossing (the confetti trigger) — same one-ladder source.
@@ -252,21 +199,6 @@
 		joyMuted = joy.setMuted(!joyMuted);
 	}
 
-	const isDayBucket = (b: PeriodBucket) => /^\d{4}-\d{2}-\d{2}$/.test(b.key);
-
-	function onTrendPick(b: PeriodBucket) {
-		if (!snap) return;
-		// A single-DAY bar pins the focused day (the new primary path, single source of truth).
-		// A coarse week/month bar (long-span trend) keeps the existing bucket-range drill —
-		// focusedDay is single-day only, so a week bar opens the DetailSheet, not a pin.
-		if (isDayBucket(b)) {
-			dash.setFocusedDay(snap, b.key);
-			return;
-		}
-		const range = dash.bucketDayRange(snap, b);
-		dash.openPeriodDrill({ from: range.from, to: range.to, periodKey: b.key, label: fmtPeriodKey(b.key) });
-	}
-
 	// Page-level Arrow Left/Right steps the focused day, but ONLY when a day is pinned, focus
 	// is not in a text field, and the heatmap grid (which owns its own roving arrows) isn't
 	// the focused element — so the page handler never fights the grid or a date input.
@@ -282,18 +214,6 @@
 		}
 		e.preventDefault();
 		dash.stepFocusedDay(snap, e.key === 'ArrowRight' ? 1 : -1);
-	}
-
-	let unknownNote = $derived(snap && snap.unknownPriceModels.length > 0 ? snap.unknownPriceModels.join(', ') : null);
-	let cutoverDate = $derived(snap?.cutoverTs ? new Date(snap.cutoverTs).toISOString().slice(0, 10) : '');
-
-	async function saveCutover(value: string) {
-		const ts = value ? Date.parse(value + 'T00:00:00Z') : null;
-		await fetch(resolve('/api/config'), {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ cutoverTs: ts })
-		});
 	}
 
 	// Connection state — all four states kept (P14). Skin only: colour + glow.
@@ -375,133 +295,17 @@
 
 			<LifetimeRegion {feed} {dash} />
 
-			<!-- REGION 6 · CALENDAR HEATMAP (primary time-nav surface) -->
-			<section class="heatmap-sec" aria-label="Daily spend calendar">
-				<div class="panel">
-					<CalendarHeatmap
-						cells={dayCells}
-						{focusedDay}
-						coverage={coverageFor}
-						onPick={(day) => dash.setFocusedDay(snap, day)}
-					/>
-				</div>
-			</section>
+			<HeatmapRegion {feed} {dash} />
 
-			<!-- REGION 7 · BY-MODEL / 5H WINDOW GRID -->
-			<section class="grid2">
-				<div class="panel by-model">
-					{#if trend.length > 0}
-						<TrendChart buckets={trend} models={stackModels} onPick={onTrendPick} today={todayUTC} />
-					{:else}
-						<p class="empty">No data in this scope.</p>
-					{/if}
-					<div class="model-break">
-						<h2 class="panel-title"><span>by model</span></h2>
-						<Donut models={modelTotals} activeFilter={dash.modelFilter} onToggle={(m) => dash.toggleModel(m)} />
-					</div>
-				</div>
+			<ByModelRegion {feed} {dash} {syncStatus} />
 
-				<div class="panel cap-panel">
-					<h2 class="panel-title"><span>5-hour window · cap proximity</span></h2>
-					{#if activeBlock}
-						<SpendMeter amount={activeBlock.cost} context="block" label={`closes ${new Date(activeBlock.endTs).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`} />
-						<p class="cap-sub">{compactTokens(totalTokens(activeBlock.tokens))} tokens this window</p>
-					{:else if poolFilterActive}
-						<p class="empty">5-hour windows are whole-pool only. Clear pool filters to view them.</p>
-					{:else}
-						<p class="empty">No active window right now.</p>
-					{/if}
-					{#if syncStatus?.enabled}
-						<p class="cap-note">
-							Pooled windows fold in peers at hour grain, so a shared block is approximate
-							to the hour; this machine's own contribution stays per-request exact.
-						</p>
-					{/if}
-					{#if snap.blocks.length > 0}
-						<div class="cap-recent">
-							<Divider variant="solid" />
-							<ul class="recent-blocks">
-								{#each snap.blocks.slice(0, 5) as b (b.startTs)}
-									<li>
-										<span class="num">{money(b.cost)}</span>
-										<span class="blk-sub">{new Date(b.startTs).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-									</li>
-								{/each}
-							</ul>
-						</div>
-					{/if}
-				</div>
-			</section>
+			<ByProjectRegion {feed} {dash} />
 
-			<!-- REGION 7b · BY PROJECT (which repo/client is eating the money) -->
-			<section class="by-project-sec" aria-label="Spend by project">
-				<div class="panel">
-					<h2 class="panel-title"><span>by project</span></h2>
-					<!-- Session-derived (design D3 overlap rule): whole sessions that touch the
-					     window count in full, so this panel reconciles to the session total, not
-					     the day-grain cards above. The caption keeps that honest. -->
-					<p class="proj-caption">whole sessions overlapping this window</p>
-					{#if projectTotals.length > 0}
-						<ul class="project-list">
-							{#each projectTop as p (p.isUnknown ? 'unknown' : `project:${p.project}`)}
-								<li class:unknown={p.isUnknown} title={p.isUnknown ? 'Sessions with no recorded project' : p.project}>
-									<span class="proj-name">{p.display}</span>
-									<span class="proj-figs">
-										<span class="num">{money(p.cost)}</span>
-										<span class="proj-sub">{compactTokens(totalTokens(p.tokens))} tok</span>
-										<span class="proj-sub">{int(p.sessionCount)} {p.sessionCount === 1 ? 'session' : 'sessions'}</span>
-									</span>
-								</li>
-							{/each}
-						</ul>
-						{#if projectMore > 0}
-							<p class="proj-more">+{projectMore} more</p>
-						{/if}
-					{:else}
-						<p class="empty">No sessions in this scope.</p>
-					{/if}
-				</div>
-			</section>
-
-			<!-- REGION 8 · SESSIONS -->
-			<section class="sessions-sec" aria-label="Sessions">
-				<div class="panel">
-					<SessionExplorer
-						sessions={explorerSessions}
-						now={snap.generatedAt || Date.now()}
-						onOpen={(s) => dash.openSessionDrill(s)}
-					/>
-				</div>
-			</section>
+			<SessionsRegion {feed} {dash} />
 
 			<SyncPanel status={syncStatus} onAction={onSyncAction} />
 
-			<!-- REGION 9 · HONESTY FOOTER -->
-			<footer class="honesty">
-				<p>
-					<strong>Cost is a computed estimate.</strong> Claude Code stores token counts, not cost; figures
-					are tokens × a vendored LiteLLM price snapshot — best-effort, not invoice-exact. It counts the cache hits too.
-				</p>
-				<p>
-					Coverage is explicit: frozen days are authoritative, today reads partial, gaps read as missing — never a lying $0.
-					Data covers <strong>{snap.earliestDay ? fmtDay(snap.earliestDay) : '—'}</strong> →
-					<strong>{snap.latestDay ? fmtDay(snap.latestDay) : '—'}</strong>
-					({int(snap.stats.recordsCounted)} responses across {int(snap.stats.filesScanned)} files; {int(snap.stats.duplicatesSkipped)} streamed duplicates removed). Older logs beyond Claude Code's 30-day retention are gone.
-				</p>
-				<p>Thinking/reasoning tokens are <strong>not separately metered</strong> for Claude — they fold into output.</p>
-				{#if unknownNote}
-					<p class="warn">Unpriced models (cost excluded): {unknownNote}</p>
-				{/if}
-				<p class="cutover">
-					<label for="cutover">Work/personal cutover (optional, not inferred):</label>
-					<input
-						id="cutover"
-						type="date"
-						value={cutoverDate}
-						onchange={(e) => saveCutover((e.currentTarget as HTMLInputElement).value)}
-					/>
-				</p>
-			</footer>
+			<HonestyFooterRegion {feed} />
 		</main>
 	{/if}
 </div>
@@ -659,192 +463,5 @@
 		.spinner {
 			animation: none;
 		}
-	}
-
-	/* REGION 6 · HEATMAP */
-	.heatmap-sec {
-		margin-bottom: 1rem;
-	}
-
-	/* REGION 7 · MODEL / 5H GRID — base single column, 2fr 1fr at >= 860px. */
-	.grid2 {
-		display: grid;
-		grid-template-columns: 1fr;
-		gap: 0.9rem;
-		margin-bottom: 1rem;
-	}
-	@media (min-width: 860px) {
-		.grid2 {
-			grid-template-columns: 2fr 1fr;
-			align-items: start;
-		}
-	}
-
-	/* Shared panel surface. */
-	.panel {
-		background: var(--surface-1);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		padding: 1.1rem;
-		box-shadow: var(--shadow);
-	}
-	.panel-title {
-		margin: 0 0 0.85rem;
-		font-family: var(--font-mono);
-		font-size: 0.7rem;
-		color: var(--text-dim);
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		font-weight: 600;
-		display: flex;
-		justify-content: space-between;
-	}
-	.model-break {
-		margin-top: 1.1rem;
-	}
-	.empty {
-		color: var(--text-dim);
-		text-align: center;
-		padding: 2rem 1rem;
-		font-family: var(--font-mono);
-		font-size: 0.85rem;
-	}
-	.cap-sub {
-		margin: 0.6rem 0 0;
-		font-family: var(--font-mono);
-		font-size: 0.76rem;
-		color: var(--text-muted);
-	}
-	.cap-note {
-		margin: 0.6rem 0 0;
-		font-family: var(--font-mono);
-		font-size: 0.7rem;
-		line-height: 1.5;
-		color: var(--text-dim);
-	}
-	.cap-recent {
-		margin-top: 1rem;
-	}
-	.recent-blocks {
-		list-style: none;
-		margin: 0;
-		padding: 0.7rem 0 0;
-		display: flex;
-		flex-direction: column;
-		gap: 0.35rem;
-	}
-	.recent-blocks li {
-		display: flex;
-		justify-content: space-between;
-		font-family: var(--font-mono);
-		font-size: 0.8rem;
-	}
-	.blk-sub {
-		color: var(--text-dim);
-		font-size: 0.72rem;
-	}
-
-	/* REGION 7b · BY PROJECT — receipt-line rows, mono, right-aligned figures. */
-	.by-project-sec {
-		margin-bottom: 1rem;
-	}
-	.project-list {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 0.4rem;
-	}
-	.project-list li {
-		display: flex;
-		align-items: baseline;
-		justify-content: space-between;
-		gap: 1rem;
-		font-family: var(--font-mono);
-		font-size: 0.82rem;
-	}
-	.project-list li.unknown .proj-name {
-		color: var(--text-dim);
-		font-style: italic;
-	}
-	.proj-name {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		color: var(--text);
-		/* flex children default to min-width:auto, which defeats the ellipsis */
-		min-width: 0;
-	}
-	.proj-caption {
-		margin: -0.35rem 0 0.5rem;
-		font-family: var(--font-mono);
-		font-size: 0.68rem;
-		color: var(--text-dim);
-	}
-	.proj-figs {
-		display: flex;
-		align-items: baseline;
-		gap: 0.9rem;
-		flex: none;
-	}
-	.proj-figs .num {
-		font-weight: 600;
-		font-variant-numeric: tabular-nums;
-	}
-	.proj-sub {
-		color: var(--text-dim);
-		font-size: 0.72rem;
-		font-variant-numeric: tabular-nums;
-	}
-	.proj-more {
-		margin: 0.7rem 0 0;
-		font-family: var(--font-mono);
-		font-size: 0.74rem;
-		color: var(--text-dim);
-	}
-
-	/* REGION 8 · SESSIONS */
-	.sessions-sec {
-		margin-bottom: 1rem;
-	}
-
-	/* REGION 9 · HONESTY FOOTER — receipt-honesty voice, mono. */
-	.honesty {
-		margin: 1.4rem 0 3rem;
-		padding: 1.1rem 1.2rem;
-		background: var(--surface-1);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		color: var(--text-muted);
-		font-family: var(--font-mono);
-		font-size: 0.78rem;
-		line-height: 1.6;
-	}
-	.honesty p {
-		margin: 0 0 0.55rem;
-	}
-	.honesty strong {
-		color: var(--text);
-		font-weight: 600;
-	}
-	.honesty .warn {
-		color: var(--warn);
-	}
-	.cutover {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-		margin-top: 0.75rem !important;
-	}
-	.cutover input {
-		background: var(--surface-2);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
-		color: var(--text);
-		padding: 0.35rem 0.5rem;
-		font-family: var(--font-num);
-		color-scheme: dark;
 	}
 </style>
