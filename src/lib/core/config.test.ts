@@ -78,6 +78,40 @@ describe('config', () => {
 		expect(JSON.stringify(publicConfig(cfg))).not.toContain('crsr_secret');
 	});
 
+	it('normalizes sync additively without generating pool or machine ids', () => {
+		const local = normalizeConfig({});
+		expect(local.sync).toEqual({
+			enabled: false,
+			databaseUrl: '',
+			poolId: null,
+			machineId: null,
+			machineName: null,
+			providerSubscriptions: {}
+		});
+
+		const configured = normalizeConfig({
+			sync: {
+				enabled: true,
+				databaseUrl: 'postgres://secret',
+				poolId: 'pool-1',
+				machineId: 'machine-1',
+				machineName: 'kinto',
+				providerSubscriptions: { claude: 'sub-1', codex: null, bad: 42 }
+			}
+		});
+		expect(configured.sync.providerSubscriptions).toEqual({ claude: 'sub-1', codex: null });
+	});
+
+	it('never exposes the PostgreSQL URL in public config', () => {
+		const cfg = normalizeConfig({
+			sync: { enabled: true, databaseUrl: 'postgres://user:password@host/db' }
+		});
+		const publicValue = publicConfig(cfg);
+		expect(publicValue.sync.databaseUrlConfigured).toBe(true);
+		expect(JSON.stringify(publicValue)).not.toContain('password');
+		expect('databaseUrl' in publicValue.sync).toBe(false);
+	});
+
 	it('defaults missing subscription to Corporate $99 (old v1.5.0 config loads unchanged)', () => {
 		// A pre-subscription config: claude/codex with no subscription block.
 		const cfg = normalizeConfig({

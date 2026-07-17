@@ -123,6 +123,13 @@ describe('subcommand routing', () => {
 		const { stdout } = await runCli(['--help']);
 		expect(stdout).toContain('doctor');
 	});
+
+	it('sync --help prints sync-specific commands', async () => {
+		const { stdout, code } = await runCli(['sync', '--help']);
+		expect(code).toBe(0);
+		expect(stdout).toContain('sync create');
+		expect(stdout).toContain('sync subscription add');
+	});
 });
 
 // ── stats: human output ───────────────────────────────────────────────────────

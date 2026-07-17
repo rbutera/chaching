@@ -3,8 +3,12 @@
  * Wave 3 implementation: provider multiselect + env-first secrets + atomic 0600 config write.
  */
 
-import { intro, multiselect, password, outro, isCancel, cancel, log, note } from '@clack/prompts';
+import { intro, multiselect, password, outro, isCancel, cancel, log, note, select, text } from '@clack/prompts';
+import { randomUUID } from 'node:crypto';
+import { hostname } from 'node:os';
 import { loadConfig, saveConfig, clearConfigCache, type chachingConfig } from '../lib/core/config.js';
+import { defaultConfig } from '../lib/core/config.js';
+import { PostgresSyncStore } from '../lib/core/sync/store.js';
 import { noArt, accent } from './theme/personality.js';
 import { bannerLine } from './tui/theme.js';
 
@@ -65,6 +69,33 @@ export interface ProviderSelection {
 	enabled: KnownProvider[];
 	/** Secrets collected during the wizard (keyed by provider name). */
 	secrets: Partial<Record<KnownProvider, string>>;
+}
+
+export type SyncSetup =
+	| { mode: 'local' }
+	| {
+			mode: 'sync';
+			databaseUrl: string;
+			poolId: string;
+			machineId: string;
+			machineName: string;
+		};
+
+export function applySyncSetupToConfig(base: chachingConfig, setup: SyncSetup): chachingConfig {
+	return {
+		...base,
+		sync:
+			setup.mode === 'local'
+				? defaultConfig().sync
+				: {
+						enabled: true,
+						databaseUrl: setup.databaseUrl,
+						poolId: setup.poolId,
+						machineId: setup.machineId,
+						machineName: setup.machineName,
+						providerSubscriptions: {}
+					}
+	};
 }
 
 /**
@@ -149,10 +180,10 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 		// Match the interactive default: enable everything EXCEPT Cursor (which is
 		// off in the default config and needs an admin token to do anything useful).
 		const base = await loadConfig();
-		const updated = applySelectionToConfig(base, {
+		const updated = applySyncSetupToConfig(applySelectionToConfig(base, {
 			enabled: KNOWN_PROVIDERS.filter((p) => !DEFAULT_OFF.includes(p)),
 			secrets: {}
-		});
+		}), { mode: 'local' });
 		clearConfigCache();
 		await saveConfig(updated);
 		return updated;
@@ -246,7 +277,74 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 
 	// ── Step 3: build + write config ─────────────────────────────────────────
 
-	const updated = applySelectionToConfig(base, { enabled: enabledProviders, secrets });
+	let updated = applySelectionToConfig(base, { enabled: enabledProviders, secrets });
+	const syncMode = await select<'local' | 'create' | 'join'>({
+		message: 'Where should usage history live?',
+		options: [
+			{ value: 'local', label: 'Local SQLite', hint: 'default; this machine only' },
+			{ value: 'create', label: 'Create a shared PostgreSQL pool' },
+			{ value: 'join', label: 'Join an existing PostgreSQL pool' }
+		],
+		initialValue: 'local'
+	});
+	if (isCancel(syncMode)) {
+		cancel('Setup cancelled — no changes written.');
+		return null;
+	}
+	if (syncMode === 'local') {
+		updated = applySyncSetupToConfig(updated, { mode: 'local' });
+	} else {
+		const databaseUrl = await password({ message: 'PostgreSQL database URL (stored in 0600 config):' });
+		if (isCancel(databaseUrl)) {
+			cancel('Setup cancelled — no changes written.');
+			return null;
+		}
+		const machineAnswer = await text({
+			message: 'Machine name:',
+			defaultValue: hostname(),
+			placeholder: hostname()
+		});
+		if (isCancel(machineAnswer)) {
+			cancel('Setup cancelled — no changes written.');
+			return null;
+		}
+		const machineName = (machineAnswer as string).trim() || hostname();
+		const machineId = randomUUID();
+		const store = new PostgresSyncStore(databaseUrl as string);
+		try {
+			await store.migrate();
+			let poolId: string;
+			if (syncMode === 'create') {
+				const poolName = await text({ message: 'Shared pool name:', placeholder: 'My team' });
+				if (isCancel(poolName)) {
+					cancel('Setup cancelled — no changes written.');
+					return null;
+				}
+				poolId = randomUUID();
+				await store.createPool(
+					{ id: poolId, name: (poolName as string).trim() || 'Chaching pool' },
+					{ id: machineId, name: machineName }
+				);
+			} else {
+				const poolAnswer = await text({ message: 'Pool ID:' });
+				if (isCancel(poolAnswer) || !(poolAnswer as string).trim()) {
+					cancel('Setup cancelled — no changes written.');
+					return null;
+				}
+				poolId = (poolAnswer as string).trim();
+				await store.joinPool(poolId, { id: machineId, name: machineName });
+			}
+			updated = applySyncSetupToConfig(updated, {
+				mode: 'sync',
+				databaseUrl: databaseUrl as string,
+				poolId,
+				machineId,
+				machineName
+			});
+		} finally {
+			await store.close();
+		}
+	}
 	clearConfigCache();
 	await saveConfig(updated);
 

@@ -124,9 +124,14 @@ export class FeedStore {
 }
 
 function dayModelKey(dm: DayModelAgg): string {
-	return `${dm.day}${KEY_SEP}${dm.provider}${KEY_SEP}${dm.model}`;
+	return [dm.day, dm.provider, dm.model, dm.machineId ?? '', dm.subscriptionId ?? ''].join(KEY_SEP);
 }
 
 function sessionKey(session: SessionSummary): string {
-	return `${session.provider}${KEY_SEP}${session.sessionId}`;
+	return [
+		session.provider,
+		session.sessionId,
+		session.machineId ?? '',
+		session.subscriptionId ?? ''
+	].join(KEY_SEP);
 }

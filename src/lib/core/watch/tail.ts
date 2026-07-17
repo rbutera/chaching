@@ -3,18 +3,28 @@
 // on tail reads only offset->EOF. Feeds parsed+deduped records into the Rollup.
 
 import { createReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { basename, sep } from 'node:path';
 import type { Rollup } from '../rollup/rollup';
 import type { DedupSet } from '../ingest/dedup';
+import { isNoKey, usageRecordDedupKey } from '../ingest/dedup';
 import { parseLine } from '../ingest/parse';
 import { decodeProject } from '../ingest/discover';
+import type { UsageRecord } from '../../types';
 
 export interface FileState {
 	offset: number; // bytes consumed so far (EOF after last read)
 	project: string;
 	isSidechain: boolean;
+}
+
+export interface IngestRangeOptions {
+	transformRecord?: (record: UsageRecord) => UsageRecord;
+	onRecord?: (record: UsageRecord) => void;
+	/** Sync mode only: make null-id Claude events stable across process restarts. */
+	stabilizeNoKey?: boolean;
 }
 
 /** Map projectsDir + filepath -> decoded project name. */
@@ -39,7 +49,8 @@ export async function ingestRange(
 	startOffset: number,
 	projectsDir: string,
 	rollup: Rollup,
-	dedup: DedupSet
+	dedup: DedupSet,
+	options: IngestRangeOptions = {}
 ): Promise<number> {
 	let size: number;
 	try {
@@ -49,7 +60,9 @@ export async function ingestRange(
 	}
 	if (size <= startOffset) {
 		// truncated or no growth; if truncated (size < offset) restart from 0
-		return size < startOffset ? await ingestRange(filePath, 0, projectsDir, rollup, dedup) : startOffset;
+		return size < startOffset
+			? await ingestRange(filePath, 0, projectsDir, rollup, dedup, options)
+			: startOffset;
 	}
 
 	const ctx = {
@@ -64,19 +77,34 @@ export async function ingestRange(
 		highWaterMark: 1 << 20 // 1 MiB chunks
 	});
 	const rl = createInterface({ input: stream, crlfDelay: Infinity });
+	let lineOffset = startOffset;
+	const pathHash = options.stabilizeNoKey
+		? createHash('sha256').update(filePath).digest('hex').slice(0, 16)
+		: '';
 
 	for await (const line of rl) {
+		const currentOffset = lineOffset;
+		lineOffset += Buffer.byteLength(line, 'utf8') + 1;
 		if (!line) continue;
-		const rec = parseLine(line, ctx);
-		if (!rec) {
+		const parsed = parseLine(line, ctx);
+		if (!parsed) {
 			rollup.addSkipped();
 			continue;
 		}
-		if (!dedup.add(rec.key)) {
+		const stable =
+			options.stabilizeNoKey && isNoKey(parsed.key)
+				? {
+						...parsed,
+						key: `__sync_source__:${pathHash}:${currentOffset}:${createHash('sha256').update(line).digest('hex').slice(0, 16)}`
+					}
+				: parsed;
+		const rec = options.transformRecord?.(stable) ?? stable;
+		if (!dedup.add(usageRecordDedupKey(rec))) {
 			rollup.addDuplicate();
 			continue;
 		}
 		rollup.add(rec);
+		options.onRecord?.(rec);
 	}
 
 	return size;

@@ -8,7 +8,7 @@
 import { watch, type FSWatcher } from 'node:fs';
 import { sep } from 'node:path';
 import { Rollup } from './rollup/rollup';
-import { DedupSet } from './ingest/dedup';
+import { DedupSet, usageRecordDedupKey } from './ingest/dedup';
 import { discoverFiles, resolveProjectsDirs } from './ingest/discover';
 import { ingestRange, type FileState } from './watch/tail';
 import { loadConfig, type chachingConfig, type CursorProviderConfig } from './config';
@@ -21,6 +21,7 @@ import { readPiRecords } from './providers/pi/local';
 import { readOpenCodeSessions } from './providers/opencode/sqlite';
 import { fetchCursorUsageRecords } from './providers/cursor/api';
 import type { RollupDelta, RollupSnapshot, UsageRecord } from '../types';
+import { PostgresSyncStore } from './sync/store';
 
 const MTIME_POLL_MS = 4000; // fallback poll cadence
 const DELTA_DEBOUNCE_MS = 400; // coalesce bursts of file changes into one delta
@@ -30,6 +31,7 @@ const DELTA_DEBOUNCE_MS = 400; // coalesce bursts of file changes into one delta
 // without meaningful I/O: codex re-parses only mtime-fresh files, opencode re-reads
 // only when the db (or its -wal) mtime moved.
 const LOCAL_PROVIDER_POLL_MS = 15_000;
+const SYNC_POLL_MS = 15_000;
 // Re-read margin for the codex incremental scan: mtime granularity + writes that
 // land while a scan is in flight. Overlap is free (dedup), a miss is not.
 const CODEX_RESCAN_MARGIN_MS = 60_000;
@@ -62,6 +64,10 @@ class Ingestion {
 	private pollTimer: NodeJS.Timeout | null = null;
 	private cursorTimer: NodeJS.Timeout | null = null;
 	private localProviderTimer: NodeJS.Timeout | null = null;
+	private syncTimer: NodeJS.Timeout | null = null;
+	private syncPollInFlight = false;
+	private syncCursor = 0;
+	private syncStore: PostgresSyncStore | null = null;
 	private localPollInFlight = false;
 	/** codex session files already counted in stats.filesScanned (re-polls don't re-count) */
 	private codexSeenFiles = new Set<string>();
@@ -107,9 +113,10 @@ class Ingestion {
 		this.resolvedConfig = cfg;
 		this.rollup.setCutover(cfg.cutoverTs);
 
-		// History: seed the rollup with frozen past-day aggregates + mark those days so the
-		// live scan skips them (no double-count). MUST happen before any rollup.add call.
-		this.loadHistory(cfg);
+		// Sync and local history are mutually exclusive. PostgreSQL stores raw events and
+		// replaces SQLite history when explicitly enabled.
+		if (cfg.sync.enabled) await this.loadSync(cfg);
+		else this.loadHistory(cfg);
 
 		const claudeEnv = {
 			...process.env,
@@ -125,7 +132,20 @@ class Ingestion {
 			this.fileToProjectsDir.set(f.path, projectsDir);
 			this.rollup.markFileScanned();
 			try {
-				const newOffset = await ingestRange(f.path, 0, projectsDir, this.rollup, this.dedup);
+				const inserted: UsageRecord[] = [];
+				const newOffset = await ingestRange(
+					f.path,
+					0,
+					projectsDir,
+					this.rollup,
+					this.dedup,
+					{
+						stabilizeNoKey: cfg.sync.enabled,
+						transformRecord: (record) => this.tagLocalRecord(record, cfg),
+						onRecord: (record) => inserted.push(record)
+					}
+				);
+				await this.persistSyncRecords(inserted, cfg);
 				this.fileStates.set(f.path, {
 					offset: newOffset,
 					project: f.project,
@@ -163,12 +183,50 @@ class Ingestion {
 		}
 
 		// Freeze newly-complete past days (day < today, scanned, not already frozen).
-		this.freezeNewDays(cfg);
+		if (!cfg.sync.enabled) this.freezeNewDays(cfg);
 
 		this.coldScanMs = Date.now() - t0;
 		if (this.watchEnabled && !this.disposed) {
 			this.startWatching();
 			this.startLocalProviderPolling(cfg);
+			this.startSyncPolling(cfg);
+		}
+	}
+
+	private async loadSync(cfg: chachingConfig): Promise<void> {
+		const { databaseUrl, poolId, machineId, machineName } = cfg.sync;
+		if (!databaseUrl || !poolId || !machineId || !machineName) {
+			this.providerStatus.recordMessage(
+				'sync',
+				'sync is enabled but databaseUrl, poolId, machineId, and machineName are required'
+			);
+			return;
+		}
+		const store = new PostgresSyncStore(databaseUrl);
+		this.syncStore = store;
+		try {
+			await store.migrate();
+			await store.registerMachine(poolId, machineId, machineName);
+			let mappingError: unknown = null;
+			for (const [provider, subscriptionId] of Object.entries(
+				cfg.sync.providerSubscriptions
+			)) {
+				try {
+					await store.mapMachineProvider(poolId, machineId, provider, subscriptionId);
+				} catch (error) {
+					mappingError ??= error;
+				}
+			}
+			const initial = await store.initialLoad(poolId);
+			for (const record of initial.records) {
+				if (!this.dedup.add(usageRecordDedupKey(record))) continue;
+				this.rollup.add(record);
+			}
+			this.syncCursor = initial.cursor;
+			if (mappingError) this.providerStatus.recordError('sync', mappingError);
+			else this.providerStatus.clear('sync');
+		} catch (error) {
+			this.providerStatus.recordError('sync', error);
 		}
 	}
 
@@ -240,7 +298,7 @@ class Ingestion {
 				this.codexSeenFiles.add(file);
 				this.rollup.markFileScanned();
 			}
-			this.addProviderRecords(result.records);
+			await this.addProviderRecords(result.records);
 			this.codexScanSince = scanStart - CODEX_RESCAN_MARGIN_MS;
 			const [firstError] = result.errors;
 			if (firstError) this.providerStatus.recordMessage('codex', firstError);
@@ -262,7 +320,7 @@ class Ingestion {
 				this.piSeenFiles.add(file);
 				this.rollup.markFileScanned();
 			}
-			this.addProviderRecords(result.records);
+			await this.addProviderRecords(result.records);
 			this.piScanSince = scanStart - CODEX_RESCAN_MARGIN_MS;
 			const [firstError] = result.errors;
 			if (firstError) this.providerStatus.recordMessage('pi', firstError);
@@ -283,7 +341,7 @@ class Ingestion {
 				this.opencodeCounted = true;
 			}
 			const records = await readOpenCodeSessions(dbPath);
-			this.addProviderRecords(records);
+			await this.addProviderRecords(records);
 			this.opencodeSourceMtime = stamp;
 			this.providerStatus.clear('opencode');
 		} catch (error) {
@@ -313,7 +371,7 @@ class Ingestion {
 				email: email ?? undefined,
 				pageSize: 100
 			});
-			this.addProviderRecords(records);
+			await this.addProviderRecords(records);
 			this.providerStatus.clear('cursor');
 		} catch (error) {
 			this.providerStatus.recordError('cursor', error);
@@ -321,13 +379,48 @@ class Ingestion {
 		}
 	}
 
-	private addProviderRecords(records: readonly UsageRecord[]): void {
-		for (const rec of records) {
-			if (!this.dedup.add(rec.key)) {
+	private async addProviderRecords(records: readonly UsageRecord[]): Promise<void> {
+		const cfg = this.resolvedConfig;
+		const inserted: UsageRecord[] = [];
+		for (const source of records) {
+			const rec = cfg ? this.tagLocalRecord(source, cfg) : source;
+			if (!this.dedup.add(usageRecordDedupKey(rec))) {
 				this.rollup.addDuplicate();
 				continue;
 			}
 			this.rollup.add(rec);
+			inserted.push(rec);
+		}
+		if (cfg) await this.persistSyncRecords(inserted, cfg);
+	}
+
+	private tagLocalRecord(record: UsageRecord, cfg: chachingConfig): UsageRecord {
+		if (!cfg.sync.enabled || !cfg.sync.machineId) return record;
+		const subscriptionId = cfg.sync.providerSubscriptions[record.provider] ?? undefined;
+		return {
+			...record,
+			machineId: cfg.sync.machineId,
+			...(subscriptionId ? { subscriptionId } : {})
+		};
+	}
+
+	private async persistSyncRecords(
+		records: readonly UsageRecord[],
+		cfg: chachingConfig
+	): Promise<void> {
+		if (
+			records.length === 0 ||
+			!cfg.sync.enabled ||
+			!this.syncStore ||
+			!cfg.sync.poolId ||
+			!cfg.sync.machineId
+		)
+			return;
+		try {
+			await this.syncStore.insertRecords(cfg.sync.poolId, cfg.sync.machineId, records);
+			this.providerStatus.clear('sync');
+		} catch (error) {
+			this.providerStatus.recordError('sync', error);
 		}
 	}
 
@@ -376,6 +469,49 @@ class Ingestion {
 			}
 		} finally {
 			this.localPollInFlight = false;
+		}
+	}
+
+	private startSyncPolling(cfg: chachingConfig): void {
+		if (
+			this.syncTimer ||
+			!cfg.sync.enabled ||
+			!this.syncStore ||
+			!cfg.sync.poolId ||
+			!cfg.sync.machineId
+		)
+			return;
+		this.syncTimer = setInterval(() => void this.pollSync(cfg), SYNC_POLL_MS);
+		if (this.syncTimer.unref) this.syncTimer.unref();
+	}
+
+	private async pollSync(cfg: chachingConfig): Promise<void> {
+		if (
+			this.disposed ||
+			this.syncPollInFlight ||
+			!this.syncStore ||
+			!cfg.sync.poolId ||
+			!cfg.sync.machineId
+		)
+			return;
+		this.syncPollInFlight = true;
+		try {
+			const result = await this.syncStore.pollSinceCursor(cfg.sync.poolId, this.syncCursor);
+			this.syncCursor = result.cursor;
+			for (const record of result.records) {
+				if (!this.dedup.add(usageRecordDedupKey(record))) continue;
+				this.rollup.add(record);
+			}
+			await this.syncStore.heartbeat(cfg.sync.poolId, cfg.sync.machineId);
+			this.providerStatus.clear('sync');
+			if (!this.disposed && this.rollup.hasDirty()) {
+				const delta = this.rollup.drainDelta(this.now(), this.coverageInput());
+				if (delta) for (const fn of this.listeners) fn(delta);
+			}
+		} catch (error) {
+			this.providerStatus.recordError('sync', error);
+		} finally {
+			this.syncPollInFlight = false;
 		}
 	}
 
@@ -465,7 +601,23 @@ class Ingestion {
 		const startOffset = state?.offset ?? 0;
 		if (!state) this.rollup.markFileScanned();
 		try {
-			const newOffset = await ingestRange(full, startOffset, projectsDir, this.rollup, this.dedup);
+			const inserted: UsageRecord[] = [];
+			const cfg = this.resolvedConfig;
+			const newOffset = await ingestRange(
+				full,
+				startOffset,
+				projectsDir,
+				this.rollup,
+				this.dedup,
+				cfg
+					? {
+							stabilizeNoKey: cfg.sync.enabled,
+							transformRecord: (record) => this.tagLocalRecord(record, cfg),
+							onRecord: (record) => inserted.push(record)
+						}
+					: {}
+			);
+			if (cfg) await this.persistSyncRecords(inserted, cfg);
 			const existing = this.fileStates.get(full);
 			this.fileStates.set(full, {
 				offset: newOffset,
@@ -523,7 +675,9 @@ class Ingestion {
 			// History-disabled degrade rule (design D-risk): with no freeze, nothing is ever
 			// `frozen`/`zero`, so a scanned past day with spend must NOT read `missing`. The
 			// rollup treats available scanned data as authoritative-equivalent for display.
-			historyEnabled: this.resolvedConfig?.history.enabled ?? false
+			historyEnabled: this.resolvedConfig?.sync.enabled
+				? false
+				: (this.resolvedConfig?.history.enabled ?? false)
 		};
 	}
 
@@ -558,6 +712,10 @@ class Ingestion {
 			clearInterval(this.localProviderTimer);
 			this.localProviderTimer = null;
 		}
+		if (this.syncTimer) {
+			clearInterval(this.syncTimer);
+			this.syncTimer = null;
+		}
 		if (this.deltaTimer) {
 			clearTimeout(this.deltaTimer);
 			this.deltaTimer = null;
@@ -565,6 +723,10 @@ class Ingestion {
 		if (this.historyStore) {
 			this.historyStore.close();
 			this.historyStore = null;
+		}
+		if (this.syncStore) {
+			void this.syncStore.close();
+			this.syncStore = null;
 		}
 		this.listeners.clear();
 	}

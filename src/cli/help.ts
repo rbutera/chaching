@@ -52,6 +52,7 @@ Usage:
   chaching serve         Start the web dashboard server
   chaching init          Run the setup wizard (re-runnable)
   chaching provider      Manage providers (add | enable | disable)
+  chaching sync          Manage opt-in shared PostgreSQL history
   chaching doctor        Diagnose why a provider isn't counting (health, staleness, pricing)
 
 Flags (global):
@@ -90,5 +91,6 @@ Examples:
   chaching wrapped                 # your month in tokens (month-to-date)
   chaching wrapped --month 2026-06 --png
   chaching serve
+  chaching sync help
 `);
 }

@@ -56,6 +56,28 @@ is frozen on a future run, once it becomes a past day.
 Set `enabled` to `false` to disable the store entirely (chaching then shows only what the
 current logs cover). Uses Node's built-in `node:sqlite`, so it requires Node `>=24.16.0`.
 
+## Shared PostgreSQL sync
+
+Sync is opt-in. Local SQLite remains the default. When `sync.enabled` is `true`, PostgreSQL
+replaces SQLite history; each machine still reads only its own provider logs and contributes
+deduplicated raw records to the shared pool.
+
+```json
+"sync": {
+	"enabled": false,
+	"databaseUrl": "",
+	"poolId": null,
+	"machineId": null,
+	"machineName": null,
+	"providerSubscriptions": {}
+}
+```
+
+Create and join flows generate `poolId`/`machineId`; normalization never invents identity.
+`databaseUrl` is stored in the owner-only config file and is redacted from public config and
+status output. `providerSubscriptions` maps a provider name to a shared subscription id or
+`null`. See [docs/sync.md](docs/sync.md) for setup and network safety.
+
 ## Providers
 
 ### Claude Code

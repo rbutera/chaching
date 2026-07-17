@@ -26,6 +26,9 @@ export interface UsageRecord {
 	isSidechain: boolean;
 	/** computed estimate; null when the model has no known price */
 	cost: number | null;
+	/** Sync attribution. Absent for the default local-only mode. */
+	machineId?: string;
+	subscriptionId?: string;
 }
 
 /** Per-(day, provider, model) aggregate. */
@@ -37,6 +40,8 @@ export interface DayModelAgg {
 	requests: number;
 	cost: number; // 0 if unknown-price contributed (see costUnknownRequests)
 	costUnknownRequests: number;
+	machineId?: string;
+	subscriptionId?: string;
 }
 
 /** Per-session summary for the session index / drill-down. */
@@ -51,6 +56,8 @@ export interface SessionSummary {
 	cost: number;
 	costUnknownRequests: number;
 	models: string[]; // model mix, most-used first
+	machineId?: string;
+	subscriptionId?: string;
 }
 
 /** Rolling 5-hour-block (cap-proximity) entry. */
@@ -127,9 +134,9 @@ export interface RollupSnapshot {
 /** Incremental delta emitted after the cold scan when new lines are tailed. */
 export interface RollupDelta {
 	generatedAt: number;
-	/** the new/updated per-(day,provider,model) aggregates to merge by (day,provider,model) */
+	/** aggregates merge by day/provider/model plus optional machine/subscription attribution */
 	dayModel: DayModelAgg[];
-	/** new/updated session summaries to merge by sessionId */
+	/** sessions merge by provider/sessionId plus optional machine/subscription attribution */
 	sessions: SessionSummary[];
 	/** full recomputed blocks (cheap) so the active-block view stays correct */
 	blocks: BlockSummary[];

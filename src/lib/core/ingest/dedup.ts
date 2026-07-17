@@ -7,6 +7,7 @@
 // (a unique synthetic key per occurrence).
 
 let nullCounter = 0;
+const KEY_SEP = '\u001f';
 
 /** Build the dedup key for a line. Null ids -> a unique per-occurrence key. */
 export function makeKey(messageId: string | null, requestId: string | null): string {
@@ -19,6 +20,11 @@ export function makeKey(messageId: string | null, requestId: string | null): str
 
 export function isNoKey(key: string): boolean {
 	return key.startsWith('__nokey__:');
+}
+
+/** Stable process-wide identity for a usage event, scoped by its source machine in sync mode. */
+export function usageRecordDedupKey(record: { key: string; machineId?: string }): string {
+	return record.machineId ? `${record.machineId}${KEY_SEP}${record.key}` : record.key;
 }
 
 /** A seen-key set with a tiny convenience API. */

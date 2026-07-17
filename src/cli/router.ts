@@ -9,6 +9,7 @@ import { runServe } from './commands/serve.js';
 import { runInit } from './commands/init.js';
 import { runProvider } from './commands/provider.js';
 import { runDoctor } from './commands/doctor.js';
+import { runSync } from './commands/sync.js';
 import { printUsage, printVersion } from './help.js';
 import { configFilePath } from '../lib/core/config.js';
 import { existsSync } from 'node:fs';
@@ -19,6 +20,10 @@ const GLOBAL_FLAGS = new Set(['--no-art', '--no-color']);
 
 /** Parse raw argv (after slice(2)) and dispatch. */
 export async function run(argv: string[]): Promise<void> {
+	if (argv[0] === 'sync' && (argv.includes('--help') || argv.includes('-h'))) {
+		await runSync(['help']);
+		return;
+	}
 	// Global flags first (checked across all argv positions)
 	if (argv.includes('--version') || argv.includes('-v')) {
 		printVersion();
@@ -80,6 +85,10 @@ export async function run(argv: string[]): Promise<void> {
 		case 'doctor':
 			// Merge global flags (like --no-art) that appeared before the subcommand.
 			await runDoctor([...globalArgs, ...rest]);
+			return;
+
+		case 'sync':
+			await runSync(rest);
 			return;
 
 		default:

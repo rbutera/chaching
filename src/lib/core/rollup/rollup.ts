@@ -42,6 +42,8 @@ interface SessionState {
 	cost: number;
 	costUnknownRequests: number;
 	modelCounts: Map<string, number>;
+	machineId?: string;
+	subscriptionId?: string;
 }
 
 /** The extra per-day-model counters the freeze store persists but the snapshot omits. */
@@ -150,7 +152,7 @@ export class Rollup {
 			this.unknownPriceModels.add(rec.model);
 		}
 
-		const dmKey = recordKey(rec.day, rec.provider, rec.model);
+		const dmKey = recordKey(rec.day, rec.provider, rec.model, rec.machineId, rec.subscriptionId);
 		let dm = this.dayModel.get(dmKey);
 		if (!dm) {
 			dm = {
@@ -160,7 +162,9 @@ export class Rollup {
 				tokens: zeroTokens(),
 				requests: 0,
 				cost: 0,
-				costUnknownRequests: 0
+				costUnknownRequests: 0,
+				...(rec.machineId ? { machineId: rec.machineId } : {}),
+				...(rec.subscriptionId ? { subscriptionId: rec.subscriptionId } : {})
 			};
 			this.dayModel.set(dmKey, dm);
 		}
@@ -182,7 +186,12 @@ export class Rollup {
 		extra.webFetchRequests += rec.webFetchRequests;
 
 		// session index
-		const recSessionKey = sessionKey(rec.provider, rec.sessionId);
+		const recSessionKey = sessionKey(
+			rec.provider,
+			rec.sessionId,
+			rec.machineId,
+			rec.subscriptionId
+		);
 		let s = this.sessions.get(recSessionKey);
 		if (!s) {
 			s = {
@@ -195,7 +204,9 @@ export class Rollup {
 				requests: 0,
 				cost: 0,
 				costUnknownRequests: 0,
-				modelCounts: new Map()
+				modelCounts: new Map(),
+				...(rec.machineId ? { machineId: rec.machineId } : {}),
+				...(rec.subscriptionId ? { subscriptionId: rec.subscriptionId } : {})
 			};
 			this.sessions.set(recSessionKey, s);
 		}
@@ -236,7 +247,7 @@ export class Rollup {
 	 */
 	loadAggregates(aggregates: readonly FrozenAgg[], sessions: readonly SessionSummary[]): void {
 		for (const a of aggregates) {
-			const dmKey = recordKey(a.day, a.provider, a.model);
+			const dmKey = recordKey(a.day, a.provider, a.model, a.machineId, a.subscriptionId);
 			let dm = this.dayModel.get(dmKey);
 			if (!dm) {
 				dm = {
@@ -246,7 +257,9 @@ export class Rollup {
 					tokens: zeroTokens(),
 					requests: 0,
 					cost: 0,
-					costUnknownRequests: 0
+					costUnknownRequests: 0,
+					...(a.machineId ? { machineId: a.machineId } : {}),
+					...(a.subscriptionId ? { subscriptionId: a.subscriptionId } : {})
 				};
 				this.dayModel.set(dmKey, dm);
 			}
@@ -279,7 +292,7 @@ export class Rollup {
 		}
 
 		for (const s of sessions) {
-			const key = sessionKey(s.provider, s.sessionId);
+			const key = sessionKey(s.provider, s.sessionId, s.machineId, s.subscriptionId);
 			if (this.sessions.has(key)) continue; // finalized session already present; don't double-add
 			// Reconstruct modelCounts preserving the persisted most-used-first order via
 			// descending synthetic counts (real per-model counts aren't persisted).
@@ -296,7 +309,9 @@ export class Rollup {
 				requests: s.requests,
 				cost: s.cost,
 				costUnknownRequests: s.costUnknownRequests,
-				modelCounts
+				modelCounts,
+				...(s.machineId ? { machineId: s.machineId } : {}),
+				...(s.subscriptionId ? { subscriptionId: s.subscriptionId } : {})
 			});
 		}
 	}
@@ -423,7 +438,9 @@ export class Rollup {
 			requests: s.requests,
 			cost: s.cost,
 			costUnknownRequests: s.costUnknownRequests,
-			models
+			models,
+			...(s.machineId ? { machineId: s.machineId } : {}),
+			...(s.subscriptionId ? { subscriptionId: s.subscriptionId } : {})
 		};
 	}
 
@@ -521,10 +538,21 @@ export class Rollup {
 	}
 }
 
-function recordKey(day: string, provider: string, model: string): string {
-	return `${day}${KEY_SEP}${provider}${KEY_SEP}${model}`;
+function recordKey(
+	day: string,
+	provider: string,
+	model: string,
+	machineId?: string,
+	subscriptionId?: string
+): string {
+	return [day, provider, model, machineId ?? '', subscriptionId ?? ''].join(KEY_SEP);
 }
 
-function sessionKey(provider: string, sessionId: string): string {
-	return `${provider}${KEY_SEP}${sessionId}`;
+function sessionKey(
+	provider: string,
+	sessionId: string,
+	machineId?: string,
+	subscriptionId?: string
+): string {
+	return [provider, sessionId, machineId ?? '', subscriptionId ?? ''].join(KEY_SEP);
 }

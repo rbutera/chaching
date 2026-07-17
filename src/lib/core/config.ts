@@ -105,6 +105,15 @@ export interface HistoryConfig {
 	dbPath: string;
 }
 
+export interface SyncConfig {
+	enabled: boolean;
+	databaseUrl: string;
+	poolId: string | null;
+	machineId: string | null;
+	machineName: string | null;
+	providerSubscriptions: Record<string, string | null>;
+}
+
 export interface chachingConfig {
 	cutoverTs: number | null;
 	server: {
@@ -116,6 +125,7 @@ export interface chachingConfig {
 		origin: string;
 	};
 	history: HistoryConfig;
+	sync: SyncConfig;
 	providers: {
 		claude: ClaudeProviderConfig;
 		codex: CodexProviderConfig;
@@ -125,8 +135,9 @@ export interface chachingConfig {
 	};
 }
 
-export interface PublicchachingConfig extends Omit<chachingConfig, 'providers' | 'history'> {
+export interface PublicchachingConfig extends Omit<chachingConfig, 'providers' | 'history' | 'sync'> {
 	history: HistoryConfig;
+	sync: Omit<SyncConfig, 'databaseUrl'> & { databaseUrlConfigured: boolean };
 	providers: {
 		claude: ClaudeProviderConfig;
 		codex: CodexProviderConfig;
@@ -160,6 +171,14 @@ export function defaultConfig(): chachingConfig {
 		cutoverTs: null,
 		server: { host: DEFAULT_HOST, port: DEFAULT_PORT, origin: '' },
 		history: { enabled: true, dbPath: DEFAULT_HISTORY_DB_PATH },
+		sync: {
+			enabled: false,
+			databaseUrl: '',
+			poolId: null,
+			machineId: null,
+			machineName: null,
+			providerSubscriptions: {}
+		},
 		providers: {
 			claude: {
 				enabled: true,
@@ -180,6 +199,7 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 	const providers = objectRecord(root.providers);
 	const server = objectRecord(root.server);
 	const history = objectRecord(root.history);
+	const sync = objectRecord(root.sync);
 	const claude = objectRecord(providers.claude);
 	const codex = objectRecord(providers.codex);
 	const cursor = objectRecord(providers.cursor);
@@ -196,6 +216,14 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 		history: {
 			enabled: booleanOr(history.enabled, defaults.history.enabled),
 			dbPath: stringOr(history.dbPath, defaults.history.dbPath)
+		},
+		sync: {
+			enabled: booleanOr(sync.enabled, defaults.sync.enabled),
+			databaseUrl: optionalStringOr(sync.databaseUrl, defaults.sync.databaseUrl),
+			poolId: nullableNonEmptyStringOr(sync.poolId, defaults.sync.poolId),
+			machineId: nullableNonEmptyStringOr(sync.machineId, defaults.sync.machineId),
+			machineName: nullableNonEmptyStringOr(sync.machineName, defaults.sync.machineName),
+			providerSubscriptions: normalizeProviderSubscriptions(sync.providerSubscriptions)
 		},
 		providers: {
 			claude: {
@@ -231,6 +259,14 @@ export function publicConfig(cfg: chachingConfig): PublicchachingConfig {
 		cutoverTs: cfg.cutoverTs,
 		server: { ...cfg.server },
 		history: { ...cfg.history },
+		sync: {
+			enabled: cfg.sync.enabled,
+			poolId: cfg.sync.poolId,
+			machineId: cfg.sync.machineId,
+			machineName: cfg.sync.machineName,
+			providerSubscriptions: { ...cfg.sync.providerSubscriptions },
+			databaseUrlConfigured: cfg.sync.databaseUrl.length > 0
+		},
 		providers: {
 			claude: {
 				...cfg.providers.claude,
@@ -307,6 +343,15 @@ function stringOr(value: unknown, fallback: string): string {
 	return typeof value === 'string' && value.length > 0 ? value : fallback;
 }
 
+function optionalStringOr(value: unknown, fallback: string): string {
+	return typeof value === 'string' ? value : fallback;
+}
+
+function nullableNonEmptyStringOr(value: unknown, fallback: string | null): string | null {
+	if (value === null) return null;
+	return typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
+}
+
 function nullableStringOr(value: unknown, fallback: string | null): string | null {
 	if (value === null) return null;
 	return typeof value === 'string' ? value : fallback;
@@ -344,4 +389,17 @@ function stringArrayOr(value: unknown, fallback: string[]): string[] {
 	if (!Array.isArray(value)) return fallback;
 	const strings = value.filter((item) => typeof item === 'string' && item.length > 0);
 	return strings.length > 0 ? strings : fallback;
+}
+
+function normalizeProviderSubscriptions(value: unknown): Record<string, string | null> {
+	const raw = objectRecord(value);
+	const result: Record<string, string | null> = {};
+	for (const [provider, subscriptionId] of Object.entries(raw)) {
+		if (!provider.trim()) continue;
+		if (subscriptionId === null) result[provider] = null;
+		else if (typeof subscriptionId === 'string' && subscriptionId.trim()) {
+			result[provider] = subscriptionId.trim();
+		}
+	}
+	return result;
 }

@@ -9,6 +9,14 @@
 		"enabled": true,
 		"dbPath": "~/.local/share/chaching/history.db"
 	},
+	"sync": {
+		"enabled": false,
+		"databaseUrl": "",
+		"poolId": null,
+		"machineId": null,
+		"machineName": null,
+		"providerSubscriptions": {}
+	},
 	"providers": {
 		"claude": {
 			"enabled": true,

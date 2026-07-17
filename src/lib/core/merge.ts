@@ -1,6 +1,7 @@
 // Pure snapshot+delta merge. The engine emits a snapshot then incremental deltas;
 // this folds a delta into a snapshot to produce the next snapshot, keyed by
-// (day,provider,model) for the grain and (provider,sessionId) for sessions.
+// (day,provider,model,machine,subscription) for the grain and
+// (provider,sessionId,machine,subscription) for sessions.
 //
 // The web feed store keeps stateful Maps for the same merge (idle-CPU tuned for a
 // long-lived browser tab); the TUI uses this pure function via useReducer. Both
@@ -11,11 +12,11 @@ import type { DayModelAgg, RollupDelta, RollupSnapshot, SessionSummary } from '.
 const KEY_SEP = '';
 
 function dayModelKey(dm: DayModelAgg): string {
-	return `${dm.day}${KEY_SEP}${dm.provider}${KEY_SEP}${dm.model}`;
+	return [dm.day, dm.provider, dm.model, dm.machineId ?? '', dm.subscriptionId ?? ''].join(KEY_SEP);
 }
 
 function sessionKey(s: SessionSummary): string {
-	return `${s.provider}${KEY_SEP}${s.sessionId}`;
+	return [s.provider, s.sessionId, s.machineId ?? '', s.subscriptionId ?? ''].join(KEY_SEP);
 }
 
 /** Fold a delta into a snapshot, returning a new snapshot (inputs untouched). */

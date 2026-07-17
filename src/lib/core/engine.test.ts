@@ -14,6 +14,14 @@ function disabledConfig(): chachingConfig {
 		cutoverTs: null,
 		server: { host: '127.0.0.1', port: 5178, origin: '' },
 		history: { enabled: false, dbPath: '' },
+		sync: {
+			enabled: false,
+			databaseUrl: '',
+			poolId: null,
+			machineId: null,
+			machineName: null,
+			providerSubscriptions: {}
+		},
 		providers: {
 			claude: { enabled: false, roots: [], subscription: { ...DEFAULT_SUBSCRIPTION } },
 			codex: { enabled: false, root: '', subscription: { ...DEFAULT_SUBSCRIPTION } },
@@ -49,6 +57,19 @@ describe('core engine (no SvelteKit)', () => {
 		expect(typeof snapshot.generatedAt).toBe('number');
 		expect(Array.isArray(snapshot.dayModel)).toBe(true);
 		expect(snapshot.totals).toBeTruthy();
+	});
+
+	it('an incomplete sync config degrades through ProviderStatus without crashing ingestion', async () => {
+		const cfg = disabledConfig();
+		cfg.sync.enabled = true;
+		const engine = createEngine(cfg);
+		try {
+			await engine.ensureStarted();
+			expect(engine.stats.providerErrors.sync).toContain('sync is enabled');
+			expect(engine.snapshot().totals.requests).toBe(0);
+		} finally {
+			engine.dispose();
+		}
 	});
 
 	it('runOnce leaves no open handles even with a provider enabled', async () => {
