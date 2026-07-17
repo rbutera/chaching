@@ -1067,4 +1067,24 @@ describe('pooled machine and subscription filters', () => {
 			'kinto-session'
 		]);
 	});
+
+	it('does not inherit a peer-derived frozen claim under a machine filter', () => {
+		const snapshot = snapFrom([
+			{
+				...dm('2026-06-18', 'claude', 'claude-opus-4-8', 20),
+				machineId: 'kinto',
+				subscriptionId: 'work-claude'
+			},
+			{
+				...dm('2026-06-19', 'claude', 'claude-opus-4-8', 10),
+				machineId: 'nimbus',
+				subscriptionId: 'personal-claude'
+			}
+		]);
+		const state = {
+			...defaultViewState('week'),
+			machineFilter: new Set(['kinto'])
+		};
+		expect(byDay(snapshot, state)[0]?.coverage).toBe('partial');
+	});
 });

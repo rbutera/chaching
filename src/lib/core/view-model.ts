@@ -9,6 +9,7 @@
 
 import type {
 	DayCoverage,
+	CoverageMap,
 	DayModelAgg,
 	Period,
 	RollupSnapshot,
@@ -111,6 +112,25 @@ function asFilter(set?: Set<string>): Set<string> | null {
 	return set && set.size > 0 ? set : null;
 }
 
+function hasPoolFilter(state: ViewState): boolean {
+	return Boolean(asFilter(state.machineFilter) || asFilter(state.subscriptionFilter));
+}
+
+/**
+ * Pool durability does not prove one selected machine/subscription was complete.
+ * Under an attribution filter, downgrade known days to partial instead of
+ * inheriting a peer's frozen/zero claim.
+ */
+function coverageForState(snap: RollupSnapshot, state: ViewState): CoverageMap {
+	if (!hasPoolFilter(state)) return snap.coverage;
+	return Object.fromEntries(
+		Object.entries(snap.coverage).map(([day, coverage]) => [
+			day,
+			coverage === 'missing' ? 'missing' : 'partial'
+		])
+	);
+}
+
 type PooledDayModel = DayModelAgg & {
 	machineId?: string;
 	subscriptionId?: string | null;
@@ -199,7 +219,8 @@ export function trend(snap: RollupSnapshot, state: ViewState): PeriodBucket[] {
 	const w = periodWindow(snap, state);
 	const windowed = filterDays(poolGrain(snap.dayModel, state), w.from, w.to);
 	const grain = trendGrain(w.from, w.to);
-	const coverageFold = { map: snap.coverage, days: enumerateDays(w.from, w.to) };
+	const scopedCoverage = coverageForState(snap, state);
+	const coverageFold = { map: scopedCoverage, days: enumerateDays(w.from, w.to) };
 	const present = aggregateByPeriod(
 		windowed,
 		grain,
@@ -228,7 +249,7 @@ export function trend(snap: RollupSnapshot, state: ViewState): PeriodBucket[] {
 				byModel: new Map(),
 				// no spend rows for this day -> its coverage is whatever the map says, else
 				// `missing`. This is what lets the chart tell a frozen $0 apart from a gap.
-				coverage: { states: { [dayCoverageState(day, snap.coverage)]: 1 }, worst: dayCoverageState(day, snap.coverage) }
+				coverage: { states: { [dayCoverageState(day, scopedCoverage)]: 1 }, worst: dayCoverageState(day, scopedCoverage) }
 			}
 		);
 	}
@@ -401,19 +422,20 @@ export function heroTotals(
 	const providerFilter = asFilter(state.providerFilter);
 	const w = periodWindow(snap, state);
 	const pooled = poolGrain(snap.dayModel, state);
+	const coverage = coverageForState(snap, state);
 	const current = sumGrain(pooled, {
 		from: w.from,
 		to: w.to,
 		models: modelFilter,
 		providers: providerFilter,
-		coverage: { map: snap.coverage, days: enumerateDays(w.from, w.to) }
+		coverage: { map: coverage, days: enumerateDays(w.from, w.to) }
 	});
 	const prior = sumGrain(pooled, {
 		from: w.priorFrom,
 		to: w.priorTo,
 		models: modelFilter,
 		providers: providerFilter,
-		coverage: { map: snap.coverage, days: enumerateDays(w.priorFrom, w.priorTo) }
+		coverage: { map: coverage, days: enumerateDays(w.priorFrom, w.priorTo) }
 	});
 	// Baseline rule (product decision, 2026-07-02): a day with no recorded data is
 	// evidence of $0 spend (a weekend, a sick day), NOT grounds to void the whole
@@ -435,12 +457,13 @@ export function scopedTotals(snap: RollupSnapshot, state: ViewState): Totals {
 	const modelFilter = asFilter(state.modelFilter);
 	const providerFilter = asFilter(state.providerFilter);
 	const w = periodWindow(snap, state);
+	const coverage = coverageForState(snap, state);
 	return sumGrain(poolGrain(snap.dayModel, state), {
 		from: w.from,
 		to: w.to,
 		models: modelFilter,
 		providers: providerFilter,
-		coverage: { map: snap.coverage, days: enumerateDays(w.from, w.to) }
+		coverage: { map: coverage, days: enumerateDays(w.from, w.to) }
 	});
 }
 
@@ -671,6 +694,7 @@ export function byDay(snap: RollupSnapshot, state?: ViewState): DayCell[] {
 	const to = snap.latestDay;
 	if (from == null || to == null) return [];
 	const rows = state ? poolGrain(snap.dayModel, state) : snap.dayModel;
+	const coverage = state ? coverageForState(snap, state) : snap.coverage;
 	const present = new Map(aggregateByPeriod(rows, 'day').map((b) => [b.key, b]));
 	const out: DayCell[] = [];
 	for (let day = from; day <= to; day = addDaysISO(day, 1)) {
@@ -680,7 +704,7 @@ export function byDay(snap: RollupSnapshot, state?: ViewState): DayCell[] {
 			cost: b?.cost ?? 0,
 			requests: b?.requests ?? 0,
 			hasData: b != null,
-			coverage: dayCoverageState(day, snap.coverage)
+			coverage: dayCoverageState(day, coverage)
 		});
 	}
 	return out;
@@ -692,12 +716,13 @@ export function byDay(snap: RollupSnapshot, state?: ViewState): DayCell[] {
  * and cards use — so the focused numbers are identically derived, just over a tighter window.
  */
 export function focusedTotals(snap: RollupSnapshot, day: string, state: ViewState): Totals {
+	const coverage = coverageForState(snap, state);
 	return sumGrain(poolGrain(snap.dayModel, state), {
 		from: day,
 		to: day,
 		models: asFilter(state.modelFilter),
 		providers: asFilter(state.providerFilter),
-		coverage: { map: snap.coverage, days: [day] }
+		coverage: { map: coverage, days: [day] }
 	});
 }
 
