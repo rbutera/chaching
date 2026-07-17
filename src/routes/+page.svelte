@@ -8,17 +8,14 @@
 	import SessionExplorer from '$lib/components/SessionExplorer.svelte';
 	import DetailSheet from '$lib/components/DetailSheet.svelte';
 	import CalendarHeatmap from '$lib/components/CalendarHeatmap.svelte';
-	import CachePanel from '$lib/components/CachePanel.svelte';
-	import SubsidisationCard from '$lib/components/SubsidisationCard.svelte';
 	import SyncPanel from '$lib/components/SyncPanel.svelte';
-	import PoolSubsidisationCard from '$lib/components/PoolSubsidisationCard.svelte';
-	import type { PoolSubsidyRow } from '$lib/components/PoolSubsidisationCard.svelte';
 	import HeroRegion from '$lib/components/regions/HeroRegion.svelte';
 	import ControlsRegion from '$lib/components/regions/ControlsRegion.svelte';
+	import StatRowRegion from '$lib/components/regions/StatRowRegion.svelte';
+	import ValueBandRegion from '$lib/components/regions/ValueBandRegion.svelte';
+	import LifetimeRegion from '$lib/components/regions/LifetimeRegion.svelte';
 	// Register & Receipt design-system primitives (chaching-ds-components).
 	import BrandMark from '$lib/components/ds/BrandMark.svelte';
-	import StatCard from '$lib/components/ds/StatCard.svelte';
-	import Sparkline from '$lib/components/ds/Sparkline.svelte';
 	import SpendMeter from '$lib/components/ds/SpendMeter.svelte';
 	import Divider from '$lib/components/ds/Divider.svelte';
 	import type { SubsidisedProvider } from '$lib/core/subsidisation';
@@ -29,15 +26,12 @@
 	import {
 		money,
 		compactTokens,
-		modelLabel,
-		modelColor,
 		fmtDay,
 		fmtPeriodKey,
 		int
 	} from '$lib/format';
 	import { totalTokens, dayCoverageState } from '$lib/core/aggregate';
 	import type { PeriodBucket } from '$lib/core/aggregate';
-	import { coverageSub } from '$lib/core/coverage-marks';
 	// Shared voice (escalation ladder) — the joy crossings key off the same ladder.
 	import {
 		tierIndex,
@@ -139,7 +133,6 @@
 	let hero = $derived(snap ? dash.heroTotals(snap) : null);
 	let focusedTotals = $derived(snap && focusedDay ? dash.focusedTotals(snap, focusedDay) : null);
 	let heroCost = $derived(focusedTotals ? focusedTotals.cost : (hero?.current.cost ?? 0));
-	let heroLabel = $derived(focusedDay ? fmtDay(focusedDay) : (hero?.label ?? '—'));
 
 	// trend buckets (always full rolling window — the navigation surface)
 	let trend = $derived<PeriodBucket[]>(snap ? dash.trend(snap) : []);
@@ -162,128 +155,14 @@
 	const PROJECT_TOP_N = 8;
 	let projectTop = $derived(projectTotals.slice(0, PROJECT_TOP_N));
 	let projectMore = $derived(Math.max(0, projectTotals.length - PROJECT_TOP_N));
-	let scopedTotals = $derived(
-		snap
-			? focusedDay
-				? dash.focusedTotals(snap, focusedDay)
-				: dash.scopedTotals(snap)
-			: { tokens: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 }, cost: 0, requests: 0, costUnknownRequests: 0, coverage: { states: {}, worst: 'frozen' as const } }
-	);
 	// The explorer is cross-day by default (design D6): all banked sessions, frozen ∪ live.
 	// A pinned focusedDay deep-links it to that single day (design D8 drill-target scope).
 	let explorerSessions = $derived(
 		snap ? (focusedDay ? dash.focusedSessions(snap, focusedDay) : dash.allSessions(snap)) : []
 	);
 
-	// whether the scoped window's partial day is TODAY (live tail) vs a past gated-partial day.
-	// In focused mode this is "is the pinned day today".
-	let windowIncludesToday = $derived(
-		!!snap && (focusedDay ? focusedDay === todayUTC : snap.coverage[todayUTC] === 'partial')
-	);
-
 	// stacking order = models by cost (scoped)
 	let stackModels = $derived(modelTotals.map((m) => m.model));
-
-	// Cache-cost breakdown for the current scope (follows the period selector). Every
-	// rate comes from resolvePrice via cacheCostBreakdown — no hardcoded per-family
-	// literals (the old inline-rate drift is gone). Drives the CachePanel + the
-	// "Cache savings" StatCard.
-	let cacheBreakdown = $derived(snap ? dash.cacheBreakdown(snap).combined : null);
-	let cacheSavings = $derived.by(() => {
-		const b = cacheBreakdown;
-		if (!b) return { saved: 0, hitRate: 0 };
-		const cacheRead = b.cacheReadTokens;
-		const totalInputish = scopedTotals.tokens.input + scopedTotals.tokens.cacheCreation + cacheRead;
-		return { saved: b.savedVsUncached, hitRate: totalInputish > 0 ? cacheRead / totalInputish : 0 };
-	});
-
-	// Subsidisation roll-up — follows the period selector / pinned day; the fee is
-	// pro-rated to the window from a monthlyUsd/30 daily rate.
-	let subsidyConfig = $derived(
-		config
-			? {
-					claude: {
-						enabled: config.providers.claude.enabled,
-						tier: config.providers.claude.subscription.tier,
-						monthlyUsd: config.providers.claude.subscription.monthlyUsd
-					},
-					codex: {
-						enabled: config.providers.codex.enabled,
-						tier: config.providers.codex.subscription.tier,
-						monthlyUsd: config.providers.codex.subscription.monthlyUsd
-					}
-				}
-			: null
-	);
-	let subsidy = $derived(snap && subsidyConfig ? dash.subsidisation(snap, subsidyConfig) : null);
-
-	// A pooled ledger can contain several subscriptions for the same provider, shared
-	// by any number of machines. Reconcile each subscription exactly once against the
-	// API-priced value attributed to its id; never multiply the fee by machine count.
-	let poolSubsidyRows = $derived.by((): PoolSubsidyRow[] => {
-		if (!snap || !syncStatus?.enabled) return [];
-		const window = dash.periodWindow(snap);
-		const from = focusedDay ?? window.from;
-		const to = focusedDay ?? window.to;
-		const days =
-			Math.round(
-				(new Date(to + 'T00:00:00Z').getTime() -
-					new Date(from + 'T00:00:00Z').getTime()) /
-					86400000
-			) + 1;
-		const valueBySubscription = new Map<string, number>();
-		for (const row of snap.dayModel) {
-			if (row.day < from || row.day > to) continue;
-			if (dash.machineFilter.size > 0 && (!row.machineId || !dash.machineFilter.has(row.machineId)))
-				continue;
-			if (dash.providerFilter.size > 0 && !dash.providerFilter.has(row.provider)) continue;
-			if (dash.modelFilter.size > 0 && !dash.modelFilter.has(row.model)) continue;
-			const subscriptionId = row.subscriptionId;
-			if (!subscriptionId) continue;
-			valueBySubscription.set(
-				subscriptionId,
-				(valueBySubscription.get(subscriptionId) ?? 0) + row.cost
-			);
-		}
-		const selected = dash.subscriptionFilter;
-		const machineSubscriptions =
-			dash.machineFilter.size === 0
-				? null
-				: new Set(
-						syncStatus.mappings
-							.filter((mapping) => dash.machineFilter.has(mapping.machineId))
-							.flatMap((mapping) => (mapping.subscriptionId ? [mapping.subscriptionId] : []))
-					);
-		return syncStatus.subscriptions
-			.filter((subscription) => selected.size === 0 || selected.has(subscription.id))
-			.filter(
-				(subscription) => machineSubscriptions === null || machineSubscriptions.has(subscription.id)
-			)
-			// A provider filter must drop subscriptions it can't hold value for, otherwise
-			// their full fee counts against a ~$0 value (M6a).
-			.filter(
-				(subscription) =>
-					dash.providerFilter.size === 0 || dash.providerFilter.has(subscription.provider)
-			)
-			.map((subscription) => ({
-				id: subscription.id,
-				name: subscription.name,
-				provider: subscription.provider,
-				account: subscription.account,
-				valueUsd: valueBySubscription.get(subscription.id) ?? 0,
-				feeUsd: subscription.monthlyUsd * (days / 30)
-			}));
-	});
-
-	// Burn-pace projection ("on pace for ~$X this month") — same month-basis, does-NOT-follow-
-	// the-period-selector semantics as the subsidy above (design D5). null when the cost-honesty
-	// guards trip (coverage gap in the elapsed month, or too few elapsed days).
-	let pace = $derived(snap ? dash.burnPace(snap) : null);
-
-	// All-time cumulative spend + projected 12-month burn. Whole-account, ALWAYS: same
-	// does-NOT-follow-the-period-selector posture as `pace` above (design D5).
-	let lifetime = $derived(snap ? dash.lifetimeSpend(snap) : null);
-	let lifetimeSpark = $derived(lifetime ? lifetime.dailySeries.map((d) => d.cost) : []);
 
 	// Commit a tier change for one provider: optimistically update the local config
 	// copy (so the switcher + card move immediately), then persist via /api/config and
@@ -313,9 +192,6 @@
 			/* keep the optimistic local copy on failure */
 		}
 	}
-
-	let topModel = $derived(modelTotals[0] ?? null);
-	let totalTok = $derived(totalTokens(scopedTotals.tokens));
 
 	// 5h cap-proximity active block
 	let poolFilterActive = $derived(
@@ -493,77 +369,11 @@
 
 			<ControlsRegion {feed} {dash} {syncStatus} />
 
-			<!-- REGION 4 · STAT ROW -->
-			<section class="stat-grid" aria-label="Summary">
-				<StatCard
-					label="total spend"
-					value={scopedTotals.cost}
-					money
-					animate
-					moneyTone="gold"
-					accent="var(--accent)"
-					sub={coverageSub(scopedTotals.coverage, windowIncludesToday) ?? `${int(scopedTotals.requests)} requests`}
-				/>
-				<StatCard
-					label="total tokens"
-					value={compactTokens(totalTok)}
-					accent="var(--m-sonnet)"
-					sub={`${compactTokens(scopedTotals.tokens.output)} output`}
-				/>
-				<StatCard
-					label="cache savings"
-					value={cacheSavings.saved}
-					money
-					animate
-					moneyTone="save"
-					accent="var(--good)"
-					sub={`${Math.round(cacheSavings.hitRate * 100)}% cache-read share`}
-				/>
-				<StatCard
-					label="top model"
-					value={topModel ? modelLabel(topModel.model) : '—'}
-					accent={topModel ? modelColor(topModel.model) : 'var(--m-other)'}
-					sub={topModel ? `${money(topModel.cost)} · ${compactTokens(totalTokens(topModel.tokens))}` : ''}
-				/>
-			</section>
+			<StatRowRegion {feed} {dash} />
 
-			<!-- REGION 5 · VALUE-CARD BAND (cache cost + subscription subsidy, design.md D1a) -->
-			<section class="value-grid" aria-label="Cache cost and subscription subsidy">
-				{#if cacheBreakdown}
-					<CachePanel breakdown={cacheBreakdown} />
-				{/if}
-				{#if syncStatus?.enabled && poolSubsidyRows.length > 0}
-					<PoolSubsidisationCard
-						rows={poolSubsidyRows}
-						windowLabel={heroLabel}
-						wholePlanFee={dash.machineFilter.size > 0}
-					/>
-				{:else if subsidy && subsidyConfig}
-					<SubsidisationCard rollup={subsidy} windowLabel={heroLabel} config={subsidyConfig} {onTierChange} burnPace={pace} />
-				{/if}
-			</section>
+			<ValueBandRegion {feed} {dash} {config} {syncStatus} {onTierChange} />
 
-			<!-- REGION 5b · LIFETIME SPEND (all-time cumulative + projected yearly burn) -->
-			{#if lifetime}
-				<section class="value-grid" aria-label="Lifetime spend">
-					<StatCard
-						label="all-time spend"
-						value={lifetime.totalCost}
-						money
-						moneyTone="gold"
-						accent="var(--accent)"
-						sub={lifetime.projectedYearlyCost != null
-							? `on pace for ${money(lifetime.projectedYearlyCost)}/yr · ${lifetime.runRateSampleDays}d sample`
-							: 'not enough history yet to project a year'}
-					/>
-					{#if lifetimeSpark.length > 1}
-						<div class="panel lifetime-spark-panel">
-							<span class="lifetime-spark-label">last 90 days</span>
-							<Sparkline values={lifetimeSpark} width={320} height={72} color="var(--accent)" area dot ariaLabel="Daily spend over the last 90 days" />
-						</div>
-					{/if}
-				</section>
-			{/if}
+			<LifetimeRegion {feed} {dash} />
 
 			<!-- REGION 6 · CALENDAR HEATMAP (primary time-nav surface) -->
 			<section class="heatmap-sec" aria-label="Daily spend calendar">
@@ -849,47 +659,6 @@
 		.spinner {
 			animation: none;
 		}
-	}
-
-	/* REGION 4 · STAT ROW — base 2-up, 4-up at >= 720px. */
-	.stat-grid {
-		display: grid;
-		grid-template-columns: repeat(2, 1fr);
-		gap: 0.75rem;
-		margin-bottom: 1rem;
-	}
-	@media (min-width: 720px) {
-		.stat-grid {
-			grid-template-columns: repeat(4, 1fr);
-		}
-	}
-
-	/* REGION 5 · VALUE BAND — base single column, 1fr 1fr at >= 860px. */
-	.value-grid {
-		display: grid;
-		grid-template-columns: 1fr;
-		gap: 0.9rem;
-		margin-bottom: 1rem;
-	}
-	@media (min-width: 860px) {
-		.value-grid {
-			grid-template-columns: 1fr 1fr;
-			align-items: start;
-		}
-	}
-	.lifetime-spark-panel {
-		display: flex;
-		flex-direction: column;
-		gap: 0.6rem;
-		justify-content: center;
-	}
-	.lifetime-spark-label {
-		font-family: var(--font-mono);
-		font-size: var(--text-2xs);
-		font-weight: var(--fw-medium);
-		text-transform: uppercase;
-		letter-spacing: var(--tracking-caps);
-		color: var(--text-dim);
 	}
 
 	/* REGION 6 · HEATMAP */
