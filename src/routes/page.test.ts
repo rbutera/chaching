@@ -167,21 +167,39 @@ describe('dashboard route — landmarks + structure (a11y, layout adoption)', ()
 		expect(container.querySelector('main header, main main, header main')).toBeNull();
 	});
 
-	it('renders the design region order: hero → controls → stat row → value band → heatmap → model/5h → sessions → footer', async () => {
+	it('renders the bento zones in order: command bar → rail → now → money → history → pool → ledger', async () => {
 		snapshotToEmit = richSnap();
 		const { container } = render(Page);
 		await flush();
 		const main = container.querySelector('main')!;
+		// After the visual overhaul the regions are grouped into named bento zones
+		// (the command bar + summary rail dissolved the old scattered controls);
+		// main's direct children are those zone wrappers in document order.
 		const order = [...main.children].map((el) => el.className.split(/\s+/)[0]);
 		const idx = (c: string) => order.findIndex((x) => x === c);
-		expect(idx('hero')).toBeGreaterThanOrEqual(0);
-		expect(idx('hero')).toBeLessThan(idx('controls'));
-		expect(idx('controls')).toBeLessThan(idx('stat-grid'));
-		expect(idx('stat-grid')).toBeLessThan(idx('value-grid'));
-		expect(idx('value-grid')).toBeLessThan(idx('heatmap-sec'));
-		expect(idx('heatmap-sec')).toBeLessThan(idx('grid2'));
-		expect(idx('grid2')).toBeLessThan(idx('sessions-sec'));
-		expect(idx('sessions-sec')).toBeLessThan(idx('honesty'));
+		expect(idx('slot-cmd')).toBeGreaterThanOrEqual(0);
+		expect(idx('slot-cmd')).toBeLessThan(idx('slot-rail'));
+		expect(idx('slot-rail')).toBeLessThan(idx('zone-now'));
+		expect(idx('zone-now')).toBeLessThan(idx('zone-money'));
+		expect(idx('zone-money')).toBeLessThan(idx('zone-history'));
+		expect(idx('zone-history')).toBeLessThan(idx('zone-pool'));
+		expect(idx('zone-pool')).toBeLessThan(idx('zone-ledger'));
+	});
+
+	it('places each region inside its bento zone (hero+stats in now, value band in money, heatmap+model in history, sessions+footer in ledger)', async () => {
+		snapshotToEmit = richSnap();
+		const { container } = render(Page);
+		await flush();
+		expect(container.querySelector('.zone-now .hero')).toBeTruthy();
+		expect(container.querySelector('.zone-now .stat-grid')).toBeTruthy();
+		expect(container.querySelector('.zone-money .value-grid')).toBeTruthy();
+		expect(container.querySelector('.zone-history .heatmap-sec')).toBeTruthy();
+		expect(container.querySelector('.zone-history .grid2')).toBeTruthy();
+		expect(container.querySelector('.zone-ledger .sessions-sec')).toBeTruthy();
+		expect(container.querySelector('.zone-ledger footer.honesty')).toBeTruthy();
+		// The command bar owns the scope controls (period tabs + provider pills).
+		expect(container.querySelector('.slot-cmd .command-bar')).toBeTruthy();
+		expect(container.querySelector('.slot-cmd [role="tablist"]')).toBeTruthy();
 	});
 });
 
