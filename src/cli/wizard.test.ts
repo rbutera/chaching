@@ -24,6 +24,8 @@ vi.mock('@clack/prompts', () => ({
 	isCancel: vi.fn(() => false),
 	multiselect: vi.fn(),
 	password: vi.fn(),
+	select: vi.fn(),
+	text: vi.fn(),
 	note: vi.fn(),
 	log: { info: vi.fn() }
 }));

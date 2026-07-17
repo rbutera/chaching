@@ -21,3 +21,8 @@ export function getService(): Engine {
 	}
 	return instance;
 }
+
+/** Drop the live engine after a persistence/config change; next request rebuilds it. */
+export function resetService(): void {
+	instance?.dispose();
+}

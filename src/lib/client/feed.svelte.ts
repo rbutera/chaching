@@ -96,6 +96,10 @@ export class FeedStore {
 	}
 
 	private applyDelta(delta: RollupDelta): void {
+		if (delta.replace) {
+			this.applySnapshot(delta.replace);
+			return;
+		}
 		if (!this.snapshot) return;
 		for (const dm of delta.dayModel) this.dayModelIndex.set(dayModelKey(dm), dm);
 		for (const s of delta.sessions) this.sessionIndex.set(sessionKey(s), s);

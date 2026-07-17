@@ -34,6 +34,8 @@ function addTokens(into: TokenCounts, from: TokenCounts): void {
 interface SessionState {
 	sessionId: string;
 	provider: string;
+	machineId?: string;
+	subscriptionId?: string | null;
 	project: string;
 	firstTs: number;
 	lastTs: number;
@@ -86,6 +88,9 @@ export class Rollup {
 	private unknownPriceModels = new Set<string>();
 	/** days (YYYY-MM-DD UTC) already frozen in the DB — their records are skipped on scan. */
 	private frozenDays = new Set<string>();
+	/** Local SQLite frozen days also suppress source-log re-ingestion. */
+	private skipFrozenDays = new Set<string>();
+	private importedMachineDays = new Set<string>();
 
 	private totalTokens = zeroTokens();
 	private totalRequests = 0;
@@ -128,7 +133,21 @@ export class Rollup {
 	 * re-counting them from logs (which may now be pruned/partial) would double-count.
 	 */
 	setFrozenDays(days: Iterable<string>): void {
+		for (const d of days) {
+			this.frozenDays.add(d);
+			this.skipFrozenDays.add(d);
+		}
+	}
+
+	/** PostgreSQL records are durable but must not suppress another machine's source scan. */
+	setDurableDays(days: Iterable<string>): void {
 		for (const d of days) this.frozenDays.add(d);
+	}
+
+	/** Migrated SQLite aggregates suppress only that machine's matching raw log days. */
+	setImportedMachineDays(entries: Iterable<{ machineId: string; day: string }>): void {
+		for (const entry of entries)
+			this.importedMachineDays.add(`${entry.machineId}${KEY_SEP}${entry.day}`);
 	}
 
 	/** True if `day` is frozen in the DB (and so should be skipped on the live scan). */
@@ -139,7 +158,12 @@ export class Rollup {
 	/** Add a single already-deduped usage record to the rollup. */
 	add(rec: UsageRecord): void {
 		// Skip records for days already frozen in the DB — the DB copy is authoritative.
-		if (this.frozenDays.has(rec.day)) return;
+		if (this.skipFrozenDays.has(rec.day)) return;
+		if (
+			rec.machineId &&
+			this.importedMachineDays.has(`${rec.machineId}${KEY_SEP}${rec.day}`)
+		)
+			return;
 
 		this.recordsCounted++;
 		this.dirtyAny = true;
@@ -150,13 +174,15 @@ export class Rollup {
 			this.unknownPriceModels.add(rec.model);
 		}
 
-		const dmKey = recordKey(rec.day, rec.provider, rec.model);
+		const dmKey = recordKey(rec.day, rec.provider, rec.model, rec.machineId, rec.subscriptionId);
 		let dm = this.dayModel.get(dmKey);
 		if (!dm) {
 			dm = {
 				day: rec.day,
 				provider: rec.provider,
 				model: rec.model,
+				machineId: rec.machineId,
+				subscriptionId: rec.subscriptionId,
 				tokens: zeroTokens(),
 				requests: 0,
 				cost: 0,
@@ -182,12 +208,14 @@ export class Rollup {
 		extra.webFetchRequests += rec.webFetchRequests;
 
 		// session index
-		const recSessionKey = sessionKey(rec.provider, rec.sessionId);
+		const recSessionKey = sessionKey(rec.provider, rec.sessionId, rec.machineId, rec.subscriptionId);
 		let s = this.sessions.get(recSessionKey);
 		if (!s) {
 			s = {
 				sessionId: rec.sessionId,
 				provider: rec.provider,
+				machineId: rec.machineId,
+				subscriptionId: rec.subscriptionId,
 				project: rec.project,
 				firstTs: rec.timestamp,
 				lastTs: rec.timestamp,
@@ -236,13 +264,15 @@ export class Rollup {
 	 */
 	loadAggregates(aggregates: readonly FrozenAgg[], sessions: readonly SessionSummary[]): void {
 		for (const a of aggregates) {
-			const dmKey = recordKey(a.day, a.provider, a.model);
+			const dmKey = recordKey(a.day, a.provider, a.model, a.machineId, a.subscriptionId);
 			let dm = this.dayModel.get(dmKey);
 			if (!dm) {
 				dm = {
 					day: a.day,
 					provider: a.provider,
 					model: a.model,
+					machineId: a.machineId,
+					subscriptionId: a.subscriptionId,
 					tokens: zeroTokens(),
 					requests: 0,
 					cost: 0,
@@ -279,7 +309,7 @@ export class Rollup {
 		}
 
 		for (const s of sessions) {
-			const key = sessionKey(s.provider, s.sessionId);
+			const key = sessionKey(s.provider, s.sessionId, s.machineId, s.subscriptionId);
 			if (this.sessions.has(key)) continue; // finalized session already present; don't double-add
 			// Reconstruct modelCounts preserving the persisted most-used-first order via
 			// descending synthetic counts (real per-model counts aren't persisted).
@@ -289,6 +319,8 @@ export class Rollup {
 			this.sessions.set(key, {
 				sessionId: s.sessionId,
 				provider: s.provider,
+				machineId: s.machineId,
+				subscriptionId: s.subscriptionId,
 				project: s.project,
 				firstTs: s.firstTs,
 				lastTs: s.lastTs,
@@ -416,6 +448,8 @@ export class Rollup {
 		return {
 			sessionId: s.sessionId,
 			provider: s.provider,
+			machineId: s.machineId,
+			subscriptionId: s.subscriptionId,
 			project: s.project,
 			firstTs: s.firstTs,
 			lastTs: s.lastTs,
@@ -475,6 +509,13 @@ export class Rollup {
 		return this.dirtyAny;
 	}
 
+	/** Seeded durable records belong to the initial snapshot, not the first live delta. */
+	clearDirty(): void {
+		this.dirtyDayModel.clear();
+		this.dirtySessions.clear();
+		this.dirtyAny = false;
+	}
+
 	/** Drain accumulated changes into a delta and reset the dirty sets. */
 	drainDelta(now = Date.now(), coverageInput?: CoverageInput): RollupDelta | null {
 		if (!this.dirtyAny) return null;
@@ -521,10 +562,21 @@ export class Rollup {
 	}
 }
 
-function recordKey(day: string, provider: string, model: string): string {
-	return `${day}${KEY_SEP}${provider}${KEY_SEP}${model}`;
+function recordKey(
+	day: string,
+	provider: string,
+	model: string,
+	machineId?: string,
+	subscriptionId?: string | null
+): string {
+	return `${machineId ?? ''}${KEY_SEP}${subscriptionId ?? ''}${KEY_SEP}${day}${KEY_SEP}${provider}${KEY_SEP}${model}`;
 }
 
-function sessionKey(provider: string, sessionId: string): string {
-	return `${provider}${KEY_SEP}${sessionId}`;
+function sessionKey(
+	provider: string,
+	sessionId: string,
+	machineId?: string,
+	subscriptionId?: string | null
+): string {
+	return `${machineId ?? ''}${KEY_SEP}${subscriptionId ?? ''}${KEY_SEP}${provider}${KEY_SEP}${sessionId}`;
 }

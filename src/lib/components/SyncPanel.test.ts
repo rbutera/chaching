@@ -93,4 +93,13 @@ describe('SyncPanel', () => {
 			subscriptionId: 'sub-codex'
 		});
 	});
+
+	it('renders remote dashboards as read-only for sync management', () => {
+		const { queryByLabelText, container } = render(SyncPanel, {
+			status: { ...localStatus, managementAllowed: false },
+			onAction: vi.fn(async () => {})
+		});
+		expect(queryByLabelText('PostgreSQL URL')).toBeNull();
+		expect(container.textContent).toContain('Sync setup is local-only');
+	});
 });

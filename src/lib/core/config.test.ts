@@ -56,6 +56,7 @@ describe('config', () => {
 	});
 
 	it('defaults to local file providers and disabled API providers', () => {
+		expect(defaultConfig().server.host).toBe('127.0.0.1');
 		expect(defaultConfig().providers.claude.enabled).toBe(true);
 		expect(defaultConfig().providers.codex.enabled).toBe(true);
 		expect(defaultConfig().providers.opencode.enabled).toBe(true);
@@ -76,6 +77,29 @@ describe('config', () => {
 			adminApiTokenConfigured: true
 		});
 		expect(JSON.stringify(publicConfig(cfg))).not.toContain('crsr_secret');
+	});
+
+	it('redacts the PostgreSQL URL while exposing non-secret sync identity', () => {
+		const cfg = normalizeConfig({
+			sync: {
+				enabled: true,
+				databaseUrl: 'postgresql://chaching:secret@kinto:5432/chaching',
+				poolId: 'pool-1',
+				machineId: 'machine-1',
+				machineName: 'kinto',
+				providerSubscriptions: { claude: 'work-claude' }
+			}
+		});
+
+		expect(publicConfig(cfg).sync).toEqual({
+			enabled: true,
+			poolId: 'pool-1',
+			machineId: 'machine-1',
+			machineName: 'kinto',
+			providerSubscriptions: { claude: 'work-claude' },
+			databaseConfigured: true
+		});
+		expect(JSON.stringify(publicConfig(cfg))).not.toContain('secret@kinto');
 	});
 
 	it('defaults missing subscription to Corporate $99 (old v1.5.0 config loads unchanged)', () => {

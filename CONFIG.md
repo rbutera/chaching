@@ -20,7 +20,7 @@ cp config.example.json "${XDG_CONFIG_HOME:-$HOME/.config}/chaching/config.json"
 
 ```json
 "server": {
-	"host": "0.0.0.0",
+	"host": "127.0.0.1",
 	"port": 5178,
 	"origin": ""
 }
@@ -55,6 +55,32 @@ is frozen on a future run, once it becomes a past day.
 
 Set `enabled` to `false` to disable the store entirely (chaching then shows only what the
 current logs cover). Uses Node's built-in `node:sqlite`, so it requires Node `>=24.16.0`.
+
+## Chaching Sync
+
+```json
+"sync": {
+	"enabled": false,
+	"databaseUrl": "",
+	"poolId": null,
+	"machineId": null,
+	"machineName": "",
+	"providerSubscriptions": {}
+}
+```
+
+Do not hand-author pool or machine IDs. Use `chaching sync create`, `chaching sync join`, the
+setup wizard, or the web Sync panel. `databaseUrl` is a PostgreSQL connection string and is a
+secret. The config file is written atomically with mode `0600`, and the URL is omitted from the
+web public-config and sync-status APIs.
+
+When `sync.enabled` is true and the connection identity is complete, PostgreSQL replaces SQLite
+as the active durable ledger. Existing SQLite history is imported on create/join and the original
+file is retained. `providerSubscriptions` is a local cache of this machine's mappings; PostgreSQL
+is authoritative and refreshes it at runtime.
+
+See [docs/sync.md](docs/sync.md) for Docker, Tailscale, subscription mapping, migration,
+dashboard filters, and the threat model.
 
 ## Providers
 

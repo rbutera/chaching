@@ -1,19 +1,28 @@
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SUBSCRIPTION, type chachingConfig } from './config';
 
 // Import the core engine via its relative path only — no SvelteKit $lib alias
 // resolution. If this module loaded any framework runtime, this import would fail
 // under a plain Node/vitest context.
 import { createEngine, runOnce } from './engine';
+import type { UsageRecord } from '../types';
 
 function disabledConfig(): chachingConfig {
 	return {
 		cutoverTs: null,
 		server: { host: '127.0.0.1', port: 5178, origin: '' },
 		history: { enabled: false, dbPath: '' },
+		sync: {
+			enabled: false,
+			databaseUrl: '',
+			poolId: null,
+			machineId: null,
+			machineName: '',
+			providerSubscriptions: {}
+		},
 		providers: {
 			claude: { enabled: false, roots: [], subscription: { ...DEFAULT_SUBSCRIPTION } },
 			codex: { enabled: false, root: '', subscription: { ...DEFAULT_SUBSCRIPTION } },
@@ -21,6 +30,25 @@ function disabledConfig(): chachingConfig {
 			opencode: { enabled: false, dbPath: '' },
 			pi: { enabled: false, root: '' }
 		}
+	};
+}
+
+function usage(key: string): UsageRecord {
+	return {
+		key,
+		provider: 'codex',
+		timestamp: Date.parse('2026-07-17T08:00:00Z'),
+		day: '2026-07-17',
+		model: 'gpt-5.6-sol',
+		tokens: { input: 1, output: 1, cacheCreation: 0, cacheRead: 0 },
+		cacheCreation1h: 0,
+		cacheCreation5m: 0,
+		webSearchRequests: 0,
+		webFetchRequests: 0,
+		sessionId: 'session',
+		project: 'project',
+		isSidechain: false,
+		cost: 0.01
 	};
 }
 
@@ -101,6 +129,39 @@ describe('core engine (no SvelteKit)', () => {
 		await started;
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(activeHandleCount()).toBeLessThanOrEqual(before);
+	});
+
+	it('serializes concurrent sync flushes without dropping records appended in flight', async () => {
+		const engine = createEngine(disabledConfig());
+		let releaseFirst!: () => void;
+		const firstInsert = new Promise<void>((resolve) => {
+			releaseFirst = resolve;
+		});
+		const writes: string[][] = [];
+		const fakeStore = {
+			insertRecords: async (records: readonly UsageRecord[]) => {
+				writes.push(records.map((record) => record.key));
+				if (writes.length === 1) await firstInsert;
+			}
+		};
+		const internal = engine as unknown as {
+			syncStore: typeof fakeStore | null;
+			syncQueue: UsageRecord[];
+			flushSyncQueue: () => Promise<void>;
+		};
+		internal.syncStore = fakeStore;
+		internal.syncQueue.push(usage('a'));
+		const first = internal.flushSyncQueue();
+		await vi.waitFor(() => expect(writes).toEqual([['a']]));
+		const concurrent = internal.flushSyncQueue();
+		internal.syncQueue.push(usage('b'));
+		releaseFirst();
+		await Promise.all([first, concurrent]);
+
+		expect(writes).toEqual([['a'], ['b']]);
+		expect(internal.syncQueue).toEqual([]);
+		internal.syncStore = null;
+		engine.dispose();
 	});
 });
 

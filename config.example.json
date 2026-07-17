@@ -1,13 +1,21 @@
 {
 	"cutoverTs": null,
 	"server": {
-		"host": "0.0.0.0",
+		"host": "127.0.0.1",
 		"port": 5178,
 		"origin": ""
 	},
 	"history": {
 		"enabled": true,
 		"dbPath": "~/.local/share/chaching/history.db"
+	},
+	"sync": {
+		"enabled": false,
+		"databaseUrl": "",
+		"poolId": null,
+		"machineId": null,
+		"machineName": "",
+		"providerSubscriptions": {}
 	},
 	"providers": {
 		"claude": {

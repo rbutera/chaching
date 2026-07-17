@@ -57,6 +57,7 @@ That's it. No signup, no API key (unless you want Cursor), no config file to wri
 | `chaching serve` | The **web dashboard** — calendar heatmap, day-by-day browsing, session drill-down. |
 | `chaching init` | Re-run the setup wizard. |
 | `chaching provider …` | Enable / disable / add a provider without the wizard. |
+| `chaching sync …` | Create or join a shared PostgreSQL pool and map subscriptions. |
 
 Global flags: `--version`, `--help`, `--no-art` (kills the ASCII banner and the jokes, for when you're not in the mood or you're piping to something that is). `NO_COLOR` and `CHACHING_NO_ART` are both honoured.
 
@@ -218,6 +219,28 @@ Two consequences worth knowing:
 - **It only banks days it actually sees.** Installing today can't recover history that's already been pruned. It starts hoarding from now. The sooner it's running, the deeper your records go.
 - **It accrues on every run, regardless of how you run it.** `npx` writes the same DB a global install does (it lives in your data dir, not in the package). The reason to install globally or leave `chaching serve` running is purely so it runs *often* and never misses a day. That's the difference between "a snapshot" and "a ledger."
 
+### Chaching Sync: one ledger, several machines
+
+Chaching Sync is an optional PostgreSQL-backed pool. Each machine still reads its own local AI
+tool logs, then writes namespaced usage records to the shared ledger. Define each paid
+subscription once and map any number of machine/provider pairs to it. The dashboard can filter by
+machine or subscription and counts a shared plan's monthly fee once.
+
+```sh
+export CHACHING_POSTGRES_PASSWORD='choose-a-long-random-password'
+docker compose -f docker-compose.sync.yml up -d
+
+read -rsp 'PostgreSQL URL: ' CHACHING_DATABASE_URL
+export CHACHING_DATABASE_URL
+chaching sync create \
+  --name 'My machines' --machine kinto
+```
+
+Create/join is also available in `chaching init` and the web dashboard. Existing frozen SQLite
+history is imported automatically, and the SQLite file is retained as a rollback copy. See
+**[Chaching Sync](docs/sync.md)** for Tailscale setup, subscription mapping, security, migration,
+and troubleshooting.
+
 ---
 
 ## Providers
@@ -246,8 +269,16 @@ Missing file = sensible defaults (Claude Code, Codex, OpenCode on; Cursor off un
 ```json
 {
   "cutoverTs": null,
-  "server": { "host": "0.0.0.0", "port": 5178 },
+  "server": { "host": "127.0.0.1", "port": 5178 },
   "history": { "enabled": true, "dbPath": "~/.local/share/chaching/history.db" },
+  "sync": {
+    "enabled": false,
+    "databaseUrl": "",
+    "poolId": null,
+    "machineId": null,
+    "machineName": "",
+    "providerSubscriptions": {}
+  },
   "providers": {
     "claude": { "enabled": true, "roots": ["~/.claude", "~/.config/claude"] },
     "codex": { "enabled": true, "root": "~/.codex/sessions" },
@@ -286,7 +317,7 @@ tailscale serve --https=443 off   # stop sharing
 ## FAQ
 
 **Does it send my data anywhere?**
-No. It reads local files and a local SQLite DB. Nothing leaves your machine. The single exception is the Cursor provider, which calls Cursor's own Admin API, and only if you explicitly enable it. No analytics, no telemetry, no "anonymous usage stats," no phoning home.
+Not by default. Local mode reads local files and local SQLite only. Cursor Admin API makes provider calls if you explicitly enable it. Chaching Sync sends usage to the PostgreSQL server you explicitly configure. There is no Chaching cloud service, analytics, telemetry, or third-party sync endpoint.
 
 **What's with the name?**
 *cha-ching* (the register sound of money leaving) plus *caching* (the token cache that saves you money). It counts both. The whole product is the pun, taken seriously.

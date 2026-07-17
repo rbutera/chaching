@@ -105,6 +105,17 @@ export interface HistoryConfig {
 	dbPath: string;
 }
 
+export interface SyncConfig {
+	enabled: boolean;
+	/** PostgreSQL connection string. Secret: never expose through publicConfig(). */
+	databaseUrl: string;
+	poolId: string | null;
+	machineId: string | null;
+	machineName: string;
+	/** Local ingestion attribution: harness provider -> pooled subscription id. */
+	providerSubscriptions: Record<string, string | null>;
+}
+
 export interface chachingConfig {
 	cutoverTs: number | null;
 	server: {
@@ -116,6 +127,7 @@ export interface chachingConfig {
 		origin: string;
 	};
 	history: HistoryConfig;
+	sync: SyncConfig;
 	providers: {
 		claude: ClaudeProviderConfig;
 		codex: CodexProviderConfig;
@@ -125,8 +137,9 @@ export interface chachingConfig {
 	};
 }
 
-export interface PublicchachingConfig extends Omit<chachingConfig, 'providers' | 'history'> {
+export interface PublicchachingConfig extends Omit<chachingConfig, 'providers' | 'history' | 'sync'> {
 	history: HistoryConfig;
+	sync: Omit<SyncConfig, 'databaseUrl'> & { databaseConfigured: boolean };
 	providers: {
 		claude: ClaudeProviderConfig;
 		codex: CodexProviderConfig;
@@ -141,7 +154,7 @@ export interface ConfigPathInput {
 	homeDir?: string;
 }
 
-const DEFAULT_HOST = '0.0.0.0';
+const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 5178;
 const DEFAULT_CURSOR_POLL_SECONDS = 3600;
 const DEFAULT_HISTORY_DB_PATH = '~/.local/share/chaching/history.db';
@@ -160,6 +173,14 @@ export function defaultConfig(): chachingConfig {
 		cutoverTs: null,
 		server: { host: DEFAULT_HOST, port: DEFAULT_PORT, origin: '' },
 		history: { enabled: true, dbPath: DEFAULT_HISTORY_DB_PATH },
+		sync: {
+			enabled: false,
+			databaseUrl: '',
+			poolId: null,
+			machineId: null,
+			machineName: '',
+			providerSubscriptions: {}
+		},
 		providers: {
 			claude: {
 				enabled: true,
@@ -180,6 +201,7 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 	const providers = objectRecord(root.providers);
 	const server = objectRecord(root.server);
 	const history = objectRecord(root.history);
+	const sync = objectRecord(root.sync);
 	const claude = objectRecord(providers.claude);
 	const codex = objectRecord(providers.codex);
 	const cursor = objectRecord(providers.cursor);
@@ -196,6 +218,14 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 		history: {
 			enabled: booleanOr(history.enabled, defaults.history.enabled),
 			dbPath: stringOr(history.dbPath, defaults.history.dbPath)
+		},
+		sync: {
+			enabled: booleanOr(sync.enabled, defaults.sync.enabled),
+			databaseUrl: stringOrEmpty(sync.databaseUrl, defaults.sync.databaseUrl),
+			poolId: nullableStringOr(sync.poolId, defaults.sync.poolId),
+			machineId: nullableStringOr(sync.machineId, defaults.sync.machineId),
+			machineName: stringOrEmpty(sync.machineName, defaults.sync.machineName),
+			providerSubscriptions: nullableStringRecord(sync.providerSubscriptions)
 		},
 		providers: {
 			claude: {
@@ -231,6 +261,14 @@ export function publicConfig(cfg: chachingConfig): PublicchachingConfig {
 		cutoverTs: cfg.cutoverTs,
 		server: { ...cfg.server },
 		history: { ...cfg.history },
+		sync: {
+			enabled: cfg.sync.enabled,
+			poolId: cfg.sync.poolId,
+			machineId: cfg.sync.machineId,
+			machineName: cfg.sync.machineName,
+			providerSubscriptions: { ...cfg.sync.providerSubscriptions },
+			databaseConfigured: cfg.sync.databaseUrl.length > 0
+		},
 		providers: {
 			claude: {
 				...cfg.providers.claude,
@@ -307,6 +345,10 @@ function stringOr(value: unknown, fallback: string): string {
 	return typeof value === 'string' && value.length > 0 ? value : fallback;
 }
 
+function stringOrEmpty(value: unknown, fallback: string): string {
+	return typeof value === 'string' ? value : fallback;
+}
+
 function nullableStringOr(value: unknown, fallback: string | null): string | null {
 	if (value === null) return null;
 	return typeof value === 'string' ? value : fallback;
@@ -344,4 +386,13 @@ function stringArrayOr(value: unknown, fallback: string[]): string[] {
 	if (!Array.isArray(value)) return fallback;
 	const strings = value.filter((item) => typeof item === 'string' && item.length > 0);
 	return strings.length > 0 ? strings : fallback;
+}
+
+function nullableStringRecord(value: unknown): Record<string, string | null> {
+	const raw = objectRecord(value);
+	const result: Record<string, string | null> = {};
+	for (const [key, item] of Object.entries(raw)) {
+		if (typeof item === 'string' || item === null) result[key] = item;
+	}
+	return result;
 }

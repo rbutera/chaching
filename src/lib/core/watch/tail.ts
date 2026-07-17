@@ -10,11 +10,18 @@ import type { Rollup } from '../rollup/rollup';
 import type { DedupSet } from '../ingest/dedup';
 import { parseLine } from '../ingest/parse';
 import { decodeProject } from '../ingest/discover';
+import type { UsageRecord } from '../../types';
+import { usageDedupKey } from '../sync/record-key';
 
 export interface FileState {
 	offset: number; // bytes consumed so far (EOF after last read)
 	project: string;
 	isSidechain: boolean;
+}
+
+export interface IngestRangeHooks {
+	prepare?: (record: UsageRecord) => UsageRecord;
+	onAdded?: (record: UsageRecord) => void;
 }
 
 /** Map projectsDir + filepath -> decoded project name. */
@@ -39,7 +46,8 @@ export async function ingestRange(
 	startOffset: number,
 	projectsDir: string,
 	rollup: Rollup,
-	dedup: DedupSet
+	dedup: DedupSet,
+	hooks: IngestRangeHooks = {}
 ): Promise<number> {
 	let size: number;
 	try {
@@ -49,7 +57,9 @@ export async function ingestRange(
 	}
 	if (size <= startOffset) {
 		// truncated or no growth; if truncated (size < offset) restart from 0
-		return size < startOffset ? await ingestRange(filePath, 0, projectsDir, rollup, dedup) : startOffset;
+		return size < startOffset
+			? await ingestRange(filePath, 0, projectsDir, rollup, dedup, hooks)
+			: startOffset;
 	}
 
 	const ctx = {
@@ -67,16 +77,18 @@ export async function ingestRange(
 
 	for await (const line of rl) {
 		if (!line) continue;
-		const rec = parseLine(line, ctx);
-		if (!rec) {
+		const parsed = parseLine(line, ctx);
+		if (!parsed) {
 			rollup.addSkipped();
 			continue;
 		}
-		if (!dedup.add(rec.key)) {
+		const rec = hooks.prepare?.(parsed) ?? parsed;
+		if (!dedup.add(usageDedupKey(rec))) {
 			rollup.addDuplicate();
 			continue;
 		}
 		rollup.add(rec);
+		hooks.onAdded?.(rec);
 	}
 
 	return size;

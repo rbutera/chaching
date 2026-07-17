@@ -7,6 +7,7 @@
 
 import { watch, type FSWatcher } from 'node:fs';
 import { sep } from 'node:path';
+import { hostname } from 'node:os';
 import { Rollup } from './rollup/rollup';
 import { DedupSet } from './ingest/dedup';
 import { discoverFiles, resolveProjectsDirs } from './ingest/discover';
@@ -21,6 +22,9 @@ import { readPiRecords } from './providers/pi/local';
 import { readOpenCodeSessions } from './providers/opencode/sqlite';
 import { fetchCursorUsageRecords } from './providers/cursor/api';
 import type { RollupDelta, RollupSnapshot, UsageRecord } from '../types';
+import { isConfigured } from './sync/manager';
+import { isPoolGlobalUsage, usageDedupKey } from './sync/record-key';
+import { PostgresSyncStore } from './sync/store';
 
 const MTIME_POLL_MS = 4000; // fallback poll cadence
 const DELTA_DEBOUNCE_MS = 400; // coalesce bursts of file changes into one delta
@@ -62,6 +66,7 @@ class Ingestion {
 	private pollTimer: NodeJS.Timeout | null = null;
 	private cursorTimer: NodeJS.Timeout | null = null;
 	private localProviderTimer: NodeJS.Timeout | null = null;
+	private syncTimer: NodeJS.Timeout | null = null;
 	private localPollInFlight = false;
 	/** codex session files already counted in stats.filesScanned (re-polls don't re-count) */
 	private codexSeenFiles = new Set<string>();
@@ -83,6 +88,12 @@ class Ingestion {
 	private providerStatus = new ProviderStatus();
 	private disposed = false;
 	private historyStore: HistoryStore | null = null;
+	private syncStore: PostgresSyncStore | null = null;
+	private syncCursor = 0;
+	private syncQueue: UsageRecord[] = [];
+	private syncFlush: Promise<void> | null = null;
+	private syncMappings: Record<string, string | null> = {};
+	private syncMappingFingerprint = '[]';
 	/** any read/parse failure during the cold scan makes a day potentially partial -> don't freeze. */
 	private scanHadErrors = false;
 	/** resolved config, captured in start() for the live (tail/poll) freeze path. */
@@ -109,7 +120,8 @@ class Ingestion {
 
 		// History: seed the rollup with frozen past-day aggregates + mark those days so the
 		// live scan skips them (no double-count). MUST happen before any rollup.add call.
-		this.loadHistory(cfg);
+		if (isConfigured(cfg.sync)) await this.loadSync(cfg);
+		else this.loadHistory(cfg);
 
 		const claudeEnv = {
 			...process.env,
@@ -125,7 +137,14 @@ class Ingestion {
 			this.fileToProjectsDir.set(f.path, projectsDir);
 			this.rollup.markFileScanned();
 			try {
-				const newOffset = await ingestRange(f.path, 0, projectsDir, this.rollup, this.dedup);
+				const newOffset = await ingestRange(
+					f.path,
+					0,
+					projectsDir,
+					this.rollup,
+					this.dedup,
+					this.syncHooks()
+				);
 				this.fileStates.set(f.path, {
 					offset: newOffset,
 					project: f.project,
@@ -162,13 +181,56 @@ class Ingestion {
 			if (this.watchEnabled && !this.disposed) this.startCursorPolling(cursorCfgWithToken);
 		}
 
+		await this.flushSyncQueue();
+		await this.pullSyncRecords();
+
 		// Freeze newly-complete past days (day < today, scanned, not already frozen).
-		this.freezeNewDays(cfg);
+		if (!this.syncStore) this.freezeNewDays(cfg);
 
 		this.coldScanMs = Date.now() - t0;
 		if (this.watchEnabled && !this.disposed) {
 			this.startWatching();
 			this.startLocalProviderPolling(cfg);
+			this.startSyncPolling(cfg);
+		}
+	}
+
+	private async loadSync(cfg: chachingConfig): Promise<void> {
+		if (!isConfigured(cfg.sync)) return;
+		const store = new PostgresSyncStore(
+			cfg.sync.databaseUrl,
+			cfg.sync.poolId,
+			cfg.sync.machineId
+		);
+		try {
+			await store.open();
+			await store.heartbeat(cfg.sync.machineName, hostname());
+			this.syncMappings = await store.mappedSubscriptions();
+			this.syncMappingFingerprint = await store.mappingFingerprint();
+			const imported = await store.loadImportedHistory();
+			this.rollup.loadAggregates(imported.aggregates, imported.sessions);
+			this.rollup.setImportedMachineDays(
+				imported.aggregates.flatMap((aggregate) =>
+					aggregate.machineId ? [{ machineId: aggregate.machineId, day: aggregate.day }] : []
+				)
+			);
+			const loaded = await store.loadAllRecords();
+			this.syncCursor = loaded.cursor;
+			const durableDays = new Set(imported.aggregates.map((aggregate) => aggregate.day));
+			const today = isoDayUTC(this.now());
+			for (const { record } of loaded.records) {
+				if (!this.dedup.add(usageDedupKey(record))) continue;
+				this.rollup.add(record);
+				if (record.day < today) durableDays.add(record.day);
+			}
+			this.rollup.setDurableDays(durableDays);
+			this.rollup.clearDirty();
+			this.syncStore = store;
+			this.providerStatus.clear('sync');
+		} catch (error) {
+			this.providerStatus.recordError('sync', error);
+			void store.close().catch(() => {});
+			this.syncStore = null;
 		}
 	}
 
@@ -322,12 +384,68 @@ class Ingestion {
 	}
 
 	private addProviderRecords(records: readonly UsageRecord[]): void {
-		for (const rec of records) {
-			if (!this.dedup.add(rec.key)) {
+		for (const raw of records) {
+			const rec = this.prepareLocalRecord(raw);
+			if (this.syncStore && isPoolGlobalUsage(rec)) {
+				// The database chooses one authoritative copy of cloud-account events.
+				// pullSyncRecords() adds that winning row to every machine's rollup.
+				this.syncQueue.push(rec);
+				continue;
+			}
+			if (!this.dedup.add(usageDedupKey(rec))) {
 				this.rollup.addDuplicate();
 				continue;
 			}
 			this.rollup.add(rec);
+			if (this.syncStore) this.syncQueue.push(rec);
+		}
+	}
+
+	private prepareLocalRecord(record: UsageRecord): UsageRecord {
+		const cfg = this.resolvedConfig;
+		if (!cfg || !isConfigured(cfg.sync)) return record;
+		return {
+			...record,
+			machineId: cfg.sync.machineId,
+			subscriptionId: this.syncMappings[record.provider] ?? null
+		};
+	}
+
+	private syncHooks() {
+		if (!this.syncStore) return {};
+		return {
+			prepare: (record: UsageRecord) => this.prepareLocalRecord(record),
+			onAdded: (record: UsageRecord) => this.syncQueue.push(record)
+		};
+	}
+
+	private async flushSyncQueue(): Promise<void> {
+		if (this.syncFlush) return this.syncFlush;
+		const task = this.drainSyncQueue();
+		this.syncFlush = task;
+		try {
+			await task;
+		} finally {
+			if (this.syncFlush === task) this.syncFlush = null;
+		}
+	}
+
+	private async drainSyncQueue(): Promise<void> {
+		if (!this.syncStore) return;
+		while (this.syncQueue.length > 0) {
+			// Remove before awaiting so producers append behind this in-flight batch.
+			// On failure, restore exactly this batch at the front for idempotent retry.
+			const pending = this.syncQueue.splice(0);
+			try {
+				await this.syncStore.insertRecords(pending);
+				const today = isoDayUTC(this.now());
+				this.rollup.setDurableDays(pending.filter((r) => r.day < today).map((r) => r.day));
+				this.providerStatus.clear('sync');
+			} catch (error) {
+				this.syncQueue.unshift(...pending);
+				this.providerStatus.recordError('sync', error);
+				return;
+			}
 		}
 	}
 
@@ -368,8 +486,9 @@ class Ingestion {
 				const stamp = await this.opencodeSourceStamp(dbPath);
 				if (stamp > this.opencodeSourceMtime) await this.ingestOpenCode(dbPath);
 			}
+			await this.flushSyncQueue();
 			if (this.disposed) return;
-			this.maybeFreezeLive();
+			if (!this.syncStore) this.maybeFreezeLive();
 			if (this.rollup.hasDirty()) {
 				const delta = this.rollup.drainDelta(this.now(), this.coverageInput());
 				if (delta) for (const fn of this.listeners) fn(delta);
@@ -377,6 +496,86 @@ class Ingestion {
 		} finally {
 			this.localPollInFlight = false;
 		}
+	}
+
+	private startSyncPolling(cfg: chachingConfig): void {
+		if (!this.syncStore || this.syncTimer || !isConfigured(cfg.sync)) return;
+		this.syncTimer = setInterval(() => void this.pollSync(cfg), LOCAL_PROVIDER_POLL_MS);
+		if (this.syncTimer.unref) this.syncTimer.unref();
+	}
+
+	private async pollSync(cfg: chachingConfig): Promise<void> {
+		if (this.disposed || !this.syncStore || !isConfigured(cfg.sync)) return;
+		try {
+			await this.flushSyncQueue();
+			const mappings = await this.syncStore.mappedSubscriptions();
+			const fingerprint = await this.syncStore.mappingFingerprint();
+			if (
+				this.syncMappingFingerprint !== fingerprint ||
+				!sameMappings(this.syncMappings, mappings)
+			) {
+				this.syncMappings = mappings;
+				this.syncMappingFingerprint = fingerprint;
+				await this.reloadSyncRollup();
+			} else {
+				await this.pullSyncRecords();
+			}
+			await this.syncStore.heartbeat(cfg.sync.machineName, hostname());
+			this.providerStatus.clear('sync');
+			if (this.rollup.hasDirty()) {
+				const delta = this.rollup.drainDelta(this.now(), this.coverageInput());
+				if (delta) for (const fn of this.listeners) fn(delta);
+			}
+		} catch (error) {
+			this.providerStatus.recordError('sync', error);
+		}
+	}
+
+	private async pullSyncRecords(): Promise<void> {
+		if (!this.syncStore) return;
+		const incoming = await this.syncStore.recordsSince(this.syncCursor);
+		const today = isoDayUTC(this.now());
+		const durableDays = new Set<string>();
+		for (const stored of incoming) {
+			this.syncCursor = Math.max(this.syncCursor, stored.cursor);
+			if (!this.dedup.add(usageDedupKey(stored.record))) {
+				this.rollup.addDuplicate();
+				continue;
+			}
+			this.rollup.add(stored.record);
+			if (stored.record.day < today) durableDays.add(stored.record.day);
+		}
+		this.rollup.setDurableDays(durableDays);
+	}
+
+	private async reloadSyncRollup(): Promise<void> {
+		if (!this.syncStore) return;
+		const nextRollup = new Rollup();
+		const nextDedup = new DedupSet();
+		nextRollup.setCutover(this.resolvedConfig?.cutoverTs ?? null);
+		const imported = await this.syncStore.loadImportedHistory();
+		nextRollup.loadAggregates(imported.aggregates, imported.sessions);
+		nextRollup.setImportedMachineDays(
+			imported.aggregates.flatMap((aggregate) =>
+				aggregate.machineId ? [{ machineId: aggregate.machineId, day: aggregate.day }] : []
+			)
+		);
+		const loaded = await this.syncStore.loadAllRecords();
+		const today = isoDayUTC(this.now());
+		const durableDays = new Set(imported.aggregates.map((aggregate) => aggregate.day));
+		for (const { record } of loaded.records) {
+			if (!nextDedup.add(usageDedupKey(record))) continue;
+			nextRollup.add(record);
+			if (record.day < today) durableDays.add(record.day);
+		}
+		nextRollup.setDurableDays(durableDays);
+		nextRollup.clearDirty();
+		this.rollup = nextRollup;
+		this.dedup = nextDedup;
+		this.syncCursor = loaded.cursor;
+		const replacement = this.rollup.snapshot(this.now(), this.coverageInput());
+		const delta: RollupDelta = { ...replacement, replace: replacement };
+		for (const fn of this.listeners) fn(delta);
 	}
 
 	private startCursorPolling(cfg: CursorProviderConfig): void {
@@ -388,8 +587,9 @@ class Ingestion {
 	private async pollCursor(cfg: CursorProviderConfig): Promise<void> {
 		if (this.disposed) return;
 		await this.ingestCursor(cfg.adminApiToken, cfg.email);
+		await this.flushSyncQueue();
 		if (this.disposed) return;
-		this.maybeFreezeLive();
+		if (!this.syncStore) this.maybeFreezeLive();
 		if (this.rollup.hasDirty()) {
 			const delta = this.rollup.drainDelta(this.now(), this.coverageInput());
 			if (delta) for (const fn of this.listeners) fn(delta);
@@ -446,7 +646,7 @@ class Ingestion {
 		if (this.disposed) return;
 		// A long-running process can cross UTC midnight: yesterday becomes a complete past
 		// day mid-run. Freeze it now so it persists even if logs are pruned before restart.
-		this.maybeFreezeLive();
+		if (!this.syncStore) this.maybeFreezeLive();
 		if (this.rollup.hasDirty()) {
 			const delta = this.rollup.drainDelta(this.now(), this.coverageInput());
 			if (delta) for (const fn of this.listeners) fn(delta);
@@ -465,7 +665,15 @@ class Ingestion {
 		const startOffset = state?.offset ?? 0;
 		if (!state) this.rollup.markFileScanned();
 		try {
-			const newOffset = await ingestRange(full, startOffset, projectsDir, this.rollup, this.dedup);
+			const newOffset = await ingestRange(
+				full,
+				startOffset,
+				projectsDir,
+				this.rollup,
+				this.dedup,
+				this.syncHooks()
+			);
+			await this.flushSyncQueue();
 			const existing = this.fileStates.get(full);
 			this.fileStates.set(full, {
 				offset: newOffset,
@@ -558,6 +766,10 @@ class Ingestion {
 			clearInterval(this.localProviderTimer);
 			this.localProviderTimer = null;
 		}
+		if (this.syncTimer) {
+			clearInterval(this.syncTimer);
+			this.syncTimer = null;
+		}
 		if (this.deltaTimer) {
 			clearTimeout(this.deltaTimer);
 			this.deltaTimer = null;
@@ -565,6 +777,10 @@ class Ingestion {
 		if (this.historyStore) {
 			this.historyStore.close();
 			this.historyStore = null;
+		}
+		if (this.syncStore) {
+			void this.syncStore.close().catch(() => {});
+			this.syncStore = null;
 		}
 		this.listeners.clear();
 	}
@@ -595,4 +811,13 @@ export async function runOnce(
 	} finally {
 		engine.dispose();
 	}
+}
+
+function sameMappings(
+	left: Readonly<Record<string, string | null>>,
+	right: Readonly<Record<string, string | null>>
+): boolean {
+	const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+	for (const key of keys) if ((left[key] ?? null) !== (right[key] ?? null)) return false;
+	return true;
 }

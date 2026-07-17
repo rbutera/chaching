@@ -94,11 +94,12 @@
 		if (!res.ok) throw new Error(body.error || `Sync request failed (${res.status}).`);
 		syncStatus = body;
 		if (action.action === 'create' || action.action === 'join' || action.action === 'leave') {
-			// The persistence backend changed. Reconnect the SSE feed so the server
-			// builds a fresh engine against PostgreSQL (or SQLite after leaving).
-			feed.stop();
-			feed.start();
+			dash.clearPoolFilters();
 		}
+		// The server resets its singleton after every sync mutation so changed
+		// mappings are used for the very next record. Reconnect to that fresh engine.
+		feed.stop();
+		feed.start();
 	}
 
 	// Honour prefers-reduced-motion in JS (the count-up must render the final value
@@ -301,9 +302,11 @@
 		const valueBySubscription = new Map<string, number>();
 		for (const row of snap.dayModel) {
 			if (row.day < from || row.day > to) continue;
-			const subscriptionId = (
-				row as typeof row & { subscriptionId?: string | null }
-			).subscriptionId;
+			if (dash.machineFilter.size > 0 && (!row.machineId || !dash.machineFilter.has(row.machineId)))
+				continue;
+			if (dash.providerFilter.size > 0 && !dash.providerFilter.has(row.provider)) continue;
+			if (dash.modelFilter.size > 0 && !dash.modelFilter.has(row.model)) continue;
+			const subscriptionId = row.subscriptionId;
 			if (!subscriptionId) continue;
 			valueBySubscription.set(
 				subscriptionId,
@@ -311,8 +314,19 @@
 			);
 		}
 		const selected = dash.subscriptionFilter;
+		const machineSubscriptions =
+			dash.machineFilter.size === 0
+				? null
+				: new Set(
+						syncStatus.mappings
+							.filter((mapping) => dash.machineFilter.has(mapping.machineId))
+							.flatMap((mapping) => (mapping.subscriptionId ? [mapping.subscriptionId] : []))
+					);
 		return syncStatus.subscriptions
 			.filter((subscription) => selected.size === 0 || selected.has(subscription.id))
+			.filter(
+				(subscription) => machineSubscriptions === null || machineSubscriptions.has(subscription.id)
+			)
 			.map((subscription) => ({
 				id: subscription.id,
 				name: subscription.name,

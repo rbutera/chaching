@@ -22,8 +22,10 @@
 		"build/",
 		"dist/",
 		"static/",
+		"docs/",
 		"CONFIG.md",
 		"config.example.json",
+		"docker-compose.sync.yml",
 		"LICENSE",
 		"README.md"
 	],
@@ -79,6 +81,7 @@
 		"@types/d3-shape": "3.1.8",
 		"@types/d3-time": "3.0.4",
 		"@types/node": "24.13.2",
+		"@types/pg": "8.20.0",
 		"@types/react": "19.2.17",
 		"culori": "4.0.2",
 		"ink-testing-library": "4.0.0",
@@ -105,6 +108,7 @@
 		"d3-shape": "3.2.0",
 		"d3-time": "3.1.0",
 		"ink": "7.0.5",
+		"pg": "8.22.0",
 		"react": "19.2.7",
 		"satori": "0.26.0"
 	},

@@ -3,8 +3,21 @@
  * Wave 3 implementation: provider multiselect + env-first secrets + atomic 0600 config write.
  */
 
-import { intro, multiselect, password, outro, isCancel, cancel, log, note } from '@clack/prompts';
+import {
+	intro,
+	multiselect,
+	password,
+	outro,
+	isCancel,
+	cancel,
+	log,
+	note,
+	select,
+	text
+} from '@clack/prompts';
 import { loadConfig, saveConfig, clearConfigCache, type chachingConfig } from '../lib/core/config.js';
+import { performSyncAction } from '../lib/core/sync/manager.js';
+import { hostname } from 'node:os';
 import { noArt, accent } from './theme/personality.js';
 import { bannerLine } from './tui/theme.js';
 
@@ -249,6 +262,53 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 	const updated = applySelectionToConfig(base, { enabled: enabledProviders, secrets });
 	clearConfigCache();
 	await saveConfig(updated);
+
+	// ── Step 4: optional pooled ledger ────────────────────────────────────────
+	const ledger = await select({
+		message: 'Where should Chaching keep history?',
+		options: [
+			{ value: 'local', label: 'This machine only', hint: 'local SQLite (default)' },
+			{ value: 'create', label: 'Create a sync pool', hint: 'shared PostgreSQL ledger' },
+			{ value: 'join', label: 'Join a sync pool', hint: 'use an existing pool ID' }
+		],
+		initialValue: base.sync.enabled ? 'join' : 'local'
+	});
+	if (isCancel(ledger)) {
+		cancel('Setup cancelled. Provider changes were already saved; sync was not changed.');
+		return updated;
+	}
+	if (ledger === 'create' || ledger === 'join') {
+		const databaseUrl = await password({
+			message: 'PostgreSQL connection URL (stored in the 0600 config):'
+		});
+		if (isCancel(databaseUrl)) return updated;
+		const machineAnswer = await text({
+			message: 'Name this machine:',
+			initialValue: base.sync.machineName || hostname()
+		});
+		if (isCancel(machineAnswer)) return updated;
+		if (ledger === 'create') {
+			const poolName = await text({ message: 'Pool name:', placeholder: 'My machines' });
+			if (isCancel(poolName)) return updated;
+			const status = await performSyncAction({
+				action: 'create',
+				databaseUrl: String(databaseUrl),
+				poolName: String(poolName),
+				machineName: String(machineAnswer)
+			});
+			if (status.error) note(status.error, 'SQLite migration warning');
+		} else {
+			const poolId = await text({ message: 'Pool ID:' });
+			if (isCancel(poolId)) return updated;
+			const status = await performSyncAction({
+				action: 'join',
+				databaseUrl: String(databaseUrl),
+				poolId: String(poolId),
+				machineName: String(machineAnswer)
+			});
+			if (status.error) note(status.error, 'SQLite migration warning');
+		}
+	}
 
 	const enabledNames = enabledProviders.map((p) => PROVIDER_META[p].label).join(', ');
 	outro(

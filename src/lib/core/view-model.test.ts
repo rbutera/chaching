@@ -1038,4 +1038,33 @@ describe('pooled machine and subscription filters', () => {
 		};
 		expect(scopedTotals(pooled, state).cost).toBe(0);
 	});
+
+	it('applies the same attribution filters to scoped, focused, and all sessions', () => {
+		const sessions = [
+			{
+				...sess('kinto-session', '2026-06-19', '2026-06-19'),
+				machineId: 'kinto',
+				subscriptionId: 'work-claude'
+			},
+			{
+				...sess('nimbus-session', '2026-06-19', '2026-06-19'),
+				machineId: 'nimbus',
+				subscriptionId: 'personal-claude'
+			}
+		];
+		const snapshot = { ...pooled, sessions };
+		const state = {
+			...defaultViewState('day'),
+			machineFilter: new Set(['kinto'])
+		};
+		expect(scopedSessions(snapshot, state).map((session) => session.sessionId)).toEqual([
+			'kinto-session'
+		]);
+		expect(focusedSessions(snapshot, '2026-06-19', state).map((session) => session.sessionId)).toEqual([
+			'kinto-session'
+		]);
+		expect(allSessions(snapshot, state).map((session) => session.sessionId)).toEqual([
+			'kinto-session'
+		]);
+	});
 });

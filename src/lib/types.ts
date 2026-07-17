@@ -24,6 +24,10 @@ export interface UsageRecord {
 	sessionId: string;
 	project: string; // decoded project dir name
 	isSidechain: boolean;
+	/** Present when the record belongs to a PostgreSQL sync pool. */
+	machineId?: string;
+	/** Subscription attribution captured at ingestion time; null/absent = unmapped. */
+	subscriptionId?: string | null;
 	/** computed estimate; null when the model has no known price */
 	cost: number | null;
 }
@@ -33,6 +37,8 @@ export interface DayModelAgg {
 	day: string;
 	provider: string;
 	model: string;
+	machineId?: string;
+	subscriptionId?: string | null;
 	tokens: TokenCounts;
 	requests: number;
 	cost: number; // 0 if unknown-price contributed (see costUnknownRequests)
@@ -43,6 +49,8 @@ export interface DayModelAgg {
 export interface SessionSummary {
 	sessionId: string;
 	provider: string;
+	machineId?: string;
+	subscriptionId?: string | null;
 	project: string;
 	firstTs: number;
 	lastTs: number;
@@ -126,6 +134,8 @@ export interface RollupSnapshot {
 
 /** Incremental delta emitted after the cold scan when new lines are tailed. */
 export interface RollupDelta {
+	/** Full authoritative replacement after a pooled attribution remap. */
+	replace?: RollupSnapshot;
 	generatedAt: number;
 	/** the new/updated per-(day,provider,model) aggregates to merge by (day,provider,model) */
 	dayModel: DayModelAgg[];

@@ -51,7 +51,7 @@ if (existsSync(cliEntry)) {
 	} catch {
 		// no config: use defaults
 	}
-	const configHost = typeof server.host === 'string' && server.host.length > 0 ? server.host : '0.0.0.0';
+	const configHost = typeof server.host === 'string' && server.host.length > 0 ? server.host : '127.0.0.1';
 	const configPort = Number.isInteger(server.port) && server.port > 0 ? String(server.port) : '5178';
 	process.env.HOST ??= configHost;
 	process.env.PORT ??= configPort;

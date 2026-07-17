@@ -54,7 +54,7 @@ export async function runServe(): Promise<void> {
 	const server = await serverConfig();
 	const configHost = typeof server.host === 'string' && server.host.length > 0
 		? server.host
-		: '0.0.0.0';
+		: '127.0.0.1';
 	const configPort = typeof server.port === 'number' && server.port > 0
 		? String(server.port)
 		: '5178';

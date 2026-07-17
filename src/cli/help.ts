@@ -53,6 +53,7 @@ Usage:
   chaching init          Run the setup wizard (re-runnable)
   chaching provider      Manage providers (add | enable | disable)
   chaching doctor        Diagnose why a provider isn't counting (health, staleness, pricing)
+  chaching sync          Create/join a pooled PostgreSQL ledger, map subscriptions
 
 Flags (global):
   --version, -v          Print version and exit
@@ -79,6 +80,16 @@ Flags for wrapped:
 
 Flags for doctor:
   --json                   Machine-readable report model to stdout (art-free)
+
+Chaching Sync:
+  CHACHING_DATABASE_URL=<url> chaching sync create --name <pool> [--machine <name>]
+  CHACHING_DATABASE_URL=<url> chaching sync join --pool <id> [--machine <name>]
+  chaching sync status [--json]
+  chaching sync import-history
+  chaching sync subscription add --provider <name> --name <label>
+      --account <label> --tier <tier> --monthly-usd <amount>
+  chaching sync map --provider <name> --subscription <id|none> [--machine <id>]
+  chaching sync leave
 
 Examples:
   chaching stats --period week --provider codex

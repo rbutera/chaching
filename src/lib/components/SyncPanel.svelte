@@ -151,7 +151,8 @@
 			</div>
 		</div>
 
-		<div class="sync-grid forms">
+		{#if status.managementAllowed !== false}
+			<div class="sync-grid forms">
 			<form onsubmit={addSubscription}>
 				<h3>add subscription</h3>
 				<div class="fields">
@@ -207,30 +208,37 @@
 					{/each}
 				</div>
 			</div>
-		</div>
+			</div>
 
-		<div class="danger-zone">
-			<p>Leaving returns this machine to its local SQLite ledger. Pool data stays in PostgreSQL.</p>
-			<button type="button" class="danger" disabled={busy} onclick={() => run({ action: 'leave' })}>
-				leave pool
-			</button>
-		</div>
+			<div class="danger-zone">
+				<p>Leaving returns this machine to its local SQLite ledger. Pool data stays in PostgreSQL.</p>
+				<button type="button" class="danger" disabled={busy} onclick={() => run({ action: 'leave' })}>
+					leave pool
+				</button>
+			</div>
+		{:else}
+			<p class="warning">
+				Pool management is local-only. Run <code>chaching sync</code> on this host or open its
+				loopback dashboard.
+			</p>
+		{/if}
 	{:else}
 		<p class="summary">
 			Create one PostgreSQL-backed pool, then join every machine that should contribute. Machines can
 			share a subscription or map to different ones.
 		</p>
 
-		<div class="mode-switch" role="tablist" aria-label="Sync setup mode">
+		{#if status?.managementAllowed !== false}
+			<div class="mode-switch" role="tablist" aria-label="Sync setup mode">
 			<button type="button" role="tab" aria-selected={mode === 'create'} class:active={mode === 'create'} onclick={() => (mode = 'create')}>
 				create pool
 			</button>
 			<button type="button" role="tab" aria-selected={mode === 'join'} class:active={mode === 'join'} onclick={() => (mode = 'join')}>
 				join pool
 			</button>
-		</div>
+			</div>
 
-		<form class="connect-form" onsubmit={connect}>
+			<form class="connect-form" onsubmit={connect}>
 			<label>
 				PostgreSQL URL
 				<input
@@ -258,10 +266,16 @@
 			<button class="primary" type="submit" disabled={busy}>
 				{busy ? 'connecting…' : mode === 'create' ? 'create pool' : 'join pool'}
 			</button>
-		</form>
-		<p class="warning">
-			Keep PostgreSQL private: bind it to localhost or your Tailscale address, never the public internet.
-		</p>
+			</form>
+			<p class="warning">
+				Keep PostgreSQL private: bind it to localhost or your Tailscale address, never the public internet.
+			</p>
+		{:else}
+			<p class="warning">
+				Sync setup is local-only. Run <code>chaching sync create</code> or <code>chaching sync join</code>
+				on this host.
+			</p>
+		{/if}
 	{/if}
 
 	{#if error || status?.error}
