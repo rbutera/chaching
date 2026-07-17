@@ -42,6 +42,8 @@ interface PersistedUI {
 	period: Period;
 	models: string[];
 	providers: string[];
+	machines?: string[];
+	subscriptions?: string[];
 	/** the pinned single-day focus (YYYY-MM-DD), or absent/null for rolling-period mode */
 	focusedDay?: string | null;
 }
@@ -51,6 +53,8 @@ export class Dashboard {
 	/** empty = all models; otherwise scope the whole dashboard to these models */
 	modelFilter = $state<Set<string>>(new Set());
 	providerFilter = $state<Set<string>>(new Set());
+	machineFilter = $state<Set<string>>(new Set());
+	subscriptionFilter = $state<Set<string>>(new Set());
 	drill = $state<DrillTarget | null>(null);
 	/**
 	 * The zoomed-in single-day pin (design D5). `null` = rolling-period mode (default).
@@ -68,6 +72,9 @@ export class Dashboard {
 					if (p.period) this.period = p.period;
 					if (Array.isArray(p.models)) this.modelFilter = new Set(p.models);
 					if (Array.isArray(p.providers)) this.providerFilter = new Set(p.providers);
+					if (Array.isArray(p.machines)) this.machineFilter = new Set(p.machines);
+					if (Array.isArray(p.subscriptions))
+						this.subscriptionFilter = new Set(p.subscriptions);
 					// Hydrate the pinned day; clamping against a (possibly shrunk) data range
 					// happens once the snapshot lands, via reconcileFocusedDay().
 					if (typeof p.focusedDay === 'string') this.focusedDay = p.focusedDay;
@@ -85,6 +92,8 @@ export class Dashboard {
 				period: this.period,
 				models: [...this.modelFilter],
 				providers: [...this.providerFilter],
+				machines: [...this.machineFilter],
+				subscriptions: [...this.subscriptionFilter],
 				focusedDay: this.focusedDay
 			};
 			localStorage.setItem(LS_KEY, JSON.stringify(data));
@@ -99,6 +108,8 @@ export class Dashboard {
 			period: this.period,
 			modelFilter: this.modelFilter,
 			providerFilter: this.providerFilter,
+			machineFilter: this.machineFilter,
+			subscriptionFilter: this.subscriptionFilter,
 			focusedDay: this.focusedDay
 		};
 	}
@@ -168,6 +179,28 @@ export class Dashboard {
 
 	clearProviderFilter(): void {
 		this.providerFilter = new Set();
+		this.persist();
+	}
+
+	toggleMachine(machineId: string): void {
+		const next = new Set(this.machineFilter);
+		if (next.has(machineId)) next.delete(machineId);
+		else next.add(machineId);
+		this.machineFilter = next;
+		this.persist();
+	}
+
+	toggleSubscription(subscriptionId: string): void {
+		const next = new Set(this.subscriptionFilter);
+		if (next.has(subscriptionId)) next.delete(subscriptionId);
+		else next.add(subscriptionId);
+		this.subscriptionFilter = next;
+		this.persist();
+	}
+
+	clearPoolFilters(): void {
+		this.machineFilter = new Set();
+		this.subscriptionFilter = new Set();
 		this.persist();
 	}
 
@@ -250,7 +283,7 @@ export class Dashboard {
 
 	/** One cell per calendar day in the banked range (the calendar heatmap series). */
 	byDay(snap: RollupSnapshot): DayCell[] {
-		return vm.byDay(snap);
+		return vm.byDay(snap, this.state());
 	}
 
 	/** Totals for the pinned day (hero + summary cards), filters applied. */

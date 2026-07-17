@@ -7,7 +7,14 @@
 // the web and TUI can never drift. The Svelte class and the React root are both
 // thin shells that hold state and call into here.
 
-import type { DayCoverage, Period, RollupSnapshot, SessionSummary, TokenCounts } from '../types';
+import type {
+	DayCoverage,
+	DayModelAgg,
+	Period,
+	RollupSnapshot,
+	SessionSummary,
+	TokenCounts
+} from '../types';
 import {
 	aggregateByModel,
 	aggregateByProvider,
@@ -75,6 +82,10 @@ export interface ViewState {
 	modelFilter: Set<string>;
 	/** empty = all providers */
 	providerFilter: Set<string>;
+	/** empty = all machines; optional for backward-compatible local/TUI callers */
+	machineFilter?: Set<string>;
+	/** empty = all subscriptions; optional for backward-compatible local/TUI callers */
+	subscriptionFilter?: Set<string>;
 	/**
 	 * The pinned single-day focus (`YYYY-MM-DD`), or null for rolling-period mode (default). When
 	 * set, `scopedSessions` narrows its window to this one day instead of the rolling period
@@ -85,12 +96,58 @@ export interface ViewState {
 }
 
 export function defaultViewState(period: Period = 'week'): ViewState {
-	return { period, modelFilter: new Set(), providerFilter: new Set(), focusedDay: null };
+	return {
+		period,
+		modelFilter: new Set(),
+		providerFilter: new Set(),
+		machineFilter: new Set(),
+		subscriptionFilter: new Set(),
+		focusedDay: null
+	};
 }
 
 /** A filter set, normalized to null when empty (the aggregate helpers treat null = all). */
-function asFilter(set: Set<string>): Set<string> | null {
-	return set.size > 0 ? set : null;
+function asFilter(set?: Set<string>): Set<string> | null {
+	return set && set.size > 0 ? set : null;
+}
+
+type PooledDayModel = DayModelAgg & {
+	machineId?: string;
+	subscriptionId?: string | null;
+};
+type PooledSession = SessionSummary & {
+	machineId?: string;
+	subscriptionId?: string | null;
+};
+
+/** Apply pool attribution filters before any period/model/provider aggregation. */
+function poolGrain(rows: readonly DayModelAgg[], state: ViewState): DayModelAgg[] {
+	const machines = asFilter(state.machineFilter);
+	const subscriptions = asFilter(state.subscriptionFilter);
+	if (!machines && !subscriptions) return [...rows];
+	return rows.filter((row) => {
+		const pooled = row as PooledDayModel;
+		if (machines && (!pooled.machineId || !machines.has(pooled.machineId))) return false;
+		if (
+			subscriptions &&
+			(!pooled.subscriptionId || !subscriptions.has(pooled.subscriptionId))
+		)
+			return false;
+		return true;
+	});
+}
+
+function poolSessionMatches(session: SessionSummary, state: ViewState): boolean {
+	const machines = asFilter(state.machineFilter);
+	const subscriptions = asFilter(state.subscriptionFilter);
+	const pooled = session as PooledSession;
+	if (machines && (!pooled.machineId || !machines.has(pooled.machineId))) return false;
+	if (
+		subscriptions &&
+		(!pooled.subscriptionId || !subscriptions.has(pooled.subscriptionId))
+	)
+		return false;
+	return true;
 }
 
 /**
@@ -102,9 +159,10 @@ function asFilter(set: Set<string>): Set<string> | null {
  * use `snap.dayModel`/`snap.totals` directly and are unaffected.
  */
 export function scopedGrain(snap: RollupSnapshot, state: ViewState) {
-	if (state.focusedDay) return filterDays(snap.dayModel, state.focusedDay, state.focusedDay);
+	const pooled = poolGrain(snap.dayModel, state);
+	if (state.focusedDay) return filterDays(pooled, state.focusedDay, state.focusedDay);
 	const w = periodWindow(snap, state);
-	return filterDays(snap.dayModel, w.from, w.to);
+	return filterDays(pooled, w.from, w.to);
 }
 
 /** Number of inclusive days in a [from, to] window. */
@@ -139,7 +197,7 @@ export function trendGrain(from: string, to: string): BucketGrain {
  */
 export function trend(snap: RollupSnapshot, state: ViewState): PeriodBucket[] {
 	const w = periodWindow(snap, state);
-	const windowed = filterDays(snap.dayModel, w.from, w.to);
+	const windowed = filterDays(poolGrain(snap.dayModel, state), w.from, w.to);
 	const grain = trendGrain(w.from, w.to);
 	const coverageFold = { map: snap.coverage, days: enumerateDays(w.from, w.to) };
 	const present = aggregateByPeriod(
@@ -342,14 +400,15 @@ export function heroTotals(
 	const modelFilter = asFilter(state.modelFilter);
 	const providerFilter = asFilter(state.providerFilter);
 	const w = periodWindow(snap, state);
-	const current = sumGrain(snap.dayModel, {
+	const pooled = poolGrain(snap.dayModel, state);
+	const current = sumGrain(pooled, {
 		from: w.from,
 		to: w.to,
 		models: modelFilter,
 		providers: providerFilter,
 		coverage: { map: snap.coverage, days: enumerateDays(w.from, w.to) }
 	});
-	const prior = sumGrain(snap.dayModel, {
+	const prior = sumGrain(pooled, {
 		from: w.priorFrom,
 		to: w.priorTo,
 		models: modelFilter,
@@ -376,7 +435,7 @@ export function scopedTotals(snap: RollupSnapshot, state: ViewState): Totals {
 	const modelFilter = asFilter(state.modelFilter);
 	const providerFilter = asFilter(state.providerFilter);
 	const w = periodWindow(snap, state);
-	return sumGrain(snap.dayModel, {
+	return sumGrain(poolGrain(snap.dayModel, state), {
 		from: w.from,
 		to: w.to,
 		models: modelFilter,
@@ -419,6 +478,7 @@ export function scopedSessions(snap: RollupSnapshot, state: ViewState): SessionS
 	const providerFilter = asFilter(state.providerFilter);
 	return snap.sessions.filter((s) => {
 		if (!inWindow(s, from, to)) return false;
+		if (!poolSessionMatches(s, state)) return false;
 		if (modelFilter && !s.models.some((m) => modelFilter.has(m))) return false;
 		if (providerFilter && !providerFilter.has(s.provider)) return false;
 		return true;
@@ -434,8 +494,11 @@ export function scopedSessions(snap: RollupSnapshot, state: ViewState): SessionS
 export function allSessions(snap: RollupSnapshot, state: ViewState): SessionSummary[] {
 	const modelFilter = asFilter(state.modelFilter);
 	const providerFilter = asFilter(state.providerFilter);
-	if (!modelFilter && !providerFilter) return snap.sessions;
+	const machineFilter = asFilter(state.machineFilter);
+	const subscriptionFilter = asFilter(state.subscriptionFilter);
+	if (!modelFilter && !providerFilter && !machineFilter && !subscriptionFilter) return snap.sessions;
 	return snap.sessions.filter((s) => {
+		if (!poolSessionMatches(s, state)) return false;
 		if (modelFilter && !s.models.some((m) => modelFilter.has(m))) return false;
 		if (providerFilter && !providerFilter.has(s.provider)) return false;
 		return true;
@@ -598,16 +661,17 @@ export function isLive(session: SessionSummary, now: number = Date.now()): boole
  *
  * Single pass: aggregate the flat grain to day grain once via `aggregateByPeriod(_, 'day')`,
  * index by day, then walk every calendar day from earliest to latest filling gaps with a
- * zero cell. The model/provider filters are ignored here on purpose — the heatmap is a
- * full-history navigation surface (cost-shaded over ALL spend), not a filtered view. Each
+ * zero cell. Model/provider display filters are ignored, but pool attribution filters apply:
+ * a machine/subscription drill-down needs the heatmap to show that selected ledger slice. Each
  * cell's `coverage` is read from the snapshot map, defaulting to `missing` for a gap day
  * (the same range-relative rule as the trend). Empty when there's no data.
  */
-export function byDay(snap: RollupSnapshot): DayCell[] {
+export function byDay(snap: RollupSnapshot, state?: ViewState): DayCell[] {
 	const from = snap.earliestDay;
 	const to = snap.latestDay;
 	if (from == null || to == null) return [];
-	const present = new Map(aggregateByPeriod(snap.dayModel, 'day').map((b) => [b.key, b]));
+	const rows = state ? poolGrain(snap.dayModel, state) : snap.dayModel;
+	const present = new Map(aggregateByPeriod(rows, 'day').map((b) => [b.key, b]));
 	const out: DayCell[] = [];
 	for (let day = from; day <= to; day = addDaysISO(day, 1)) {
 		const b = present.get(day);
@@ -628,7 +692,7 @@ export function byDay(snap: RollupSnapshot): DayCell[] {
  * and cards use — so the focused numbers are identically derived, just over a tighter window.
  */
 export function focusedTotals(snap: RollupSnapshot, day: string, state: ViewState): Totals {
-	return sumGrain(snap.dayModel, {
+	return sumGrain(poolGrain(snap.dayModel, state), {
 		from: day,
 		to: day,
 		models: asFilter(state.modelFilter),
@@ -640,7 +704,7 @@ export function focusedTotals(snap: RollupSnapshot, day: string, state: ViewStat
 /** Per-model totals for a single pinned day (drives the donut), provider filter applied. */
 export function focusedModels(snap: RollupSnapshot, day: string, state: ViewState): ModelTotal[] {
 	const providers = asFilter(state.providerFilter);
-	let grain = filterDays(snap.dayModel, day, day);
+	let grain = filterDays(poolGrain(snap.dayModel, state), day, day);
 	if (providers) grain = grain.filter((dm) => providers.has(dm.provider));
 	return aggregateByModel(grain);
 }
@@ -657,6 +721,7 @@ export function focusedSessions(snap: RollupSnapshot, day: string, state: ViewSt
 	const providerFilter = asFilter(state.providerFilter);
 	return snap.sessions.filter((s) => {
 		if (s.firstTs >= dayEnd || s.lastTs < dayStart) return false;
+		if (!poolSessionMatches(s, state)) return false;
 		if (modelFilter && !s.models.some((m) => modelFilter.has(m))) return false;
 		if (providerFilter && !providerFilter.has(s.provider)) return false;
 		return true;

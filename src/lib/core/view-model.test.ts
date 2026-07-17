@@ -1002,3 +1002,40 @@ describe('projectTotals — period scoping, focusedDay, and filters', () => {
 		expect(projTotal).toBeCloseTo(sessionTotal, 10);
 	});
 });
+
+describe('pooled machine and subscription filters', () => {
+	const pooledRows = [
+		{ ...dm('2026-06-19', 'claude', 'claude-opus-4-8', 100), machineId: 'kinto', subscriptionId: 'work-claude' },
+		{ ...dm('2026-06-19', 'claude', 'claude-opus-4-8', 60), machineId: 'nimbus', subscriptionId: 'personal-claude' },
+		{ ...dm('2026-06-19', 'codex', 'gpt-5.6-sol', 40), machineId: 'nimbus', subscriptionId: 'shared-codex' }
+	] satisfies Array<DayModelAgg & { machineId: string; subscriptionId: string }>;
+	const pooled = snapFrom(pooledRows);
+
+	it('scopes every day-grain total by machine', () => {
+		const state = {
+			...defaultViewState('day'),
+			machineFilter: new Set(['nimbus'])
+		};
+		expect(scopedTotals(pooled, state).cost).toBe(100);
+		expect(heroTotals(pooled, state).current.cost).toBe(100);
+		expect(byDay(pooled, state)[0]?.cost).toBe(100);
+	});
+
+	it('scopes by a subscription shared independently of machine', () => {
+		const state = {
+			...defaultViewState('day'),
+			subscriptionFilter: new Set(['shared-codex'])
+		};
+		expect(scopedTotals(pooled, state).cost).toBe(40);
+		expect(models(pooled, state).map((item) => item.model)).toEqual(['gpt-5.6-sol']);
+	});
+
+	it('AND-composes machine and subscription filters', () => {
+		const state = {
+			...defaultViewState('day'),
+			machineFilter: new Set(['kinto']),
+			subscriptionFilter: new Set(['shared-codex'])
+		};
+		expect(scopedTotals(pooled, state).cost).toBe(0);
+	});
+});
