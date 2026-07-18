@@ -94,7 +94,11 @@ export function altModelScenario(
 
 	for (const slice of input.slices) {
 		const src = resolver.source(slice.provider, slice.model);
-		if (!src || !target) {
+		// A slice with ANY unknown-cost requests is excluded even when the resolver
+		// knows the model TODAY: a later pricing-snapshot refresh can make a frozen
+		// slice resolver-known while its recorded actualCost stays incomplete, and
+		// repricing it would fabricate a delta against a partial actual.
+		if (!src || !target || slice.costUnknownRequests > 0) {
 			excluded.push(slice);
 			continue;
 		}
@@ -167,7 +171,9 @@ export function noCacheScenario(
 
 	for (const slice of input.slices) {
 		const src = resolver.source(slice.provider, slice.model);
-		if (!src) {
+		// Same unknown-request guard as altModelScenario: incomplete recorded actuals
+		// must not anchor a counterfactual delta.
+		if (!src || slice.costUnknownRequests > 0) {
 			excluded.push(slice);
 			continue;
 		}
@@ -243,7 +249,8 @@ export function planFitScenarios(
 		const excluded: UsageSlice[] = [];
 		let windowBurn = 0;
 		for (const slice of providerSlices) {
-			if (!resolver.source(slice.provider, slice.model)) {
+			// Unknown-request guard: see altModelScenario.
+			if (!resolver.source(slice.provider, slice.model) || slice.costUnknownRequests > 0) {
 				excluded.push(slice);
 				continue;
 			}

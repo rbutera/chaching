@@ -187,6 +187,36 @@ describe('both-sides exclusion (task 1.5)', () => {
 		expect(r.notes.some((n) => n.includes('An unknown amount'))).toBe(true);
 	});
 
+	it('a resolver-KNOWN slice with unknown-cost requests is still excluded from both sides', () => {
+		// A frozen slice recorded as unknown at ingest can become resolver-known after
+		// a pricing-snapshot refresh. Its recorded actualCost is incomplete (often 0),
+		// so repricing it would fabricate a delta against a partial actual — it must
+		// be excluded even though the resolver prices the model TODAY.
+		const resolver: PriceResolver = { source: () => OPUS, target: () => OPENAI };
+		const clean = slice({ provider: 'claude', model: 'known', actualCost: OPUS_ACTUAL });
+		const stale = slice({
+			provider: 'claude',
+			model: 'late-priced',
+			actualCost: 0, // incomplete recorded bill
+			costUnknownRequests: 2
+		});
+
+		const r = altModelScenario(input([clean, stale]), 'gpt-5', resolver, costFromPriceEntry);
+		const solo = altModelScenario(input([clean]), 'gpt-5', resolver, costFromPriceEntry);
+
+		expect(r.totalUsd).toBeCloseTo(solo.totalUsd!, 12);
+		expect(r.actualUsd).toBeCloseTo(solo.actualUsd!, 12);
+		expect(r.exclusions.modelCount).toBe(1);
+		expect(r.exclusions.models).toEqual(['claude/late-priced']);
+		expect(r.exclusions.spendUsd).toBeNull(); // its real spend is genuinely unknown
+
+		// Same guard on the other two scenario kinds.
+		const nc = noCacheScenario(input([clean, stale]), resolver, costFromPriceEntry);
+		expect(nc.exclusions.modelCount).toBe(1);
+		const pf = planFitScenarios(input([clean, stale]), resolver);
+		expect(pf.every((sc) => sc.exclusions.modelCount === 1)).toBe(true);
+	});
+
 	it('a null TARGET price makes the whole scenario UNAVAILABLE (null totals), not $0', () => {
 		const resolver: PriceResolver = { source: () => OPUS, target: () => null };
 		const a = slice({ provider: 'claude', model: 'a', actualCost: 2 });
