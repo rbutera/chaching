@@ -5,6 +5,7 @@
 import { runStats, type StatsFlags } from './commands/stats.js';
 import { runReceipt, type ReceiptFlags } from './commands/receipt.js';
 import { runWrapped, type WrappedFlags } from './commands/wrapped.js';
+import { runWhatif, type WhatifFlags } from './commands/whatif.js';
 import { runServe } from './commands/serve.js';
 import { runInit } from './commands/init.js';
 import { runProvider } from './commands/provider.js';
@@ -64,6 +65,11 @@ export async function run(argv: string[]): Promise<void> {
 		case 'wrapped':
 			// Same global-flag merge as receipt (--no-art / --no-color before the subcommand).
 			await runWrapped(parseWrappedFlags([...globalArgs, ...rest]));
+			return;
+
+		case 'whatif':
+			// Same global-flag merge as stats (--no-art / --no-color before the subcommand).
+			await runWhatif(parseWhatifFlags([...globalArgs, ...rest]));
 			return;
 
 		case 'serve':
@@ -251,6 +257,75 @@ function parseWrappedFlags(argv: string[]): WrappedFlags {
 			}
 		} else if (arg.startsWith('-')) {
 			console.error(`chaching wrapped: unknown flag '${arg}'`);
+			console.error(`Run \`chaching --help\` for usage.`);
+			process.exit(1);
+		}
+	}
+
+	return flags;
+}
+
+/**
+ * Parse `chaching whatif` flags (hand-rolled, per D3). Supports `--period`
+ * (day|week|month|quarter|all, default month applied downstream), `--model <id>`
+ * (the alternate-model reprice target; omitted → derived from the window), and
+ * `--json`. Unknown flag → error + nonzero exit (same discipline as stats).
+ */
+function parseWhatifFlags(argv: string[]): WhatifFlags {
+	const flags: WhatifFlags = {};
+
+	flags.noArt = noArt(argv);
+
+	const setPeriod = (p: string): void => {
+		if (p === 'day' || p === 'week' || p === 'month' || p === 'quarter' || p === 'all') {
+			flags.period = p;
+		} else {
+			console.error(
+				`chaching whatif: unknown period '${p}' (must be day|week|month|quarter|all)`
+			);
+			process.exit(1);
+		}
+	};
+
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+
+		if (arg === '--json') {
+			flags.json = true;
+		} else if (arg === '--no-art') {
+			// already handled via noArt(); skip
+		} else if (arg === '--period') {
+			const p = argv[i + 1];
+			if (!p || p.startsWith('--')) {
+				console.error(`chaching whatif: --period requires a value (day|week|month|quarter|all)`);
+				process.exit(1);
+			}
+			i++;
+			setPeriod(p);
+		} else if (arg.startsWith('--period=')) {
+			const p = arg.slice('--period='.length);
+			if (!p) {
+				console.error(`chaching whatif: --period requires a value (day|week|month|quarter|all)`);
+				process.exit(1);
+			}
+			setPeriod(p);
+		} else if (arg === '--model') {
+			const m = argv[i + 1];
+			if (!m || m.startsWith('--')) {
+				console.error(`chaching whatif: --model requires a value (a model id)`);
+				process.exit(1);
+			}
+			i++;
+			flags.model = m;
+		} else if (arg.startsWith('--model=')) {
+			const m = arg.slice('--model='.length);
+			if (!m) {
+				console.error(`chaching whatif: --model requires a value (a model id)`);
+				process.exit(1);
+			}
+			flags.model = m;
+		} else if (arg.startsWith('-')) {
+			console.error(`chaching whatif: unknown flag '${arg}'`);
 			console.error(`Run \`chaching --help\` for usage.`);
 			process.exit(1);
 		}

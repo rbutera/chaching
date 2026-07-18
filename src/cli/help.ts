@@ -49,6 +49,7 @@ Usage:
   chaching stats         One-shot summary: totals, per-provider, per-model
   chaching receipt       Print your spend as a branded thermal receipt
   chaching wrapped       Your month in tokens: a Spotify-Wrapped-style recap
+  chaching whatif        Counterfactual lab: reprice your usage under a different basis
   chaching serve         Start the web dashboard server
   chaching init          Run the setup wizard (re-runnable)
   chaching provider      Manage providers (add | enable | disable)
@@ -77,6 +78,11 @@ Flags for wrapped:
   --json                   Machine-readable recap model to stdout (art-free)
   --png [path]             Write a shareable PNG (default: ./chaching-wrapped-<month>.png)
   --redact                 Scrub usernames/hosts/paths before sharing (default: shown)
+
+Flags for whatif:
+  --period day|week|month|quarter|all  Window to reprice (default: month)
+  --model <id>             Alternate-model reprice target (default: derived from the window)
+  --json                   Machine-readable scenario ledger to stdout (art-free)
 
 Flags for doctor:
   --json                   Machine-readable report model to stdout (art-free)
