@@ -170,6 +170,8 @@ export function subscriptionHeadroom(ctx: ToolContext): Record<string, unknown> 
 	});
 	return {
 		advisory: true,
+		// NOTE: calendar-MTD is the documented subsidy-reconciliation frame (monthly fee);
+		// it intentionally differs from the dashboard subsidy card's rolling window.
 		basis: 'calendar-month-to-date',
 		month: roll.monthLabel,
 		elapsedDays: roll.elapsedDays,

@@ -56,7 +56,10 @@ export function assertContentFree(value: unknown, path = 'result'): void {
 	if (value == null) return;
 	if (typeof value === 'string') {
 		if (looksLikePath(value)) {
-			throw new Error(`mcp content-free contract: path-like string at ${path}: ${value}`);
+			// The offending VALUE must not appear in the message: the SDK forwards a
+			// thrown message to the client as an isError result, so embedding it would
+			// leak the very string this guard exists to block. The structural path is safe.
+			throw new Error(`mcp content-free contract: path-like string at ${path}`);
 		}
 		return;
 	}
