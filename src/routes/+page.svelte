@@ -314,7 +314,7 @@
 			</div>
 
 			<div class="slot-rail">
-				<SummaryRail {feed} {dash} />
+				<SummaryRail {feed} {dash} {reducedMotion} />
 			</div>
 
 			<div class="zone-now">

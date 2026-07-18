@@ -8,6 +8,7 @@
 	import type { PeriodBucket } from '$lib/core/aggregate';
 	import { flourishFor, formatFlourishText, DAILY_FLOURISHES } from '$lib/voice';
 	import { trailingThrottle } from '$lib/client/motion';
+	import { coverageWord, coverageGlyph } from '$lib/core/coverage-marks';
 
 	// Regions receive `{ feed, dash }` as props (no Svelte context). `reducedMotion`
 	// and `suppressArt` are page-level cross-cutting flags (shared with joy + loading
@@ -32,6 +33,24 @@
 	);
 	let heroCost = $derived(focusedTotals ? focusedTotals.cost : (hero?.current.cost ?? 0));
 	let heroLabel = $derived(focusedDay ? fmtDay(focusedDay) : (hero?.label ?? '—'));
+
+	// Cost-honesty (hard rule), mirroring SummaryRail's `pinnedMark`: a pinned day
+	// that is a gap (`missing`) or still landing (`partial`) must NOT be headlined as
+	// a dollar figure — `focusedTotals.cost` is 0/incomplete for those, so rolling it
+	// on the odometer would fabricate a final "$0.00". For a single-day window the
+	// coverage summary's `worst` IS that day's class, so we render the SAME coverage
+	// vocabulary (`coverageWord`/`coverageGlyph`) in the figure slot instead of money.
+	// A genuine `zero` day (frozen, real quiet day) still shows $0.00, a `frozen` day
+	// its real total, and period scope always shows money. Delta suppression is
+	// unchanged (`heroDelta` is already null in focused mode).
+	let pinnedMark = $derived.by(() => {
+		if (!focusedDay || !focusedTotals) return null;
+		const worst = focusedTotals.coverage.worst;
+		if (worst === 'missing' || worst === 'partial') {
+			return { state: worst, word: coverageWord(worst), glyph: coverageGlyph(worst) };
+		}
+		return null;
+	});
 
 	// "Receipt" button → /api/receipt.png reflecting the dashboard's current period,
 	// focused-day pin, and provider filter. (The receipt has no per-MODEL scope — same
@@ -100,7 +119,15 @@
 			{#if dash.modelFilter.size > 0}<span class="scope">· {[...dash.modelFilter].map(modelLabel).join(', ')}</span>{/if}
 		</p>
 		<div class="hero-figure">
-			<MoneyOdometer amount={displayCost} size="hero" tone="gold" />
+			{#if pinnedMark}
+				<!-- Honest coverage mark instead of a fabricated $0.00 headline for a gap/partial pinned day. -->
+				<p class="hero-coverage" data-testid="hero-coverage-mark" data-coverage={pinnedMark.state}>
+					<span class="hero-coverage-glyph" aria-hidden="true">{pinnedMark.glyph}</span>
+					<span class="hero-coverage-word">{pinnedMark.word}</span>
+				</p>
+			{:else}
+				<MoneyOdometer amount={displayCost} size="hero" tone="gold" {reducedMotion} />
+			{/if}
 			{#if heroDelta}
 				<span class="delta {heroDelta.dir}">
 					{heroDelta.text}
@@ -182,6 +209,27 @@
 		align-items: baseline;
 		gap: 1.1rem;
 		flex-wrap: wrap;
+	}
+	/* Coverage mark standing in for the hero money figure on a gap/partial pinned day.
+	   Same figure slot, mono voice, deliberately dimmer than a real total so it never
+	   reads as a dollar amount. `missing` is the most muted (a true gap); `partial`
+	   carries the warn hue (data still landing). Mirrors SummaryRail's `.rail-coverage`. */
+	.hero-coverage {
+		display: inline-flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		margin: 0;
+		font-family: var(--font-mono);
+		font-size: var(--text-3xl);
+		font-weight: var(--fw-medium);
+		letter-spacing: var(--tracking-snug);
+		color: var(--text-dim);
+	}
+	.hero-coverage[data-coverage='partial'] {
+		color: var(--warn);
+	}
+	.hero-coverage-glyph {
+		font-size: 0.85em;
 	}
 	.delta {
 		font-family: var(--font-num);

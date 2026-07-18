@@ -11,9 +11,14 @@
 	import MoneyOdometer from '$lib/components/ds/MoneyOdometer.svelte';
 	import { fmtDay, providerLabel } from '$lib/format';
 	import { coverageWord, coverageGlyph } from '$lib/core/coverage-marks';
+	import { trailingThrottle } from '$lib/client/motion';
 	import type { Period } from '$lib/types';
 
-	let { feed, dash }: { feed: FeedStore; dash: Dashboard } = $props();
+	let {
+		feed,
+		dash,
+		reducedMotion = false
+	}: { feed: FeedStore; dash: Dashboard; reducedMotion?: boolean } = $props();
 
 	let snap = $derived(feed.snapshot);
 	let focusedDay = $derived(dash.focusedDay);
@@ -50,6 +55,22 @@
 		}
 		return null;
 	});
+
+	// Rail odometer feed: the rail's money readout rolls in lock-step with the hero, so
+	// it must share the hero's ONE cadence contract rather than handing NumberFlow a
+	// fresh target on every SSE delta (which would thrash the columns out of sync with
+	// the hero). Same trailing throttle the hero uses (HeroRegion): ~900ms window,
+	// coalesce-to-latest, leading edge fires the first value immediately so first paint
+	// rolls 0 → the initial total. Under reduced motion the window collapses to 0
+	// (every push immediate) and NumberFlow itself renders without a roll.
+	let displayCost = $state(0);
+	let tickThrottle = $derived(
+		trailingThrottle<number>(reducedMotion ? 0 : 900, (target) => (displayCost = target))
+	);
+	$effect(() => {
+		tickThrottle.push(scopedCost);
+	});
+	$effect(() => () => tickThrottle.cancel());
 </script>
 
 {#if snap}
@@ -66,7 +87,7 @@
 				<!-- Rail money readout mirrors the hero's scoped total; the odometer roll
 				     ties the two always-visible figures together. The all-time figure below
 				     stays a static MoneyFigure (a tiny lifetime number rolling would be noise). -->
-				<MoneyOdometer amount={scopedCost} size="lg" tone="gold" />
+				<MoneyOdometer amount={displayCost} size="lg" tone="gold" {reducedMotion} />
 			{/if}
 		</div>
 		{#if dash.providerFilter.size > 0}

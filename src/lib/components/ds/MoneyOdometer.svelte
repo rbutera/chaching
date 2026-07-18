@@ -25,18 +25,35 @@
 	// keeps the figure legible to the accessibility tree (and assertable in tests)
 	// rather than a column of 0–9 reels.
 	import NumberFlow from '@number-flow/svelte';
+	import { prefersReducedMotion } from '$lib/client/motion';
 
 	let {
 		amount = 0,
 		size = 'lg',
 		tone = 'gold',
-		currency = '$'
+		currency = '$',
+		reducedMotion = undefined
 	}: {
 		amount?: number;
 		size?: MoneyFigureSize;
 		tone?: MoneyFigureTone;
 		currency?: string;
+		/**
+		 * When true, roll animation is turned OFF explicitly (defense-in-depth beside
+		 * NumberFlow's own `respectMotionPreference`, which stays on). Callers that
+		 * already track the page's motion preference (hero, rail) pass it down; when
+		 * omitted we fall back to querying `prefers-reduced-motion` ourselves so a
+		 * standalone odometer still honours the setting.
+		 */
+		reducedMotion?: boolean;
 	} = $props();
+
+	// The single motion decision this component makes, reflected two ways: handed to
+	// NumberFlow as `animated` (its native "don't roll" switch) AND mirrored onto the
+	// root as `data-animated` so the animate/reduced contract is assertable in a DOM
+	// where WAAPI is unobservable (jsdom). `respectMotionPreference` remains true, so
+	// even without a prop NumberFlow refuses to roll under reduced motion.
+	let animated = $derived(!(reducedMotion ?? prefersReducedMotion()));
 
 	// Match MoneyFigure's decimal rule exactly: 0 dp for abs ≥ 1000, else 2 dp, so
 	// the odometer and any static MoneyFigure beside it read identically.
@@ -56,10 +73,10 @@
 	);
 </script>
 
-<span class="money {size} {tone}" data-testid="money-odometer">
+<span class="money {size} {tone}" data-testid="money-odometer" data-animated={animated}>
 	<span class="visually-hidden">{accessible}</span>
 	<span class="odometer" aria-hidden="true">
-		<span class="currency">{currency}</span><NumberFlow value={amount} {format} />
+		<span class="currency">{currency}</span><NumberFlow value={amount} {format} {animated} />
 	</span>
 </span>
 

@@ -53,4 +53,32 @@ describe('MoneyOdometer', () => {
 		expect(el.classList.contains('gold')).toBe(true);
 		expect(el.classList.contains('hero')).toBe(true);
 	});
+
+	it('updates the accessible mirror when the amount changes (the live roll contract)', async () => {
+		const { container, rerender } = render(MoneyOdometer, { props: { amount: 12.3 } });
+		expect(accessible(container as HTMLElement)).toBe('$12.30');
+		// A live delta hands the odometer a new value; the a11y mirror must follow it
+		// (NumberFlow rolls the visual, this text node is what SR/tests read).
+		await rerender({ amount: 48.5 });
+		expect(accessible(container as HTMLElement)).toBe('$48.50');
+	});
+
+	it('turns NumberFlow animation OFF under reduced motion (animate/reduced contract)', () => {
+		// jsdom can't observe WAAPI, so assert the markup contract: MoneyOdometer must
+		// pass `animated={false}` to NumberFlow, mirrored on the root as data-animated,
+		// so the reduced-motion path provably disables the roll (respectMotionPreference
+		// stays on as defense-in-depth).
+		const reduced = render(MoneyOdometer, { props: { amount: 42, reducedMotion: true } });
+		const rootReduced = reduced.container.querySelector('.money')!;
+		expect(rootReduced.getAttribute('data-animated')).toBe('false');
+		// And the NumberFlow element itself received animated=false (not left animating).
+		const nfReduced = reduced.container.querySelector('number-flow-svelte') as
+			| (Element & { animated?: boolean })
+			| null;
+		expect(nfReduced?.animated).toBe(false);
+
+		// The default (motion allowed) path keeps the roll on.
+		const motion = render(MoneyOdometer, { props: { amount: 42, reducedMotion: false } });
+		expect(motion.container.querySelector('.money')!.getAttribute('data-animated')).toBe('true');
+	});
 });
