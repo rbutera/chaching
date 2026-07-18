@@ -11,6 +11,7 @@
 	import StatRowRegion from '$lib/components/regions/StatRowRegion.svelte';
 	import ValueBandRegion from '$lib/components/regions/ValueBandRegion.svelte';
 	import LifetimeRegion from '$lib/components/regions/LifetimeRegion.svelte';
+	import WhatifRegion from '$lib/components/regions/WhatifRegion.svelte';
 	import HeatmapRegion from '$lib/components/regions/HeatmapRegion.svelte';
 	import ByModelRegion from '$lib/components/regions/ByModelRegion.svelte';
 	import ByProjectRegion from '$lib/components/regions/ByProjectRegion.svelte';
@@ -324,6 +325,7 @@
 
 			<div class="zone-money">
 				<ValueBandRegion {feed} {dash} {config} {syncStatus} {onTierChange} />
+				<WhatifRegion {feed} {dash} {reducedMotion} />
 				<LifetimeRegion {feed} {dash} />
 			</div>
 
