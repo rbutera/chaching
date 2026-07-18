@@ -12,19 +12,21 @@
 
 import styles from 'ansi-styles';
 
-import type { BrandToken, ChalkBasicName, Tokens } from './tokens.js';
+import type { BrandToken, ChalkBasicName, Texture, Tokens } from './tokens.js';
+import { texture } from './tokens.js';
 
 /** Markers that bracket the generated block inside src/app.css. */
 export const CSS_BEGIN_MARKER = '/* BEGIN GENERATED brand tokens — do not hand-edit (src/lib/brand) */';
 export const CSS_END_MARKER = '/* END GENERATED brand tokens */';
 
 /**
- * Emit the `:root` color custom-property block, using the names the web app and
- * src/lib/format.ts already reference. Only color vars are generated here; the
- * non-color vars (radius, shadow, fonts, maxw, color-scheme) stay hand-authored
- * outside the markers.
+ * Emit the `:root` custom-property block: the semantic + raw colors, plus the
+ * non-color register geometry (rail sizing, paper grain, torn-edge mask) so
+ * those single-source through the same block. The remaining non-color vars
+ * (radius, shadow, fonts, maxw, color-scheme) stay hand-authored outside the
+ * markers.
  */
-export function toCss(t: Tokens): string {
+export function toCss(t: Tokens, tex: Texture = texture): string {
 	const r = t.ramps;
 	const h = t.hues;
 	const lines = [
@@ -124,6 +126,14 @@ export function toCss(t: Tokens): string {
 		`\t--chrome-brass: ${t.chrome.brass.hex};`,
 		`\t--chrome-ember: ${t.chrome.ember.hex};`,
 		`\t--chrome-edge: ${t.chrome.edge.hex};`,
+		'',
+		'\t/* ── Register texture + rail geometry (non-color, single source) ── */',
+		`\t--rail-w: ${tex.rail.w};`,
+		`\t--rail-w-min: ${tex.rail.wMin};`,
+		`\t--grain-opacity: ${tex.grain.opacity};`,
+		`\t--grain-image: ${tex.grain.image};`,
+		`\t--tear-tooth: ${tex.tear.tooth};`,
+		`\t--tear-mask: ${tex.tear.mask};`,
 		CSS_END_MARKER
 	];
 	return lines.join('\n');

@@ -244,3 +244,36 @@ export const tokens = {
 } satisfies BrandTokens;
 
 export type Tokens = typeof tokens;
+
+/**
+ * Non-color register geometry — the persistent summary-rail sizing, the paper
+ * grain, and the torn-edge sawtooth mask. These are lengths / opacities / a
+ * data-URI, not {@link BrandToken} colors, so they carry no hex/ansi and are
+ * outside the text-contrast invariant by shape. They live here (the single
+ * typed source) rather than hand-authored in app.css so `generate.ts` emits
+ * them into the same generated custom-property block the colors flow through —
+ * one source, no drift. Grain opacity stays ≤ 0.04 (the restraint budget from
+ * the grand-register visual overhaul).
+ */
+export interface TextureTokens {
+	/** Bento summary-rail column widths (desktop persistent money column). */
+	rail: { w: string; wMin: string };
+	/** SVG-noise paper grain — a ≤4%-opacity data-URI overlay. */
+	grain: { opacity: string; image: string };
+	/** Torn thermal-paper edge — sawtooth tooth width + the mask gradient. */
+	tear: { tooth: string; mask: string };
+}
+
+export const texture = {
+	rail: { w: '264px', wMin: '232px' },
+	grain: {
+		opacity: '0.035',
+		image: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E")`
+	},
+	tear: {
+		tooth: '9px',
+		mask: 'conic-gradient(from -45deg at bottom, #0000 25%, #000 0)'
+	}
+} satisfies TextureTokens;
+
+export type Texture = typeof texture;

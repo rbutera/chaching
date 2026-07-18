@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 import styles from 'ansi-styles';
 
-import { tokens } from './tokens.js';
+import { tokens, texture } from './tokens.js';
 import { toCss, toAnsiMap, CSS_BEGIN_MARKER, CSS_END_MARKER } from './generate.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -113,7 +113,14 @@ describe('toCss', () => {
 			// register chrome
 			'--chrome-brass',
 			'--chrome-ember',
-			'--chrome-edge'
+			'--chrome-edge',
+			// register texture + rail geometry (non-color, single-sourced)
+			'--rail-w',
+			'--rail-w-min',
+			'--grain-opacity',
+			'--grain-image',
+			'--tear-tooth',
+			'--tear-mask'
 		]) {
 			expect(css).toContain(`${name}: `);
 		}
@@ -123,6 +130,19 @@ describe('toCss', () => {
 		const css = toCss(tokens);
 		expect(css).toContain('--accent: #eba92c;');
 		expect(css).toContain('--m-haiku: #f4ce3a;');
+	});
+
+	it('emits the register texture + rail geometry from the typed token source', () => {
+		const css = toCss(tokens);
+		// Values flow from `texture` in tokens.ts, not hand-authored in app.css.
+		expect(css).toContain(`--rail-w: ${texture.rail.w};`);
+		expect(css).toContain(`--rail-w-min: ${texture.rail.wMin};`);
+		expect(css).toContain(`--grain-opacity: ${texture.grain.opacity};`);
+		expect(css).toContain(`--grain-image: ${texture.grain.image};`);
+		expect(css).toContain(`--tear-tooth: ${texture.tear.tooth};`);
+		expect(css).toContain(`--tear-mask: ${texture.tear.mask};`);
+		// Restraint budget: paper grain never exceeds ~4% opacity.
+		expect(Number(texture.grain.opacity)).toBeLessThanOrEqual(0.04);
 	});
 });
 

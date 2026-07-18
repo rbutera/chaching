@@ -192,6 +192,7 @@ ${generated}
 	--maxw: 1280px;
 	--maxw-prose: 60ch;
 	--receipt-w: 360px;
+	--bento-gap: var(--space-6); /* bento grid gutter (rail sizing lives in the generated block) */
 
 	/* ── Z-index ─────────────────────────────────────────────────────────── */
 	--z-base: 0;
