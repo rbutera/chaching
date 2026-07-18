@@ -42,6 +42,29 @@ describe('aggregateSlices (task 1.1)', () => {
 		expect(slices[0].actualCost).toBe(6);
 	});
 
+	it('carries the cache-write 1h/5m split through when the grain has it (FrozenAgg)', () => {
+		// A FrozenAgg-shaped grain (DayModelAgg + the persisted split) must flow into
+		// the slice; a plain DayModelAgg (no split) stays 0/0.
+		const withSplit = {
+			day: '2026-07-01',
+			provider: 'claude',
+			model: 'opus',
+			tokens: { input: 0, output: 0, cacheCreation: 50, cacheRead: 0 },
+			requests: 1,
+			cost: 1,
+			costUnknownRequests: 0,
+			cacheCreation1h: 30,
+			cacheCreation5m: 20
+		};
+		const [split] = aggregateSlices([withSplit, { ...withSplit }]);
+		expect(split.cacheCreation1h).toBe(60); // summed across the two rows
+		expect(split.cacheCreation5m).toBe(40);
+
+		const [plain] = aggregateSlices([agg('2026-07-01', 'claude', 'opus', 100, 1)]);
+		expect(plain.cacheCreation1h).toBe(0);
+		expect(plain.cacheCreation5m).toBe(0);
+	});
+
 	it('buildWhatifInput carries the window through', () => {
 		const wi = buildWhatifInput([agg('2026-07-01', 'claude', 'opus', 100, 1)], {
 			from: '2026-07-01',

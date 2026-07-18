@@ -4,11 +4,17 @@
 // (design decision 6). The CLI passes a runOnce() snapshot's grain; the web
 // server passes the live rollup's grain — same aggregation either way.
 
-import type { DayModelAgg } from '../../types';
 import { buildWhatifInput } from './aggregate';
 import { altModelScenario, noCacheScenario, planFitScenarios } from './scenarios';
 import { defaultCostFn, defaultResolver } from './resolve';
-import type { CostFn, PriceResolver, ScenarioResult, UsageWindow, WhatifInput } from './types';
+import type {
+	CostFn,
+	DayModelAggInput,
+	PriceResolver,
+	ScenarioResult,
+	UsageWindow,
+	WhatifInput
+} from './types';
 
 export interface BuildScenariosOptions {
 	/** inclusive [from, to] window to reprice; omit to reprice the full grain (plan-fit then skipped) */
@@ -31,7 +37,7 @@ export interface BuildScenariosOptions {
  * with usage. Every result carries the mandatory price-only-counterfactual label.
  */
 export function buildScenarios(
-	dayModel: DayModelAgg[],
+	dayModel: DayModelAggInput[],
 	options: BuildScenariosOptions = {}
 ): ScenarioResult[] {
 	const resolver = options.resolver ?? defaultResolver;
@@ -46,7 +52,7 @@ export function buildScenarios(
 		results.push(noCacheScenario(input, resolver, cost));
 	}
 	if (options.planFit !== false) {
-		results.push(...planFitScenarios(input, resolver, cost));
+		results.push(...planFitScenarios(input, resolver));
 	}
 	return results;
 }

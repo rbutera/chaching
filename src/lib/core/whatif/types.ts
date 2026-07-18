@@ -6,7 +6,22 @@
 // function injected, mirroring the cache-breakdown-core/cache-breakdown split.
 
 import type { PriceEntry } from '../pricing/overrides';
-import type { TokenCounts } from '../../types';
+import type { DayModelAgg, TokenCounts } from '../../types';
+
+/**
+ * The engine's aggregate input grain. The snapshot's `DayModelAgg` omits the
+ * cache-write 1h/5m split (it is persisted on freeze, not shipped in the snapshot),
+ * so those fields are OPTIONAL here: a caller that has the split (the rollup's
+ * `FrozenAgg`, `allDayAggregates()`) passes it through and the counterfactual side
+ * bills 1h vs 5m cache-writes at the target's distinct rates; a caller that only
+ * has the plain snapshot grain omits it and the single cache-write rate is applied
+ * to the whole creation count (identical to how the real bill degrades). Reconstructing
+ * a per-request split from a plain aggregate is impossible, so 0/0 is the honest default.
+ */
+export type DayModelAggInput = DayModelAgg & {
+	cacheCreation1h?: number;
+	cacheCreation5m?: number;
+};
 
 /**
  * A window-aggregated usage slice: the token-class sums for one (provider, model)
@@ -20,10 +35,20 @@ export interface UsageSlice {
 	/** token-class sums over the window for this (provider, model) */
 	tokens: TokenCounts;
 	requests: number;
-	/** the real bill's computed cost for this slice (sum of dm.cost); 0 when unknown-priced */
+	/**
+	 * The real bill's computed cost for this slice (sum of dm.cost), used verbatim as
+	 * the actual/baseline side — never recomputed from the aggregate (a recompute would
+	 * drop the recorded 1h/5m split and per-request long-context multipliers and drift
+	 * from the dashboard bill). 0 here does NOT mean "$0 of spend"; a slice with
+	 * `costUnknownRequests > 0` had usage whose real spend is genuinely unknown.
+	 */
 	actualCost: number;
-	/** how many of `requests` had no known price at ingestion time */
+	/** how many of `requests` had no known price at ingestion time (>0 ⇒ recorded spend is incomplete) */
 	costUnknownRequests: number;
+	/** cache-write tokens billed at the ≥1h rate (0 when the source grain didn't carry the split) */
+	cacheCreation1h: number;
+	/** cache-write tokens billed at the 5m/base rate (0 when the source grain didn't carry the split) */
+	cacheCreation5m: number;
 }
 
 /** The window a set of slices was aggregated over, for explicit labelling. */
@@ -48,8 +73,13 @@ export interface ScenarioExclusion {
 	modelCount: number;
 	/** the excluded models as "provider/model", for display */
 	models: string[];
-	/** the real-bill spend of the excluded slices ($; a source-unknown slice contributes 0) */
-	spendUsd: number;
+	/**
+	 * The real-bill spend of the excluded slices ($), or `null` when that spend is
+	 * genuinely UNKNOWN — i.e. at least one excluded slice was never priced
+	 * (`costUnknownRequests > 0`), so its recorded 0 is "unknown", not "$0". Renderers
+	 * MUST show `null` as "spend unknown", never as `$0.00` (cost-honesty hard rule).
+	 */
+	spendUsd: number | null;
 }
 
 /** The kind of counterfactual a result represents. */
@@ -58,6 +88,15 @@ export type ScenarioKind = 'alt-model' | 'no-cache' | 'plan-fit';
 /**
  * One counterfactual result. ONE shape for every scenario and for both renderers
  * (design decision 6): the CLI ledger and the web region render this array.
+ *
+ * UNAVAILABLE SEMANTICS (cost-honesty hard rule): `totalUsd`, `actualUsd` and
+ * `deltaUsd` are `number | null`. They are `null` — TOGETHER — when the scenario has
+ * no priceable usage to compare (every slice was excluded, e.g. an entirely
+ * unpriceable window, or a plan-fit provider whose whole burn is unknown-priced).
+ * A `null` result is NOT `$0`: renderers MUST gate on it and show "unavailable" /
+ * "spend unknown", never a fabricated $0 verdict. `exclusions` is still populated so
+ * the surface can say WHAT could not be priced. When the numbers are present all three
+ * are non-null; `deltaUsd` is then `totalUsd − actualUsd`.
  */
 export interface ScenarioResult {
 	/** stable id, e.g. "alt-model:claude-sonnet-4-6", "no-cache", "plan-fit:claude" */
@@ -67,12 +106,12 @@ export interface ScenarioResult {
 	label: string;
 	/** one-line description of the price basis */
 	basis: string;
-	/** the counterfactual total (USD) over the INCLUDED slices */
-	totalUsd: number;
-	/** the baseline actual (USD) over the SAME included slices — the delta anchor */
-	actualUsd: number;
-	/** totalUsd − actualUsd (negative = cheaper than actual) */
-	deltaUsd: number;
+	/** the counterfactual total (USD) over the INCLUDED slices; null = unavailable (see above) */
+	totalUsd: number | null;
+	/** the baseline actual (USD) over the SAME included slices — the delta anchor; null = unavailable */
+	actualUsd: number | null;
+	/** totalUsd − actualUsd (negative = cheaper than actual); null when the scenario is unavailable */
+	deltaUsd: number | null;
 	/** usage excluded because a source or target price was null */
 	exclusions: ScenarioExclusion;
 	/** honesty label(s) + substitution notes */
