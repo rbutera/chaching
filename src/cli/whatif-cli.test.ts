@@ -14,13 +14,17 @@ const exec = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..');
 const cliBundle = join(root, 'dist', 'cli', 'index.js');
+// The real launcher (force-exit logic for one-shot commands) — a regression there
+// isn't visible when tests only run the bundle directly.
+const binLauncher = join(root, 'bin', 'chaching.js');
 
-async function runCli(
+async function runNode(
+	entry: string,
 	args: string[],
 	opts: { env?: NodeJS.ProcessEnv } = {}
 ): Promise<{ stdout: string; stderr: string; code: number }> {
 	try {
-		const { stdout, stderr } = await exec('node', [cliBundle, ...args], {
+		const { stdout, stderr } = await exec('node', [entry, ...args], {
 			timeout: 45_000,
 			maxBuffer: 32 * 1024 * 1024,
 			env: { ...process.env, ...opts.env }
@@ -32,11 +36,26 @@ async function runCli(
 	}
 }
 
+function runCli(
+	args: string[],
+	opts: { env?: NodeJS.ProcessEnv } = {}
+): Promise<{ stdout: string; stderr: string; code: number }> {
+	return runNode(cliBundle, args, opts);
+}
+
 describe('whatif — routing + help', () => {
 	it('whatif subcommand runs and exits 0', async () => {
 		const { code, stdout } = await runCli(['whatif', '--no-art']);
 		expect(code).toBe(0);
 		// either a real ledger (the region header) or the friendly empty state
+		expect(stdout).toMatch(/counterfactual lab|no data found/);
+	});
+
+	it('runs through the real bin/chaching.js launcher and force-exits cleanly', async () => {
+		// Exercises the launcher (not just dist/cli/index.js): the one-shot force-exit
+		// path must let `whatif` finish and exit 0, so a launcher regression is caught.
+		const { code, stdout } = await runNode(binLauncher, ['whatif', '--no-art']);
+		expect(code).toBe(0);
 		expect(stdout).toMatch(/counterfactual lab|no data found/);
 	});
 

@@ -13,9 +13,10 @@ import { writeSync } from 'node:fs';
 import { loadConfig } from '../../lib/core/config.js';
 import { buildScenarios } from '../../lib/core/whatif/engine.js';
 import { PRICE_ONLY_COUNTERFACTUAL } from '../../lib/core/whatif/types.js';
-import type { ScenarioResult } from '../../lib/core/whatif/types.js';
-import { defaultAltTarget } from '../../lib/core/whatif/targets.js';
-import { aggregateByModel, filterDays, sumGrain } from '../../lib/core/aggregate.js';
+import type { ScenarioResult, ScenarioExclusion } from '../../lib/core/whatif/types.js';
+import { defaultAltTarget, windowModelsPresent } from '../../lib/core/whatif/targets.js';
+import { filterDays, sumGrain } from '../../lib/core/aggregate.js';
+import type { Totals } from '../../lib/core/aggregate.js';
 import { defaultViewState, periodWindow } from '../../lib/core/view-model.js';
 import { money, int } from '../../lib/format.js';
 import type { Period, RollupSnapshot } from '../../lib/types.js';
@@ -53,6 +54,36 @@ function signedMoney(v: number): string {
 	return money(0);
 }
 
+/**
+ * Window-frame scenarios (alt-model, no-cache) ranked cheapest engine-total first;
+ * unavailable (null total) rows sink to the bottom. The window-wide actual bill is
+ * the anchor LINE, never a ranked row: its scope (all slices, including any excluded
+ * from repricing) is incompatible with these included-only scenario totals, so
+ * ranking them together would mislead. Each row's own `deltaUsd` carries the honest
+ * per-scenario comparison. Plan-fit (a different, monthly frame) is excluded here.
+ */
+export function rankWindowScenarios(results: ScenarioResult[]): ScenarioResult[] {
+	return results
+		.filter((r) => r.kind !== 'plan-fit')
+		.sort((a, b) => {
+			if (a.totalUsd == null && b.totalUsd == null) return 0;
+			if (a.totalUsd == null) return 1;
+			if (b.totalUsd == null) return -1;
+			return a.totalUsd - b.totalUsd;
+		});
+}
+
+/**
+ * The CLI exclusion line, mirroring the web region: nullable excluded spend renders
+ * "spend unknown" (the types.ts:80 contract), never a fabricated $0. Returns null
+ * when nothing was excluded.
+ */
+export function exclusionLine(ex: ScenarioExclusion): string | null {
+	if (ex.modelCount === 0) return null;
+	const amount = ex.spendUsd == null ? 'spend unknown' : money(ex.spendUsd);
+	return `${int(ex.modelCount)} model(s) excluded · ${amount}`;
+}
+
 export async function runWhatif(flags: WhatifFlags): Promise<void> {
 	const cfg = await loadConfig();
 	const snapshot = await runOnce(cfg);
@@ -61,8 +92,8 @@ export async function runWhatif(flags: WhatifFlags): Promise<void> {
 	const state = defaultViewState(period);
 	const window = periodWindow(snapshot, state);
 	const grain = filterDays(snapshot.dayModel, window.from, window.to);
-	const modelsPresent = aggregateByModel(grain).map((m) => m.model);
-	const targetModel = flags.model ?? defaultAltTarget(modelsPresent);
+	const targetModel =
+		flags.model ?? defaultAltTarget(windowModelsPresent(snapshot.dayModel, window.from, window.to));
 
 	const results = buildScenarios(snapshot.dayModel, {
 		window: { from: window.from, to: window.to },
@@ -71,13 +102,20 @@ export async function runWhatif(flags: WhatifFlags): Promise<void> {
 		planFit: true
 	});
 
+	// The window-wide recorded bill: the honest anchor both renderers show, summed
+	// once here (never per-renderer) from the same grain the engine repriced.
+	const windowActual = sumGrain(grain);
+
 	if (flags.json) {
-		const windowActual = sumGrain(grain);
 		writeStdoutSync(
 			JSON.stringify({
 				window: { from: window.from, to: window.to, label: window.label },
 				targetModel,
 				actual: {
+					// window-wide: the whole window's real bill, including slices the
+					// scenarios excluded from repricing — labelled so consumers don't
+					// conflate it with a scenario's included-only actualUsd.
+					scope: 'window-wide',
 					costUsd: windowActual.cost,
 					costUnknownRequests: windowActual.costUnknownRequests
 				},
@@ -88,14 +126,14 @@ export async function runWhatif(flags: WhatifFlags): Promise<void> {
 		return;
 	}
 
-	printHuman(snapshot, grain, window, targetModel, results, flags);
+	printHuman(snapshot, grain, windowActual, window, results, flags);
 }
 
 function printHuman(
 	snapshot: RollupSnapshot,
 	grain: RollupSnapshot['dayModel'],
+	windowActual: Totals,
 	window: { from: string; to: string; label: string },
-	targetModel: string | null,
 	results: ScenarioResult[],
 	flags: WhatifFlags
 ): void {
@@ -122,8 +160,6 @@ function printHuman(
 		return;
 	}
 
-	const windowActual = sumGrain(grain);
-
 	console.log('');
 	if (!isNoArt) {
 		const wm = wordmark({ noArt: false });
@@ -135,42 +171,26 @@ function printHuman(
 	console.log(`  counterfactual lab · ${window.label} (${window.from} → ${window.to})`);
 	console.log(`  ${dim(PRICE_ONLY_COUNTERFACTUAL)}`);
 	console.log('');
-	console.log(`  You actually billed:   ${money(windowActual.cost)}`);
+	// The anchor: the WHOLE window's recorded bill, OUTSIDE the ranked list. It is
+	// window-wide (every slice), so it is not comparable to the included-only scenario
+	// totals below — each scenario's own `deltaUsd` carries the honest comparison.
+	console.log(`  You actually billed (window-wide):   ${money(windowActual.cost)}`);
 	if (windowActual.costUnknownRequests > 0) {
 		console.log(
 			`  ${dim(`(${int(windowActual.costUnknownRequests)} request(s) with unknown pricing — the recorded bill is a floor)`)}`
 		);
 	}
 
-	// Window-frame scenarios (alt-model, no-cache): ranked with the actual as an
-	// anchor row, cheapest total first. Plan-fit is a DIFFERENT (monthly) frame and
-	// renders in its own block below — never mixed into this ranking.
-	const windowScenarios = results.filter((r) => r.kind !== 'plan-fit');
+	// Window-frame scenarios (alt-model, no-cache): ranked cheapest engine-total
+	// first. Plan-fit is a DIFFERENT (monthly) frame and renders in its own block
+	// below — never mixed into this ranking.
+	const ranked = rankWindowScenarios(results);
 	const planFits = results.filter((r) => r.kind === 'plan-fit');
-
-	type Row = { label: string; total: number | null; result: ScenarioResult | null };
-	const rows: Row[] = [
-		{ label: 'What you actually billed', total: windowActual.cost, result: null },
-		...windowScenarios.map((r) => ({ label: r.label, total: r.totalUsd, result: r }))
-	];
-	// Rank by total ascending; unavailable (null) rows sink to the bottom.
-	rows.sort((a, b) => {
-		if (a.total == null && b.total == null) return 0;
-		if (a.total == null) return 1;
-		if (b.total == null) return -1;
-		return a.total - b.total;
-	});
 
 	console.log('');
 	console.log('  Priced under a different basis (ranked cheapest first):');
 	console.log('');
-	for (const row of rows) {
-		if (!row.result) {
-			// The actual-bill anchor row.
-			console.log(`    ${row.label.padEnd(34)} ${money(row.total ?? 0).padStart(11)}   ${dim('← what you paid')}`);
-			continue;
-		}
-		const r = row.result;
+	for (const r of ranked) {
 		if (r.totalUsd == null || r.deltaUsd == null) {
 			console.log(`    ${r.label.padEnd(34)} ${'unavailable'.padStart(11)}`);
 		} else {
@@ -179,6 +199,8 @@ function printHuman(
 			);
 		}
 		console.log(`      ${dim(r.basis)}`);
+		const excl = exclusionLine(r.exclusions);
+		if (excl) console.log(`      ${dim(excl)}`);
 		// Notes minus the region-wide label (already printed once at the top).
 		for (const note of r.notes) {
 			if (note === PRICE_ONLY_COUNTERFACTUAL) continue;
@@ -197,6 +219,8 @@ function printHuman(
 				const verdict = r.deltaUsd < 0 ? `saves ${money(-r.deltaUsd)}/mo` : `costs ${money(r.deltaUsd)}/mo more`;
 				console.log(`    ${r.label.padEnd(34)} ${money(r.totalUsd).padStart(11)}/mo   ${verdict}`);
 			}
+			const excl = exclusionLine(r.exclusions);
+			if (excl) console.log(`      ${dim(excl)}`);
 			for (const note of r.notes) {
 				if (note === PRICE_ONLY_COUNTERFACTUAL) continue;
 				console.log(`      ${dim(note)}`);

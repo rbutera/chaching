@@ -193,4 +193,34 @@ describe('WhatifRegion', () => {
 		// …plus a canonical cheaper alternative not already present
 		expect(values).toContain('claude-haiku-4-5');
 	});
+
+	it('derives targets from the UNFILTERED window even when a provider filter scopes the dashboard', async () => {
+		stubFetchOk();
+		const feed = new FeedStore();
+		const base = snapshot();
+		feed.snapshot = {
+			...base,
+			dayModel: [
+				dm('2026-06-18', 'claude-opus-4-8', 40),
+				{ ...dm('2026-06-19', 'gpt-5', 20), provider: 'codex' }
+			],
+			models: ['claude-opus-4-8', 'gpt-5'],
+			providers: ['claude', 'codex']
+		};
+		const dash = new Dashboard();
+		dash.toggleProvider('claude'); // scope the dashboard to claude-only
+		const { container } = render(WhatifRegion, {
+			props: { feed, dash, reducedMotion: true }
+		});
+		const select = await waitFor(() => {
+			const el = container.querySelector('select');
+			if (!el) throw new Error('no select yet');
+			return el as HTMLSelectElement;
+		});
+		const values = Array.from(select.options).map((o) => o.value);
+		// dash.models() would drop the codex model under the claude-only filter; the
+		// whatif menu must still offer it because /api/whatif reprices the whole window.
+		expect(values).toContain('gpt-5');
+		expect(values).toContain('claude-opus-4-8');
+	});
 });

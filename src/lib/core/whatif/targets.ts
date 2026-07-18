@@ -3,7 +3,28 @@
 // scenario picker imports this to build its `<select>`, and the CLI reuses the
 // SAME helper so both surfaces offer the same target set. Pricing RESOLUTION of
 // the chosen target still happens server-side (resolve.ts); this module only
-// proposes ids to reprice against.
+// proposes ids to reprice against. (`../aggregate` is itself client-safe — pure
+// re-aggregation over the grain, type-only imports — so importing it here keeps
+// this module browser-importable.)
+
+import { aggregateByModel, filterDays } from '../aggregate';
+import type { DayModelAgg } from '../../types';
+
+/**
+ * The models present in a window's UNFILTERED grain, cost-desc — the exact set the
+ * whatif engine reprices (buildScenarios takes the whole `[from, to]` window, NOT
+ * the dashboard's provider/day/pool-filtered view). Both the CLI default-target
+ * derivation and the web target menu call this, so the two can never disagree with
+ * what the endpoint actually reprices for a given window: a menu fed off the
+ * filtered view would offer/derive targets the endpoint doesn't reprice.
+ */
+export function windowModelsPresent(
+	dayModel: readonly DayModelAgg[],
+	from: string,
+	to: string
+): string[] {
+	return aggregateByModel(filterDays([...dayModel], from, to)).map((m) => m.model);
+}
 
 /**
  * Canonical cheaper alternatives offered IN ADDITION to the models already present
@@ -44,13 +65,18 @@ export function altModelTargets(modelsPresent: readonly string[]): string[] {
 
 /**
  * The default alt-model target for a window: the first canonical cheaper
- * alternative that isn't already the sole present model, else the first offered
- * target, else null (no models at all → the caller skips the alt-model row). Kept
- * deterministic (no price lookups — resolution is server-side) so web and CLI pick
- * the same default for the same window.
+ * alternative that is NOT already present in the window (a real counterfactual, not
+ * a zero-delta reprice-at-itself), else — only when every canonical alternative is
+ * already present, or there are none — the first offered target, else null (no
+ * models at all → the caller skips the alt-model row). Kept deterministic (no price
+ * lookups — resolution is server-side) so web and CLI pick the same default for the
+ * same window.
  */
 export function defaultAltTarget(modelsPresent: readonly string[]): string | null {
-	const targets = altModelTargets(modelsPresent);
-	const canonical = targets.find((m) => CANONICAL_ALT_TARGETS.includes(m));
-	return canonical ?? targets[0] ?? null;
+	const present = new Set(modelsPresent.filter(Boolean));
+	const cheaperAlt = CANONICAL_ALT_TARGETS.find((m) => !present.has(m));
+	if (cheaperAlt) return cheaperAlt;
+	// Every canonical alternative is already in the window (or there are none): fall
+	// back to the first offered target so the row still renders (may be zero-delta).
+	return altModelTargets(modelsPresent)[0] ?? null;
 }

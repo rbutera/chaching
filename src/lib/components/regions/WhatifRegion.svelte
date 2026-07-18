@@ -13,7 +13,7 @@
 	import type { Dashboard } from '$lib/client/dashboard.svelte';
 	import type { ScenarioResult } from '$lib/core/whatif/types';
 	import { PRICE_ONLY_COUNTERFACTUAL } from '$lib/core/whatif/types';
-	import { altModelTargets, defaultAltTarget } from '$lib/core/whatif/targets';
+	import { altModelTargets, defaultAltTarget, windowModelsPresent } from '$lib/core/whatif/targets';
 	import { money } from '$lib/format';
 
 	let {
@@ -31,8 +31,12 @@
 	let to = $derived(win?.to ?? null);
 	let windowLabel = $derived(win?.label ?? '');
 
-	// Models present in the current window (cost-desc) → the alt-model target menu.
-	let modelsPresent = $derived(snap ? dash.models(snap).map((m) => m.model) : []);
+	// Models present in the UNFILTERED window grain (cost-desc) → the alt-model target
+	// menu + default. This mirrors the CLI and matches the exact grain /api/whatif
+	// reprices (the endpoint takes the whole [from, to] window, ignoring the
+	// dashboard's provider/day/pool filters). Deriving from dash.models() — which is
+	// filter-scoped — would let the menu/default disagree with what gets repriced.
+	let modelsPresent = $derived(snap && from && to ? windowModelsPresent(snap.dayModel, from, to) : []);
 	let targetOptions = $derived(altModelTargets(modelsPresent));
 
 	// null = "auto" (follow the window's default). A user pick pins an explicit target.
