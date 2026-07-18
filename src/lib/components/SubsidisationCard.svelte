@@ -10,7 +10,7 @@
 	// shown only for Custom), controlled off the publicConfig the page holds. On
 	// change it emits `onTierChange`, which the page POSTs to /api/config.
 	import { money } from '$lib/format';
-	import { SUBSCRIPTION_PRESETS, type SubscriptionPreset } from '$lib/core/config';
+	import { SUBSCRIPTION_PRESETS, type SubscriptionPreset } from '$lib/core/subscription-presets';
 	import type {
 		BurnPace,
 		SubsidisedProvider,
