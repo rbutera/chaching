@@ -173,6 +173,10 @@
 		gap: 0.5rem;
 		padding: 0.5rem 0 0.9rem;
 		background: linear-gradient(var(--bg) 82%, transparent);
+		/* Structural chrome: a brass hairline under the bar that warms brass→ember
+		   with --register-heat (the escalation ladder). It divides the sticky scope
+		   surface from the scrolling register below without a heavy rule. */
+		border-bottom: 1px solid color-mix(in srgb, var(--chrome-warm) 32%, var(--border));
 	}
 	.controls-row {
 		display: flex;

@@ -120,6 +120,24 @@
 	let focusedTotals = $derived(snap && focusedDay ? dash.focusedTotals(snap, focusedDay) : null);
 	let heroCost = $derived(focusedTotals ? focusedTotals.cost : (hero?.current.cost ?? 0));
 
+	// Register-heat (escalation-ladder chrome — design decision 5, task 4.3): warm the
+	// structural chrome brass→ember from the EXISTING voice ladder (tierIndex over
+	// DAILY_FLOURISHES). The ladder is a DAILY one, so feed it a DAILY amount, not the
+	// selected period's total (a week/month total saturates the daily ladder at ember
+	// and the range never shows). Use the pinned day when one is pinned, else the
+	// latest day (today) — so the register warms as today heats up, independent of the
+	// period you're viewing. No new spend-threshold logic; no displayed number changes.
+	let heatDayCost = $derived(
+		focusedDay
+			? (focusedTotals?.cost ?? 0)
+			: snap?.latestDay
+				? (dash.focusedTotals(snap, snap.latestDay)?.cost ?? 0)
+				: 0
+	);
+	let registerHeat = $derived(
+		tierIndex(heatDayCost, DAILY_FLOURISHES) / (DAILY_FLOURISHES.length - 1)
+	);
+
 	// Commit a tier change for one provider: optimistically update the local config
 	// copy (so the switcher + card move immediately), then persist via /api/config and
 	// merge the echoed config back. A racing SSE delta touches the feed snapshot, not
@@ -231,7 +249,7 @@
 
 <svelte:window onkeydown={onPageKey} />
 
-<div class="page">
+<div class="page" style="--register-heat: {registerHeat}">
 	<header class="topbar">
 		<div class="brand">
 			<h1 class="brand-title"><BrandMark size={24} wordmark title="chaching" /></h1>

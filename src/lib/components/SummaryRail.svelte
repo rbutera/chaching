@@ -82,14 +82,31 @@
 {/if}
 
 <style>
+	/* The rail is THE receipt of the register — a structural surface, so it wears
+	   chrome + a tear edge (never grain, which is reserved for the detail panels).
+	   A brass top rule warms brass→ember with --register-heat (the escalation
+	   ladder), a bright chrome-edge sheen sits just under it, and the bottom is torn
+	   into thermal-paper teeth via the sawtooth mask token. Rounded top, torn
+	   bottom: it reads as a slip fed out of the till. */
 	.summary-rail {
 		display: flex;
 		flex-direction: column;
 		gap: 0.6rem;
-		padding: 1.1rem 1rem 1.2rem;
+		padding: 1.1rem 1rem calc(1.2rem + var(--tear-tooth));
 		border: 1px solid var(--border);
-		border-radius: var(--radius);
+		border-top: 2px solid var(--chrome-warm);
+		border-bottom: 0;
+		border-radius: var(--radius) var(--radius) 0 0;
 		background: var(--surface-1);
+		box-shadow: inset 0 1px 0 color-mix(in srgb, var(--chrome-edge) 28%, transparent);
+		/* Torn thermal-paper bottom edge: a solid mask over the body plus the
+		   sawtooth token tiled along the bottom tooth-strip. Structural surface only. */
+		-webkit-mask:
+			linear-gradient(#000 0 0) top / 100% calc(100% - var(--tear-tooth)) no-repeat,
+			var(--tear-mask) bottom / var(--tear-tooth) var(--tear-tooth) repeat-x;
+		mask:
+			linear-gradient(#000 0 0) top / 100% calc(100% - var(--tear-tooth)) no-repeat,
+			var(--tear-mask) bottom / var(--tear-tooth) var(--tear-tooth) repeat-x;
 	}
 	.rail-label {
 		margin: 0;

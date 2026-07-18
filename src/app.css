@@ -281,6 +281,16 @@
 	--receipt-w: 360px;
 	--bento-gap: var(--space-6); /* bento grid gutter (rail sizing lives in the generated block) */
 
+	/* ── Register heat (escalation-ladder chrome) ────────────────────────────
+	   0 = calm brass … 1 = alarm ember. `--register-heat` is set per-render on `.page`
+	   from the EXISTING voice escalation ladder (tierIndex over DAILY_FLOURISHES); no
+	   new thresholds. This :root value is just the calm fallback. `--chrome-warm` (the
+	   ONE value structural chrome reads — rail edge, command-bar hairline, never a data
+	   mark) is declared on `.page` below, NOT here: custom-property var() substitution
+	   happens where the property is DECLARED, so a `--chrome-warm` on :root would bake
+	   in :root's heat (0) and inherit down unchanged, ignoring `.page`'s live heat. */
+	--register-heat: 0;
+
 	/* ── Z-index ─────────────────────────────────────────────────────────── */
 	--z-base: 0;
 	--z-sticky: 10;
@@ -432,6 +442,44 @@ samp {
 	clip: rect(0, 0, 0, 0);
 	white-space: nowrap;
 	border: 0;
+}
+
+/* Register-heat chrome value — declared on `.page` (the element that carries the
+   live `--register-heat`) so the color-mix resolves against THIS render's heat and
+   inherits, already-warmed, to the rail edge + command-bar hairline. See the note in
+   :root. It reads two chrome tokens only; it is never applied to a data mark. */
+.page {
+	--chrome-warm: color-mix(
+		in srgb,
+		var(--chrome-brass),
+		var(--chrome-ember) calc(var(--register-heat) * 100%)
+	);
+}
+
+/* ── Register texture — thermal-paper grain on detail surfaces ──────────────
+   The detail panels are the register's "paper slips": a faint grain (the
+   ≤4%-opacity token) plus a hairline top sheen so they read as printed stock laid
+   over the smooth ink chassis. The grain is a pointer-transparent overlay clipped
+   to the panel's own radius; at ~3.5% soft-light it adds tooth without touching
+   legibility. Structural surfaces (the rail, the command bar) get chrome + a tear
+   edge instead of grain, so texture and chrome never double up on one element.
+   `.panel` is a global class shared by every region; these rules only ADD (sheen +
+   an ::after the scoped styles don't define), so no region's own panel styling is
+   overridden. */
+.panel {
+	position: relative;
+	box-shadow: var(--shadow-inset);
+}
+.panel::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	border-radius: inherit;
+	background-image: var(--grain-image);
+	background-size: 140px 140px;
+	opacity: var(--grain-opacity);
+	mix-blend-mode: soft-light;
 }
 
 /* Reduced motion — kill transitions/animations */
