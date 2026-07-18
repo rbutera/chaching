@@ -55,6 +55,7 @@ That's it. No signup, no API key (unless you want Cursor), no config file to wri
 | `chaching stats` | **One-shot summary** to stdout, then exits. Pipe-friendly. |
 | `chaching receipt` | Your spend as a **branded thermal receipt**. Shareable. Mildly threatening. |
 | `chaching serve` | The **web dashboard** — calendar heatmap, day-by-day browsing, session drill-down. |
+| `chaching mcp` | A **read-only MCP server** over stdio so AI agents can check spend mid-loop. |
 | `chaching init` | Re-run the setup wizard. |
 | `chaching provider …` | Enable / disable / add a provider without the wizard. |
 | `chaching sync …` | Create or join a shared PostgreSQL pool and map subscriptions. |
@@ -170,6 +171,57 @@ What's in there:
 - **Calendar heatmap** over every day you've ever banked, shaded by spend. Click a cell (or arrow through days) to pin the whole dashboard to that day.
 - **Session browser** — sortable, searchable, drill into any individual session to see what that one expensive afternoon actually cost.
 - **Coverage-aware everything** — a dip reads as "today's not done yet," a gap reads as "no logs that far back," never a lying "$0". Comparisons only show when there's a real prior window to compare against, so you'll never see a deranged "+563% vs prior $0".
+
+### `chaching mcp` — let the agents check the bill
+
+chaching is a rear-view mirror: agents spend, you look later. `chaching mcp` hands that mirror to the agent mid-loop. It starts a local [MCP](https://modelcontextprotocol.io) server over stdio that any coding-agent client (Claude Code, Codex, OpenCode, …) can register, so the agent can ask "how much has today cost?" or "is cache efficiency collapsing?" while it works.
+
+```sh
+chaching mcp        # speaks MCP over stdio; not meant to be run by hand
+```
+
+**The contract, three words: read-only, advisory, content-free.**
+
+- **Read-only.** No tool mutates anything. It reports observed spend; it does not — and cannot — enforce a budget. Every tool description says so, so an agent never mistakes a number for a limit.
+- **Content-free.** Results are aggregates only: dollars, token counts, rates, statuses, model ids, day/period labels. Never a prompt, never a transcript, never a filesystem path. A single serializer enforces this and refuses to emit anything path- or content-shaped.
+- **Same numbers as the dashboard.** Every tool reads the same in-process engine and the same derivations the web dashboard and receipt use — it's the third consumer of "one engine", not a second accounting path. Unknown pricing stays `null` with an `unknown` marker; it never becomes a fabricated `$0`.
+
+The tools:
+
+| Tool | Answers |
+| --- | --- |
+| `spend_today` | Today's spend so far (current UTC day), per provider, with coverage state. |
+| `burn_since` | Spend over a rolling `day`/`week`/`month`/`quarter`/`all` window (default week), with the prior-window delta. |
+| `cache_efficiency` | Billed cache read/write tokens and cost, plus modelled saving vs uncached, over the window. |
+| `subscription_headroom` | How much API-equivalent value your flat monthly fee bought this month (Claude, Codex), with a projected full-month figure. |
+| `provider_status` | Per-provider ingest health (ok/error), today's coverage, and models seen with no known price. |
+| `quote_tokens` | Price a hypothetical token mix for a model id; unpriceable → cost `null` + `unknown`. |
+| `unknown_pricing` | Models in your usage with no known price, and their token volumes (cost `null`). |
+
+**Register it with your client:**
+
+```sh
+# Claude Code
+claude mcp add chaching -- chaching mcp
+```
+
+```jsonc
+// Codex (~/.codex/config.toml)
+[mcp_servers.chaching]
+command = "chaching"
+args = ["mcp"]
+```
+
+```jsonc
+// OpenCode (opencode.json → "mcp")
+{
+  "mcp": {
+    "chaching": { "type": "local", "command": ["chaching", "mcp"], "enabled": true }
+  }
+}
+```
+
+If `chaching` isn't on the client's `PATH` (e.g. you run it via `npx`), use the absolute path to the binary, or `npx` as the command: `command: "npx"`, `args: ["chaching", "mcp"]`.
 
 ### `chaching init` / `chaching provider …`
 
