@@ -205,8 +205,8 @@ The tools:
 claude mcp add chaching -- chaching mcp
 ```
 
-```jsonc
-// Codex (~/.codex/config.toml)
+```toml
+# Codex (~/.codex/config.toml)
 [mcp_servers.chaching]
 command = "chaching"
 args = ["mcp"]
