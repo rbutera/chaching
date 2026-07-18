@@ -39,6 +39,23 @@
 	let subscriptionName = $derived(
 		(id: string) => syncStatus?.subscriptions.find((s) => s.id === id)?.name ?? id
 	);
+
+	// One-action bulk clear (restores the old ControlsRegion "clear filter" buttons).
+	// Shown whenever ANY provider/model/pool filter is active; it does NOT touch the
+	// pinned day (that keeps its own chip ✕) or the period (not a filter). Delegates to
+	// the SAME Dashboard clear methods the scattered controls used — single-owned state.
+	let anyFilterActive = $derived(
+		dash.providerFilter.size +
+			dash.modelFilter.size +
+			dash.machineFilter.size +
+			dash.subscriptionFilter.size >
+			0
+	);
+	function clearAllFilters(): void {
+		dash.clearProviderFilter();
+		dash.clearModelFilter();
+		dash.clearPoolFilters();
+	}
 </script>
 
 <!-- REGION 3 → the sticky command bar (dissolved the old controls region). -->
@@ -130,17 +147,27 @@
 					<button class="chip-x" aria-label={`Remove ${subscriptionName(id)} subscription filter`} onclick={() => dash.toggleSubscription(id)}>✕</button>
 				</span>
 			{/each}
+
+			{#if anyFilterActive}
+				<button
+					type="button"
+					class="chip chip-clear"
+					onclick={clearAllFilters}
+					aria-label="Clear all provider, model, and pool filters"
+				>
+					clear filters <span class="chip-clear-x" aria-hidden="true">✕</span>
+				</button>
+			{/if}
 		</div>
 	</div>
 {/if}
 
 <style>
-	/* The command bar sticks under the topbar (top:58px, matching the old controls
-	   region) and carries a --bg fade so scrolled content passes cleanly beneath. */
+	/* The bar carries a --bg fade so scrolled content passes cleanly beneath it.
+	   The sticky behaviour itself lives on the parent `.slot-cmd` grid item (its
+	   containing block is the full-height `.bento` grid, so it actually has scroll
+	   travel — see +page.svelte); this element just fills that sticky slot. */
 	.command-bar {
-		position: sticky;
-		top: 58px;
-		z-index: 8;
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
@@ -255,6 +282,31 @@
 	.chip-x:focus-visible {
 		outline: 2px solid var(--accent);
 		outline-offset: 1px;
+	}
+
+	/* One-action bulk clear — reads as an action, not a scope label; sits after the
+	   chips it dismisses. Full-height chip so it lines up with the strip. */
+	.chip-clear {
+		gap: 0.35rem;
+		padding-left: 0.7rem;
+		padding-right: 0.7rem;
+		cursor: pointer;
+		color: var(--text-muted);
+		text-transform: uppercase;
+		letter-spacing: var(--tracking-caps);
+	}
+	.chip-clear:hover {
+		color: var(--text);
+		border-color: var(--border-strong);
+		background: color-mix(in srgb, var(--text) 8%, var(--surface-2));
+	}
+	.chip-clear:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 1px;
+	}
+	.chip-clear-x {
+		font-size: 0.72rem;
+		line-height: 1;
 	}
 
 	@media (prefers-reduced-motion: reduce) {

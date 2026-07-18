@@ -361,6 +361,16 @@
 	}
 	.slot-cmd {
 		grid-area: cmd;
+		/* The command bar sticks under the topbar while the page scrolls. Sticky must
+		   live HERE, on the grid item, not on `.command-bar` inside it: a sticky box's
+		   containing block is its parent's content box, and `.slot-cmd`'s parent is the
+		   `.bento` grid container — which spans the whole page, giving the box the
+		   scroll travel it needs. Put on `.command-bar` instead, the containing block
+		   is `.slot-cmd`, which is exactly the bar's own height, so it has no room to
+		   move and never sticks. (The sibling `.slot-rail` sticks the same way.) */
+		position: sticky;
+		top: 58px;
+		z-index: 8;
 	}
 	.slot-rail {
 		grid-area: rail;
