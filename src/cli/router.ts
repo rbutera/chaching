@@ -1,5 +1,5 @@
 // Subcommand router — hand-rolled per design decision D3.
-// Surface: chaching [stats|receipt|serve|init|provider|doctor|--version|--help]
+// Surface: chaching [stats|receipt|serve|mcp|init|provider|doctor|--version|--help]
 // Unknown subcommands → usage + exit(1).
 
 import { runStats, type StatsFlags } from './commands/stats.js';
@@ -7,6 +7,7 @@ import { runReceipt, type ReceiptFlags } from './commands/receipt.js';
 import { runWrapped, type WrappedFlags } from './commands/wrapped.js';
 import { runWhatif, type WhatifFlags } from './commands/whatif.js';
 import { runServe } from './commands/serve.js';
+import { runMcp } from './mcp/server.js';
 import { runInit } from './commands/init.js';
 import { runProvider } from './commands/provider.js';
 import { runDoctor } from './commands/doctor.js';
@@ -74,6 +75,12 @@ export async function run(argv: string[]): Promise<void> {
 
 		case 'serve':
 			await runServe();
+			return;
+
+		case 'mcp':
+			// Long-running stdio server; exempt from the launcher's force-exit exactly
+			// like `serve` (stdin keeps the process alive). See bin/chaching.js.
+			await runMcp();
 			return;
 
 		case 'init':

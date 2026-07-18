@@ -13,14 +13,14 @@ const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cliEntry = join(rootDir, 'dist', 'cli', 'index.js');
 const buildEntry = join(rootDir, 'build', 'index.js');
 
-// `serve` is the one long-running command whose work outlives the CLI promise:
-// the imported adapter-node server starts listening and then the import resolves,
-// so the listening socket keeps the process alive on its own. Every other command
-// is one-shot, and the bundled graph (Ink/clack touch stdin at import) leaves a
+// `serve` and `mcp` are the long-running commands whose work outlives the CLI
+// promise: `serve`'s adapter-node listening socket keeps the process alive, and
+// `mcp`'s stdio transport keeps stdin open the same way. Every other command is
+// one-shot, and the bundled graph (Ink/clack touch stdin at import) leaves a
 // module-level handle that would otherwise stop the process exiting — so we force
-// a clean exit for those, but NOT for `serve` (which must keep running).
+// a clean exit for those, but NOT for `serve`/`mcp` (which must keep running).
 const firstArg = process.argv.slice(2).find((a) => !a.startsWith('-'));
-const isLongRunning = firstArg === 'serve';
+const isLongRunning = firstArg === 'serve' || firstArg === 'mcp';
 
 // ── 1. Prefer the CLI bundle ──────────────────────────────────────────────────
 if (existsSync(cliEntry)) {

@@ -5,7 +5,7 @@ import { join, dirname } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { noArt, wordmark } from './theme/personality.js';
 
-function packageVersion(): string {
+export function packageVersion(): string {
 	try {
 		// Walk up from dist/cli/ or src/cli/ to package root.
 		const here = typeof __dirname !== 'undefined'
@@ -51,6 +51,7 @@ Usage:
   chaching wrapped       Your month in tokens: a Spotify-Wrapped-style recap
   chaching whatif        Counterfactual lab: reprice your usage under a different basis
   chaching serve         Start the web dashboard server
+  chaching mcp           Start the read-only MCP server over stdio (for AI agent clients)
   chaching init          Run the setup wizard (re-runnable)
   chaching provider      Manage providers (add | enable | disable)
   chaching doctor        Diagnose why a provider isn't counting (health, staleness, pricing)
