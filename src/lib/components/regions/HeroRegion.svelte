@@ -2,12 +2,12 @@
 	import { resolve } from '$app/paths';
 	import type { FeedStore } from '$lib/client/feed.svelte';
 	import type { Dashboard } from '$lib/client/dashboard.svelte';
-	import MoneyFigure from '$lib/components/ds/MoneyFigure.svelte';
+	import MoneyOdometer from '$lib/components/ds/MoneyOdometer.svelte';
 	import Sparkline from '$lib/components/ds/Sparkline.svelte';
 	import { money, pctDelta, modelLabel, providerLabel, fmtDay } from '$lib/format';
 	import type { PeriodBucket } from '$lib/core/aggregate';
 	import { flourishFor, formatFlourishText, DAILY_FLOURISHES } from '$lib/voice';
-	import { countUp, trailingThrottle } from '$lib/client/motion';
+	import { trailingThrottle } from '$lib/client/motion';
 
 	// Regions receive `{ feed, dash }` as props (no Svelte context). `reducedMotion`
 	// and `suppressArt` are page-level cross-cutting flags (shared with joy + loading
@@ -51,41 +51,23 @@
 		window.open(receiptUrl, '_blank', 'noopener');
 	}
 
-	// Hero count-up: animate from 0 → heroCost on first paint only. Live SSE deltas
-	// update via a RATE-LIMITED tick (trailing throttle, coalesce-to-latest) so a
-	// chatty feed never thrashes the figure. Both paths go through the shared
-	// `countUp` util, which no-ops to the final value under prefers-reduced-motion.
+	// Hero odometer feed: the figure is rendered by MoneyOdometer (NumberFlow), which
+	// owns the roll animation and the reduced-motion gate. We only decide HOW OFTEN it
+	// receives a new value — a chatty SSE feed must not hand it a new target every
+	// delta or the columns thrash. So live deltas pass through the SAME rate-limited
+	// trailing throttle the count-up used (~900ms window, coalesce-to-latest); the
+	// leading edge fires the first value immediately, so on first paint NumberFlow
+	// rolls 0 → the initial total. Under reduced motion the window collapses to 0
+	// (every push immediate) and NumberFlow itself renders without a roll.
 	//
-	// `started` is a NON-reactive closure flag (a plain let, not $state): the effect
-	// must not read+write the same reactive value or it self-invalidates and cancels
-	// its own rAF before a single frame runs. The effect tracks only heroCost +
-	// reducedMotion.
+	// The throttle CADENCE is unchanged from the pre-odometer hero; only the per-tick
+	// action changed (a plain assignment now, NumberFlow does the animating).
 	let displayCost = $state(0);
-	let started = false;
-	// Trailing throttle for live deltas (~900ms window): one tick animation per
-	// window, always landing on the latest value. Recreated when reducedMotion flips.
 	let tickThrottle = $derived(
-		trailingThrottle<number>(reducedMotion ? 0 : 900, (target) => {
-			countUp(displayCost, target, (v) => (displayCost = v), { durMs: 350, reduced: reducedMotion });
-		})
+		trailingThrottle<number>(reducedMotion ? 0 : 900, (target) => (displayCost = target))
 	);
 	$effect(() => {
-		const target = heroCost;
-		// First non-trivial value: the one-shot count-up from 0 (or immediate set when reduced).
-		if (!started) {
-			if (target <= 0) {
-				displayCost = 0;
-				return;
-			}
-			started = true;
-			const cancel = countUp(0, target, (v) => (displayCost = v), {
-				durMs: 650,
-				reduced: reducedMotion
-			});
-			return cancel;
-		}
-		// After first paint: live deltas land via the rate-limited tick.
-		tickThrottle.push(target);
+		tickThrottle.push(heroCost);
 	});
 	$effect(() => () => tickThrottle.cancel());
 
@@ -118,7 +100,7 @@
 			{#if dash.modelFilter.size > 0}<span class="scope">· {[...dash.modelFilter].map(modelLabel).join(', ')}</span>{/if}
 		</p>
 		<div class="hero-figure">
-			<MoneyFigure amount={displayCost} size="hero" tone="gold" />
+			<MoneyOdometer amount={displayCost} size="hero" tone="gold" />
 			{#if heroDelta}
 				<span class="delta {heroDelta.dir}">
 					{heroDelta.text}

@@ -347,7 +347,7 @@ describe('dashboard route — preservation contract P1–P18', () => {
 });
 
 describe('dashboard route — motion (reduced-motion contract)', () => {
-	it('renders the hero figure immediately when prefers-reduced-motion is set (no count-up dependency)', async () => {
+	it('shows the final hero value when prefers-reduced-motion is set (NumberFlow honours the preference, no roll)', async () => {
 		vi.stubGlobal(
 			'matchMedia',
 			vi.fn((q: string) => ({
@@ -363,28 +363,25 @@ describe('dashboard route — motion (reduced-motion contract)', () => {
 		snapshotToEmit = richSnap();
 		const { container } = render(Page);
 		await flush();
-		// total spend for the "all" default scope = 84+12+60+8+40 = 204 → "$204"
+		// total spend for the "all" default scope = 84+12+60+8+40 = 204 → "$204.00".
+		// The hero figure is the NumberFlow odometer; NumberFlow draws the digits as
+		// CSS reels (no plain-text value) and its visual is aria-hidden, so the
+		// value the a11y tree + this assertion read is the odometer's visually-hidden
+		// text mirror. Under reduced motion it must still be the correct final total.
 		const hero = container.querySelector('.hero')!;
+		expect(hero.querySelector('[data-testid="money-odometer"]')).toBeTruthy();
 		expect(hero.textContent ?? '').toMatch(/\$20[0-9]/);
 	});
 
-	it('actually runs the count-up rAF loop when motion is allowed (guards the self-cancelling-effect bug)', async () => {
+	it('lands the hero odometer on the correct final value when motion is allowed', async () => {
 		// motion allowed by the default beforeEach matchMedia stub (matches:false).
-		const rafCalls: FrameRequestCallback[] = [];
-		vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-			rafCalls.push(cb);
-			return rafCalls.length;
-		});
-		vi.stubGlobal('cancelAnimationFrame', vi.fn());
+		// The hero value passes through the trailing throttle whose leading edge
+		// delivers the first value immediately; NumberFlow owns the roll animation
+		// (no count-up rAF loop in our code any more), so the guarantee we assert is
+		// simply that the odometer ends on the right total.
 		snapshotToEmit = richSnap();
 		const { container } = render(Page);
 		await flush();
-		// The count-up must have scheduled at least one frame (the self-cancelling
-		// effect bug cancels the rAF before any frame, so this would be 0).
-		expect(rafCalls.length).toBeGreaterThan(0);
-		// Drive the eased frames to completion and confirm the final value lands.
-		let t = 0;
-		while (rafCalls.length) rafCalls.shift()!((t += 1000));
 		await tick();
 		expect((container.querySelector('.hero')?.textContent ?? '')).toMatch(/\$20[0-9]/);
 	});

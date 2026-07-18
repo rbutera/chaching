@@ -8,6 +8,7 @@
 	import type { FeedStore } from '$lib/client/feed.svelte';
 	import type { Dashboard } from '$lib/client/dashboard.svelte';
 	import MoneyFigure from '$lib/components/ds/MoneyFigure.svelte';
+	import MoneyOdometer from '$lib/components/ds/MoneyOdometer.svelte';
 	import { fmtDay, providerLabel } from '$lib/format';
 	import { coverageWord, coverageGlyph } from '$lib/core/coverage-marks';
 	import type { Period } from '$lib/types';
@@ -62,7 +63,10 @@
 					<span class="rail-coverage-word">{pinnedMark.word}</span>
 				</p>
 			{:else}
-				<MoneyFigure amount={scopedCost} size="lg" tone="gold" />
+				<!-- Rail money readout mirrors the hero's scoped total; the odometer roll
+				     ties the two always-visible figures together. The all-time figure below
+				     stays a static MoneyFigure (a tiny lifetime number rolling would be noise). -->
+				<MoneyOdometer amount={scopedCost} size="lg" tone="gold" />
 			{/if}
 		</div>
 		{#if dash.providerFilter.size > 0}
