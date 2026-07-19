@@ -285,7 +285,8 @@
 	{:else}
 		<p class="summary">
 			Create one PostgreSQL-backed pool, then join every machine that should contribute. Machines can
-			share a subscription or map to different ones.
+			share a subscription or map to different ones. Subscription and mapping controls appear after
+			this machine joins.
 		</p>
 
 		{#if status?.managementAllowed !== false}

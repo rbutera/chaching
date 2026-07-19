@@ -203,21 +203,138 @@ until you rejoin. The machine ID is retained, so a later rejoin reuses the same 
 
 ## Serverless Postgres (Neon free tier)
 
-The aligned-burst design targets a serverless Postgres endpoint with scale-to-zero, such as Neon's
-free tier. The arithmetic for a 3-machine, 24/7 pool at the default 15-minute interval:
+The aligned-burst design targets a serverless Postgres endpoint with scale-to-zero, such as
+[Neon's Free plan](https://neon.com/pricing). To create a pool on Neon:
+
+1. Create a Neon project and database. The default Free-plan compute range (0.25-2 CU) is ample.
+2. In the project's **Connect** dialog, select the database and role, turn **Connection pooling
+   off**, and copy the direct connection string. Chaching has only a few clients and performs its
+   own transactional schema migrations, so the direct endpoint is the predictable choice; Neon's
+   pooled PgBouncer endpoint is unnecessary here and is not recommended for generic migrations.
+   See Neon's [connection-pooling guidance](https://neon.com/docs/connect/connection-pooling).
+3. Keep the generated TLS query parameters, including `sslmode=require` and, when present,
+   `channel_binding=require`. Store the complete URL in a password manager. Never commit it or put
+   it directly in shell history.
+4. On the first machine, expose the URL only for the create command and save the printed pool ID:
+
+   ```sh
+   read -rsp 'Neon URL: ' CHACHING_DATABASE_URL
+   export CHACHING_DATABASE_URL
+   chaching sync create --name 'Rai machines' --machine kinto
+   unset CHACHING_DATABASE_URL
+   ```
+
+5. On every other machine, repeat the hidden `read` and join the printed pool ID:
+
+   ```sh
+   read -rsp 'Neon URL: ' CHACHING_DATABASE_URL
+   export CHACHING_DATABASE_URL
+   chaching sync join --pool '<pool-id>' --machine latios
+   unset CHACHING_DATABASE_URL
+   ```
+
+   Use that machine's real name (`latios`, `nimbus`, and so on). Create/join stores the URL in
+   that machine's mode-`0600` Chaching config, so the environment variable is no longer needed.
+
+Use a direct URL whose hostname does **not** contain `-pooler`. The runtime opens a small local
+client pool (`max: 4`) and closes idle one-shot connections; three machines do not need another
+pooling layer. Neon requires TLS for all connections.
+
+### Three-machine rollout checklist
+
+Install the same Chaching version on all machines, then run one local scan before joining:
+
+```sh
+pnpm add -g chaching@latest
+chaching doctor
+chaching stats --no-art
+```
+
+Create the pool on one machine, join the other two, and verify all three appear:
+
+```sh
+chaching sync status --json | jq '{pool, machines, subscriptions, mappings}'
+```
+
+Each machine must actually run Chaching to publish its local aggregates. A long-running TUI or web
+server publishes at `intervalMinutes`; a scheduled `chaching stats` run cold-scans, publishes once,
+and exits. For laptops that are not running Chaching continuously, install a nightly scheduler on
+every machine. Running all scheduled jobs at the same wall-clock time gives Neon a single wake
+window and leaves each local SQLite ledger current even before subscription mappings are complete.
+
+### Decide the subscription topology
+
+Inventory subscriptions before adding them. For every provider used on every machine, record:
+
+- the billing account or identity;
+- the plan/tier and actual monthly USD cost;
+- whether that exact paid subscription is shared with another machine;
+- whether the provider is local-machine usage or a cloud-account feed.
+
+Create one pool subscription row per **bill you pay**, not per machine. Map every
+machine/provider pair using that bill to the same subscription ID. If Kinto and Latios both use the
+same Claude Max account, create one Claude subscription and map both machines to it. If Nimbus uses
+a separate Claude account, create a second subscription. Codex/ChatGPT follows the same rule.
+OpenCode and Pi usage may need a custom or `$0` row depending on how their underlying models are
+paid for; mappings are optional and do not affect token/cost aggregation itself.
+
+Cursor Admin API is account-global and already deduplicated by configured account email. Use the
+same `providers.cursor.email` on every machine polling the same account, and never mix that Admin
+API feed with the Cursor-via-OpenCode bridge anywhere in the pool.
+
+Mappings are retroactive read-time joins, so it is safe to create/join first and decide the billing
+topology afterward. Remapping does not rewrite history.
+
+For example, a pool where Kinto and Latios share one $200 Claude Max plan, Nimbus has a separate
+$200 Claude Max plan, and all three share one Codex plan is configured from any joined machine:
+
+```sh
+chaching sync subscription add \
+  --provider claude --name 'Work Claude Max' --account 'work-shared' \
+  --tier max-20x --monthly-usd 200
+chaching sync subscription add \
+  --provider claude --name 'Nimbus Claude Max' --account 'nimbus-personal' \
+  --tier max-20x --monthly-usd 200
+chaching sync subscription add \
+  --provider codex --name 'Shared Codex' --account 'shared' \
+  --tier '<codex-tier>' --monthly-usd '<actual-monthly-usd>'
+
+chaching sync status --json > /tmp/chaching-pool.json
+WORK_CLAUDE_ID=$(jq -r '.subscriptions[] | select(.name == "Work Claude Max") | .id' /tmp/chaching-pool.json)
+NIMBUS_CLAUDE_ID=$(jq -r '.subscriptions[] | select(.name == "Nimbus Claude Max") | .id' /tmp/chaching-pool.json)
+CODEX_ID=$(jq -r '.subscriptions[] | select(.name == "Shared Codex") | .id' /tmp/chaching-pool.json)
+KINTO_ID=$(jq -r '.machines[] | select(.name == "kinto") | .id' /tmp/chaching-pool.json)
+LATIOS_ID=$(jq -r '.machines[] | select(.name == "latios") | .id' /tmp/chaching-pool.json)
+NIMBUS_ID=$(jq -r '.machines[] | select(.name == "nimbus") | .id' /tmp/chaching-pool.json)
+
+chaching sync map --machine "$KINTO_ID" --provider claude --subscription "$WORK_CLAUDE_ID"
+chaching sync map --machine "$LATIOS_ID" --provider claude --subscription "$WORK_CLAUDE_ID"
+chaching sync map --machine "$NIMBUS_ID" --provider claude --subscription "$NIMBUS_CLAUDE_ID"
+chaching sync map --machine "$KINTO_ID" --provider codex --subscription "$CODEX_ID"
+chaching sync map --machine "$LATIOS_ID" --provider codex --subscription "$CODEX_ID"
+chaching sync map --machine "$NIMBUS_ID" --provider codex --subscription "$CODEX_ID"
+rm -f /tmp/chaching-pool.json
+```
+
+The web controls appear only after this machine has created or joined the pool. They add pool-wide
+subscription rows and map the current machine; the CLI's `--machine` option can manage all joined
+machines centrally as shown above.
+
+The arithmetic for a 3-machine, 24/7 pool at the default 15-minute interval:
 
 - **Compute.** Neon free gives 100 CU-hours/month and scales to zero after 5 minutes idle at
   0.25 CU minimum. Aligned 15-minute bursts wake the endpoint ~4×/hour; each wake stays up for the
   ~5-minute idle floor, so ≈ 4 × 5.5 min ≈ 22 active min/hour ≈ 250 active hours/month × 0.25 CU
   ≈ **62 CU-hours/month against the 100 free.**
-- **Storage.** Aggregates only, ~1-2 MB/month of growth against the **512 MB** cap.
+- **Storage.** Aggregates only, ~1-2 MB/month of growth against the **0.5 GB** cap.
 - **Egress.** A few MB/month of aggregate reads, well inside the **5 GB** allowance.
 
-The 5-minute scale-to-zero is exactly what the aligned grid exploits: because every machine bursts
-in the same window, the endpoint sleeps the rest of the time. **Lowering the interval below ~10
-minutes on a 3-machine pool defeats this** — the wake windows start to overlap the idle floor and
-keep the endpoint awake continuously, which blows the CU-hour budget. Keep the interval at 15 (or
-higher) on the free tier; only drop it if you are on a paid plan or an always-on Postgres.
+The [5-minute scale-to-zero](https://neon.com/docs/introduction/scale-to-zero) is exactly what the
+aligned grid exploits: because every machine bursts in the same window, the endpoint sleeps the
+rest of the time. **Lowering the interval below ~10 minutes on a 3-machine pool defeats this**:
+the wake windows start to overlap the idle floor and keep the endpoint awake continuously, which
+blows the CU-hour budget. Keep the interval at 15 (or higher) on the free tier; only drop it if you
+are on a paid plan or an always-on Postgres.
 
 Note that dashboard loads also wake the endpoint *outside* the burst grid: opening the web
 dashboard issues a sync-status read, which opens a PostgreSQL connection off-schedule. A dashboard
