@@ -7,7 +7,6 @@
 	import SyncPanel from '$lib/components/SyncPanel.svelte';
 	import HeroRegion from '$lib/components/regions/HeroRegion.svelte';
 	import CommandBar from '$lib/components/CommandBar.svelte';
-	import SummaryRail from '$lib/components/SummaryRail.svelte';
 	import StatRowRegion from '$lib/components/regions/StatRowRegion.svelte';
 	import ValueBandRegion from '$lib/components/regions/ValueBandRegion.svelte';
 	import LifetimeRegion from '$lib/components/regions/LifetimeRegion.svelte';
@@ -16,7 +15,6 @@
 	import ByModelRegion from '$lib/components/regions/ByModelRegion.svelte';
 	import ByProjectRegion from '$lib/components/regions/ByProjectRegion.svelte';
 	import SessionsRegion from '$lib/components/regions/SessionsRegion.svelte';
-	import HonestyFooterRegion from '$lib/components/regions/HonestyFooterRegion.svelte';
 	// Register & Receipt design-system primitives (chaching-ds-components).
 	import BrandMark from '$lib/components/ds/BrandMark.svelte';
 	import type { SubsidisedProvider } from '$lib/core/subsidisation';
@@ -304,18 +302,11 @@
 			<p class="loading-sub">First load streams every session file once. This is the only slow part.</p>
 		</div>
 	{:else}
-		<!-- Bento layout: a persistent summary rail (left, sticky on desktop) plus
-		     named grid zones — cmd / rail / now / money / history / pool / ledger.
-		     On narrow widths the grid collapses to one column and stacks in the
-		     deliberate order now → money → history → pool → ledger, with the rail
-		     folded to the top under the command bar (design decision 4). -->
+		<!-- Single-column register: the hero owns the spend headline, and the
+		     counterfactual lab comes last so analysis follows the primary ledger. -->
 		<main class="bento">
 			<div class="slot-cmd">
 				<CommandBar {feed} {dash} {syncStatus} />
-			</div>
-
-			<div class="slot-rail">
-				<SummaryRail {feed} {dash} {reducedMotion} />
 			</div>
 
 			<div class="zone-now">
@@ -325,7 +316,6 @@
 
 			<div class="zone-money">
 				<ValueBandRegion {feed} {dash} {config} {syncStatus} {onTierChange} />
-				<WhatifRegion {feed} {dash} {reducedMotion} />
 				<LifetimeRegion {feed} {dash} />
 			</div>
 
@@ -341,7 +331,10 @@
 
 			<div class="zone-ledger">
 				<SessionsRegion {feed} {dash} />
-				<HonestyFooterRegion {feed} />
+			</div>
+
+			<div class="zone-lab">
+				<WhatifRegion {feed} {dash} {reducedMotion} />
 			</div>
 		</main>
 	{/if}
@@ -358,25 +351,20 @@
 		padding: 0 1rem env(safe-area-inset-bottom, 1rem);
 	}
 
-	/* ── Bento layout ────────────────────────────────────────────────────────
-	   Narrow-first: a single column that stacks the command bar, then the folded
-	   rail, then the content zones in the deliberate order now → money → history
-	   → pool → ledger. At ≥1100px it becomes a two-column instrument: a persistent
-	   sticky rail on the left, the command bar + zones on the right. CSS-only —
-	   grid-template-areas + a container query per zone for internal density; no
-	   layout library (design decision 4). Region INTERNALS are untouched in this
-	   wave; this is structure only. */
+	/* ── Register layout ─────────────────────────────────────────────────────
+	   One column keeps the hero as the only spend headline. The lab is last: the
+	   user reads the real ledger before exploring counterfactuals. */
 	.bento {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
 		grid-template-areas:
 			'cmd'
-			'rail'
 			'now'
 			'money'
 			'history'
 			'pool'
-			'ledger';
+			'ledger'
+			'lab';
 		gap: var(--bento-gap);
 	}
 	.slot-cmd {
@@ -387,13 +375,10 @@
 		   `.bento` grid container — which spans the whole page, giving the box the
 		   scroll travel it needs. Put on `.command-bar` instead, the containing block
 		   is `.slot-cmd`, which is exactly the bar's own height, so it has no room to
-		   move and never sticks. (The sibling `.slot-rail` sticks the same way.) */
+		   move and never sticks. */
 		position: sticky;
 		top: 58px;
 		z-index: 8;
-	}
-	.slot-rail {
-		grid-area: rail;
 	}
 	.zone-now {
 		grid-area: now;
@@ -410,38 +395,18 @@
 	.zone-ledger {
 		grid-area: ledger;
 	}
+	.zone-lab {
+		grid-area: lab;
+	}
 	/* Each content zone is a query container so its regions can respond to the
-	   zone's own width (the rail column narrows the right side on desktop). The
-	   density rules themselves land in the restyle wave. */
+	   available page width. */
 	.zone-now,
 	.zone-money,
 	.zone-history,
 	.zone-pool,
-	.zone-ledger {
+	.zone-ledger,
+	.zone-lab {
 		container-type: inline-size;
-	}
-
-	@media (min-width: 1100px) {
-		.bento {
-			grid-template-columns: var(--rail-w) minmax(0, 1fr);
-			grid-template-areas:
-				'rail cmd'
-				'rail now'
-				'rail money'
-				'rail history'
-				'rail pool'
-				'rail ledger';
-			column-gap: var(--bento-gap);
-			align-items: start;
-		}
-		/* The rail is persistently visible: it sticks under the topbar (top:58px,
-		   level with the command bar in the adjacent column) while the zones
-		   scroll past it. */
-		.slot-rail {
-			position: sticky;
-			top: 58px;
-			align-self: start;
-		}
 	}
 
 	/* REGION 1 · TOPBAR — sticky, brass mark on warm ink, --bg gradient mask. */

@@ -167,26 +167,25 @@ describe('dashboard route — landmarks + structure (a11y, layout adoption)', ()
 		expect(container.querySelector('main header, main main, header main')).toBeNull();
 	});
 
-	it('renders the bento zones in order: command bar → rail → now → money → history → pool → ledger', async () => {
+	it('renders the dashboard in order with the counterfactual lab last', async () => {
 		snapshotToEmit = richSnap();
 		const { container } = render(Page);
 		await flush();
 		const main = container.querySelector('main')!;
-		// After the visual overhaul the regions are grouped into named bento zones
-		// (the command bar + summary rail dissolved the old scattered controls);
-		// main's direct children are those zone wrappers in document order.
+		// Main's direct children are the named zone wrappers in document order.
 		const order = [...main.children].map((el) => el.className.split(/\s+/)[0]);
 		const idx = (c: string) => order.findIndex((x) => x === c);
 		expect(idx('slot-cmd')).toBeGreaterThanOrEqual(0);
-		expect(idx('slot-cmd')).toBeLessThan(idx('slot-rail'));
-		expect(idx('slot-rail')).toBeLessThan(idx('zone-now'));
+		expect(idx('slot-rail')).toBe(-1);
+		expect(idx('slot-cmd')).toBeLessThan(idx('zone-now'));
 		expect(idx('zone-now')).toBeLessThan(idx('zone-money'));
 		expect(idx('zone-money')).toBeLessThan(idx('zone-history'));
 		expect(idx('zone-history')).toBeLessThan(idx('zone-pool'));
 		expect(idx('zone-pool')).toBeLessThan(idx('zone-ledger'));
+		expect(idx('zone-ledger')).toBeLessThan(idx('zone-lab'));
 	});
 
-	it('places each region inside its bento zone (hero+stats in now, value band in money, heatmap+model in history, sessions+footer in ledger)', async () => {
+	it('places the primary regions without the redundant rail or honesty box', async () => {
 		snapshotToEmit = richSnap();
 		const { container } = render(Page);
 		await flush();
@@ -196,14 +195,16 @@ describe('dashboard route — landmarks + structure (a11y, layout adoption)', ()
 		expect(container.querySelector('.zone-history .heatmap-sec')).toBeTruthy();
 		expect(container.querySelector('.zone-history .grid2')).toBeTruthy();
 		expect(container.querySelector('.zone-ledger .sessions-sec')).toBeTruthy();
-		expect(container.querySelector('.zone-ledger footer.honesty')).toBeTruthy();
+		expect(container.querySelector('.zone-lab .whatif')).toBeTruthy();
+		expect(container.querySelector('.summary-rail')).toBeNull();
+		expect(container.querySelector('footer.honesty')).toBeNull();
 		// The command bar owns the scope controls (period tabs + provider pills).
 		expect(container.querySelector('.slot-cmd .command-bar')).toBeTruthy();
 		expect(container.querySelector('.slot-cmd [role="tablist"]')).toBeTruthy();
 	});
 });
 
-describe('dashboard route — preservation contract P1–P18', () => {
+describe('dashboard route — behavior contracts', () => {
 	it('P1: shows all five period keys incl. Quarter + All', async () => {
 		snapshotToEmit = richSnap();
 		const { getByRole } = render(Page);
@@ -264,28 +265,6 @@ describe('dashboard route — preservation contract P1–P18', () => {
 		expect(container.querySelector('.sessions-sec')).toBeTruthy();
 		// session project names appear somewhere in the explorer
 		expect(container.textContent ?? '').toMatch(/orca|chaching/);
-	});
-
-	it('P15: honesty footer carries the estimate + provenance + retention notes', async () => {
-		snapshotToEmit = richSnap();
-		const { container } = render(Page);
-		await flush();
-		const footer = container.querySelector('footer.honesty')!;
-		const t = footer.textContent ?? '';
-		expect(t).toMatch(/computed estimate/i);
-		expect(t).toMatch(/1,?280 responses/); // recordsCounted provenance
-		expect(t).toMatch(/42 files/);
-		expect(t).toMatch(/retention/i);
-		expect(t).toMatch(/not separately metered/i); // thinking-tokens note
-	});
-
-	it('P16: work/personal cutover date input is present', async () => {
-		snapshotToEmit = richSnap();
-		const { container } = render(Page);
-		await flush();
-		const input = container.querySelector('#cutover') as HTMLInputElement;
-		expect(input).toBeTruthy();
-		expect(input.type).toBe('date');
 	});
 
 	it('P10: subsidisation card renders (fed off /api/config, month-basis)', async () => {
