@@ -31,6 +31,7 @@ import {
 } from './view-model';
 import { sumGrain } from './aggregate';
 import type { SessionSummary } from '../types';
+import { attachSubscriptions, buildSubscriptionIndex } from './sync/overlay';
 
 function toks(input: number, output = 0, cacheCreation = 0, cacheRead = 0): TokenCounts {
 	return { input, output, cacheCreation, cacheRead };
@@ -1019,6 +1020,32 @@ describe('pooled machine and subscription filters', () => {
 		expect(scopedTotals(pooled, state).cost).toBe(100);
 		expect(heroTotals(pooled, state).current.cost).toBe(100);
 		expect(byDay(pooled, state)[0]?.cost).toBe(100);
+	});
+
+	it('keeps legacy local history in the current machine across period filters', () => {
+		const legacy = snapFrom([
+			dm('2026-06-18', 'claude', 'claude-opus-4-8', 100),
+			dm('2026-06-19', 'codex', 'gpt-5.6-sol', 50)
+		]);
+		const attributed = attachSubscriptions(
+			legacy,
+			buildSubscriptionIndex(
+				[
+					{ machineId: 'kinto', provider: 'claude', subscriptionId: 'work-claude' },
+					{ machineId: 'kinto', provider: 'codex', subscriptionId: 'shared-codex' }
+				],
+				'kinto'
+			)
+		);
+		const state = (period: 'day' | 'week' | 'month') => ({
+			...defaultViewState(period),
+			machineFilter: new Set(['kinto'])
+		});
+
+		expect(scopedTotals(attributed, state('day')).cost).toBe(50);
+		expect(scopedTotals(attributed, state('week')).cost).toBe(150);
+		expect(scopedTotals(attributed, state('month')).cost).toBe(150);
+		expect(attributed.dayModel.every((row) => row.machineId === 'kinto')).toBe(true);
 	});
 
 	it('scopes by a subscription shared independently of machine', () => {

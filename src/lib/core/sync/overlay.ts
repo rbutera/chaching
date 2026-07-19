@@ -208,19 +208,38 @@ function resolve(index: SubscriptionIndex, machineId: string | undefined, provid
 	return index.byMachineProvider.get(mappingKey(machineId, provider)) ?? null;
 }
 
+function resolveMachineId(
+	index: SubscriptionIndex,
+	machineId: string | undefined,
+	provider: string
+): string | undefined {
+	if (machineId != null) return machineId;
+	// Cursor's Admin API feed is account-scoped, not machine-scoped. Every other machine-less
+	// row came from this machine's local history before it joined the pool.
+	return provider === 'cursor' ? undefined : index.ownMachineId || undefined;
+}
+
 /**
- * Read-time subscription join over the merged snapshot: stamp `subscriptionId` onto every
- * day-model and session row from the mapping index. Runs last so a remap needs only a fresh
- * index, never a re-scan or re-load.
+ * Read-time pool identity join over the merged snapshot: stamp `subscriptionId` onto every
+ * row and recover this machine's id on legacy local rows written before the pool join. Runs
+ * last so a remap needs only a fresh index, never a re-scan or re-load.
  */
 export function attachSubscriptions(snap: RollupSnapshot, index: SubscriptionIndex): RollupSnapshot {
-	const dayModel: DayModelAgg[] = snap.dayModel.map((dm) => ({
-		...dm,
-		subscriptionId: resolve(index, dm.machineId, dm.provider)
-	}));
-	const sessions: SessionSummary[] = snap.sessions.map((s) => ({
-		...s,
-		subscriptionId: resolve(index, s.machineId, s.provider)
-	}));
+	const dayModel: DayModelAgg[] = snap.dayModel.map((dm) => {
+		const machineId = resolveMachineId(index, dm.machineId, dm.provider);
+		return {
+			...dm,
+			machineId,
+			subscriptionId: resolve(index, machineId, dm.provider)
+		};
+	});
+	const sessions: SessionSummary[] = snap.sessions.map((s) => {
+		const machineId = resolveMachineId(index, s.machineId, s.provider);
+		return {
+			...s,
+			machineId,
+			subscriptionId: resolve(index, machineId, s.provider)
+		};
+	});
 	return { ...snap, dayModel, sessions };
 }

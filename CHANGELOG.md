@@ -4,6 +4,20 @@ All notable changes to chaching. Follows [semver](https://semver.org/); dates ar
 
 ## Unreleased
 
+## 1.15.1 — 2026-07-19
+
+### Fixed
+
+- **Initial pool publication now survives pre-pool history.** Session fragments split across the join boundary are coalesced before PostgreSQL upserts, and legacy local rows without a machine ID are attributed through the current machine's subscription mappings. This prevents a failed first publish and `$0` subscription cards after joining an existing local history to a pool.
+- **`sync subscription add` reports the subscription it actually created** when several subscriptions for the same provider sort around one another, so its printed ID cannot silently point at an older plan.
+
+### Changed
+
+- Simplified the dashboard by removing the redundant left spend rail and standalone cost-estimate box, and moved the Counterfactual Lab to the bottom of the page.
+- Expanded the sync guide with an executable Neon setup, a three-machine rollout, subscription-topology examples, nightly scheduler guidance, and the required restart when a running dashboard joins a pool out of band.
+
+## 1.15.0 — 2026-07-17
+
 ### Added
 
 - **Kimi K3 pricing** across Kimi/Moonshot, OpenCode Zen, and OpenCode Go at the published launch rates, including cached-input billing.

@@ -107,7 +107,25 @@ describe('attachSubscriptions legacy local attribution', () => {
 			'kinto'
 		);
 
-		expect(attachSubscriptions(snapshot, index).dayModel[0]?.subscriptionId).toBe('shared-codex');
+		expect(attachSubscriptions(snapshot, index).dayModel[0]).toMatchObject({
+			machineId: 'kinto',
+			subscriptionId: 'shared-codex'
+		});
+	});
+
+	it('keeps account-scoped Cursor rows machine-less', () => {
+		const snapshot = emptySnap({
+			dayModel: [dm('2026-07-19', { provider: 'cursor', model: 'cursor-auto' })]
+		});
+		const index = buildSubscriptionIndex(
+			[{ machineId: 'kinto', provider: 'cursor', subscriptionId: 'shared-cursor' }],
+			'kinto'
+		);
+
+		expect(attachSubscriptions(snapshot, index).dayModel[0]).toMatchObject({
+			subscriptionId: 'shared-cursor'
+		});
+		expect(attachSubscriptions(snapshot, index).dayModel[0]?.machineId).toBeUndefined();
 	});
 });
 
