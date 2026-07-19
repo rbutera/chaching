@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSubscriptionIndex, mergePooledSnapshot } from './overlay';
+import { attachSubscriptions, buildSubscriptionIndex, mergePooledSnapshot } from './overlay';
 import type { SyncMapping } from './types';
 import type { DayModelAgg, RollupSnapshot } from '../../types';
 
@@ -67,6 +67,47 @@ describe('buildSubscriptionIndex cursor attribution (C11)', () => {
 
 	it('resolves to null when there is no cursor mapping anywhere', () => {
 		expect(buildSubscriptionIndex([], 'own').cursor).toBeNull();
+	});
+});
+
+describe('attachSubscriptions legacy local attribution', () => {
+	it('attributes pre-pool non-cursor rows without a machine id to the current machine', () => {
+		const snapshot = {
+			generatedAt: 0,
+			earliestDay: '2026-07-19',
+			latestDay: '2026-07-19',
+			totals: {
+				tokens: { input: 1, output: 0, cacheCreation: 0, cacheRead: 0 },
+				requests: 1,
+				cost: 1,
+				costUnknownRequests: 0
+			},
+			dayModel: [
+				{
+					day: '2026-07-19',
+					provider: 'codex',
+					model: 'gpt-5.6-sol',
+					tokens: { input: 1, output: 0, cacheCreation: 0, cacheRead: 0 },
+					requests: 1,
+					cost: 1,
+					costUnknownRequests: 0
+				}
+			],
+			sessions: [],
+			blocks: [],
+			models: ['gpt-5.6-sol'],
+			providers: ['codex'],
+			unknownPriceModels: [],
+			stats: { filesScanned: 1, recordsCounted: 1, linesSkipped: 0, duplicatesSkipped: 0 },
+			cutoverTs: null,
+			coverage: { '2026-07-19': 'partial' as const }
+		};
+		const index = buildSubscriptionIndex(
+			[{ machineId: 'kinto', provider: 'codex', subscriptionId: 'shared-codex' }],
+			'kinto'
+		);
+
+		expect(attachSubscriptions(snapshot, index).dayModel[0]?.subscriptionId).toBe('shared-codex');
 	});
 });
 

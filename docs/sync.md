@@ -261,6 +261,8 @@ server publishes at `intervalMinutes`; a scheduled `chaching stats` run cold-sca
 and exits. For laptops that are not running Chaching continuously, install a nightly scheduler on
 every machine. Running all scheduled jobs at the same wall-clock time gives Neon a single wake
 window and leaves each local SQLite ledger current even before subscription mappings are complete.
+If `sync create` or `sync join` was run while a TUI/web server was already running, restart that
+process once so it reloads the new pool identity and subscription mappings.
 
 ### Decide the subscription topology
 

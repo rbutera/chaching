@@ -58,6 +58,7 @@ export async function runSync(argv: string[]): Promise<void> {
 	}
 	if (command === 'subscription' && rest[0] === 'add') {
 		const args = rest.slice(1);
+		const existingIds = new Set((await getSyncStatus()).subscriptions.map(({ id }) => id));
 		const status = await performSyncAction({
 			action: 'add-subscription',
 			provider: requiredFlag(args, '--provider'),
@@ -66,7 +67,7 @@ export async function runSync(argv: string[]): Promise<void> {
 			tier: flag(args, '--tier') ?? 'custom',
 			monthlyUsd: numberFlag(args, '--monthly-usd')
 		});
-		const added = status.subscriptions.at(-1);
+		const added = status.subscriptions.find(({ id }) => !existingIds.has(id));
 		console.log(`added subscription ${added?.name ?? ''} (${added?.id ?? 'created'})`);
 		return;
 	}

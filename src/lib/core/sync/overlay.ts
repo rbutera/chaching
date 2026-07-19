@@ -27,6 +27,7 @@ function mappingKey(machineId: string, provider: string): string {
 /** Resolve subscription attribution at read time from the pool's mapping rows. */
 export interface SubscriptionIndex {
 	byMachineProvider: Map<string, string | null>;
+	ownMachineId: string;
 	/** Pool-level cursor attribution for account-scoped (machineId-less) cursor rows. */
 	cursor: string | null;
 }
@@ -55,6 +56,7 @@ export function buildSubscriptionIndex(mappings: readonly SyncMapping[], ownMach
 	// null. `ownCursor != null` covers both "no own mapping" (undefined) and "own explicit null".
 	return {
 		byMachineProvider,
+		ownMachineId,
 		cursor: ownCursor != null ? ownCursor : peerCursor
 	};
 }
@@ -197,7 +199,12 @@ export function mergePooledSnapshot(
 }
 
 function resolve(index: SubscriptionIndex, machineId: string | undefined, provider: string): string | null {
-	if (machineId == null) return index.cursor; // account-scoped cursor row
+	if (machineId == null) {
+		if (provider === 'cursor') return index.cursor; // account-scoped cursor row
+		// Frozen/local history written before this machine joined a pool has no machine id.
+		// It is still this machine's local contribution, so attribute it through the own mapping.
+		return index.byMachineProvider.get(mappingKey(index.ownMachineId, provider)) ?? null;
+	}
 	return index.byMachineProvider.get(mappingKey(machineId, provider)) ?? null;
 }
 

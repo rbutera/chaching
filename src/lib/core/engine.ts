@@ -127,7 +127,11 @@ class Ingestion {
 	/** Incremental peer read watermark: max `updated_at` (ISO) seen so far, null = read all. */
 	private syncWatermark: string | null = null;
 	private syncMappings: readonly SyncMapping[] = [];
-	private syncSubscriptionIndex: SubscriptionIndex = { byMachineProvider: new Map(), cursor: null };
+	private syncSubscriptionIndex: SubscriptionIndex = {
+		byMachineProvider: new Map(),
+		ownMachineId: '',
+		cursor: null
+	};
 	private syncMappingFingerprint = '[]';
 	/** any read/parse failure during the cold scan makes a day potentially partial -> don't freeze. */
 	private scanHadErrors = false;

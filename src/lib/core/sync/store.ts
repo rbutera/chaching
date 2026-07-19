@@ -72,6 +72,43 @@ export interface PeerLoad {
 	watermark: string | null;
 }
 
+export function coalesceSessionsForPublish(
+	sessions: readonly SessionSummary[],
+	machineId: string | null
+): SessionSummary[] {
+	const byIdentity = new Map<string, SessionSummary>();
+	for (const session of sessions) {
+		const key = `${session.provider}\u001f${session.sessionId}`;
+		const stamped = { ...session, machineId: machineId ?? undefined };
+		const existing = byIdentity.get(key);
+		if (!existing) {
+			byIdentity.set(key, {
+				...stamped,
+				tokens: { ...stamped.tokens },
+				models: [...stamped.models]
+			});
+			continue;
+		}
+		byIdentity.set(key, {
+			...existing,
+			project: existing.project || stamped.project,
+			firstTs: Math.min(existing.firstTs, stamped.firstTs),
+			lastTs: Math.max(existing.lastTs, stamped.lastTs),
+			tokens: {
+				input: existing.tokens.input + stamped.tokens.input,
+				output: existing.tokens.output + stamped.tokens.output,
+				cacheCreation: existing.tokens.cacheCreation + stamped.tokens.cacheCreation,
+				cacheRead: existing.tokens.cacheRead + stamped.tokens.cacheRead
+			},
+			requests: existing.requests + stamped.requests,
+			cost: existing.cost + stamped.cost,
+			costUnknownRequests: existing.costUnknownRequests + stamped.costUnknownRequests,
+			models: [...new Set([...existing.models, ...stamped.models])]
+		});
+	}
+	return [...byIdentity.values()];
+}
+
 export class PostgresSyncStore {
 	private pool: Pool;
 	private opened = false;
@@ -497,7 +534,7 @@ export class PostgresSyncStore {
 	async publishSessions(scope: PublishScope, sessions: readonly SessionSummary[]): Promise<void> {
 		if (sessions.length === 0) return;
 		const { poolId } = this.identity();
-		const payload = sessions.map((s) => ({
+		const payload = coalesceSessionsForPublish(sessions, scope.machineId).map((s) => ({
 			provider: s.provider,
 			session_id: s.sessionId,
 			payload: s
