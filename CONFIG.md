@@ -7,7 +7,7 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/chaching/config.json
 ```
 
 If the file is missing or malformed, chaching falls back to safe defaults:
-Claude Code, Codex, and OpenCode local providers are enabled; Cursor Admin API is disabled.
+Claude Code, Codex, OpenCode, and Pi / OMP local providers are enabled; Cursor Admin API is disabled.
 
 Start from the example:
 
@@ -128,6 +128,25 @@ Codex usage is read from local JSONL session files. chaching uses `last_token_us
 OpenCode usage is read from the local OpenCode SQLite database (the `message` table) through Node's built-in `node:sqlite` module — one record per assistant message. chaching requires Node `>=24.16.0` for this provider. Because OpenCode reports `cost: 0` for Zen/Go/subscription usage, cost is computed from the vendored [models.dev](https://models.dev) price map (`static/pricing/modelsdev-prices.json`), not trusted; genuinely-free models price at `$0`, unpriced models are flagged unknown (never a faked `$0`).
 
 Usage reached through the [opencode-cursor](https://github.com/Nomadcxx/opencode-cursor) bridge (tagged `providerID: cursor-acp` in the OpenCode DB) is attributed to the **Cursor** provider, not OpenCode — see below.
+
+### Pi / Oh My Pi
+
+```json
+"pi": {
+	"enabled": true,
+	"roots": ["~/.pi/agent/sessions", "~/.omp/agent/sessions"]
+}
+```
+
+chaching recursively scans compatible version-3 JSONL sessions from both canonical
+[pi-mono](https://github.com/badlogic/pi-mono) and [Oh My Pi](https://github.com/can1357/oh-my-pi),
+including nested OMP subagent sessions. Both sources use the existing `pi` provider identity so
+their history, polling, and sync attribution stay unified. Assistant response IDs deduplicate
+history copied by session forks; cache TTL and server web-tool usage are preserved when present.
+
+The historical singular `"root"` setting remains accepted. The old default
+`"~/.pi/agent/sessions"` expands to both defaults on load, while a custom singular root remains
+the only configured root. An explicit non-empty `"roots"` array always wins.
 
 ### Cursor
 

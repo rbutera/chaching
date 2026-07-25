@@ -1,10 +1,12 @@
 // Tests for the CLI router, stats formatting, and subprocess smoke tests.
 
-import { describe, it, expect, vi } from 'vitest';
+import { afterAll, beforeAll, describe, it, expect, vi } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 
 // This file spawns real Node subprocesses for CLI smoke-testing.
 // Each call adds ~135 ms; 36 tests in the file easily exceed the 5 s vitest
@@ -17,6 +19,35 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..');
 const cliBundle = join(root, 'dist', 'cli', 'index.js');
 const bin = join(root, 'bin', 'chaching.js');
+let cliConfigHome = '';
+
+beforeAll(async () => {
+	cliConfigHome = await mkdtemp(join(tmpdir(), 'chaching-router-test-'));
+	await resetCliConfig();
+});
+
+async function resetCliConfig(): Promise<void> {
+	const configDir = join(cliConfigHome, 'chaching');
+	await mkdir(configDir, { recursive: true });
+	await writeFile(
+		join(configDir, 'config.json'),
+		JSON.stringify({
+			history: { enabled: false },
+			sync: { enabled: false },
+			providers: {
+				claude: { enabled: false },
+				codex: { enabled: false },
+				opencode: { enabled: false },
+				cursor: { enabled: false },
+				pi: { enabled: false }
+			}
+		})
+	);
+}
+
+afterAll(async () => {
+	if (cliConfigHome) await rm(cliConfigHome, { recursive: true, force: true });
+});
 
 // ── helper ────────────────────────────────────────────────────────────────────
 
@@ -25,7 +56,12 @@ async function runCli(
 	entry = cliBundle
 ): Promise<{ stdout: string; stderr: string; code: number }> {
 	try {
-		const { stdout, stderr } = await exec('node', [entry, ...args], { timeout: 30_000 });
+		await resetCliConfig();
+		const { stdout, stderr } = await exec('node', [entry, ...args], {
+			timeout: 30_000,
+			maxBuffer: 10 * 1024 * 1024,
+			env: { ...process.env, XDG_CONFIG_HOME: cliConfigHome }
+		});
 		return { stdout, stderr, code: 0 };
 	} catch (err: unknown) {
 		const e = err as { stdout?: string; stderr?: string; code?: number };

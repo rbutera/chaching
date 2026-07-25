@@ -78,6 +78,7 @@ export const PRICE_OVERRIDES: Record<string, PriceEntry> = {
 	'claude-opus-4-6': OPUS,
 	'claude-opus-4-7': OPUS,
 	'claude-opus-4-8': OPUS,
+	'claude-opus-5': OPUS,
 	'claude-sonnet-4-6': SONNET,
 	'claude-haiku-4-5-20251001': HAIKU,
 	'claude-haiku-4-5': HAIKU

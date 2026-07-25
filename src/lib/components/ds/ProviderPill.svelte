@@ -30,7 +30,7 @@
 		codex: 'Codex',
 		opencode: 'OpenCode',
 		cursor: 'Cursor',
-		pi: 'Pi'
+		pi: 'Pi / OMP'
 	} satisfies Record<KnownProvider, string>;
 </script>
 

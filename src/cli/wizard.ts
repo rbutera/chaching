@@ -66,8 +66,8 @@ const PROVIDER_META: Record<KnownProvider, ProviderMeta> = {
 		}
 	},
 	pi: {
-		label: 'Pi',
-		hint: 'reads ~/.pi/agent/sessions (also covers the omp fork)'
+		label: 'Pi / OMP',
+		hint: 'reads ~/.pi/agent/sessions and ~/.omp/agent/sessions'
 	}
 };
 

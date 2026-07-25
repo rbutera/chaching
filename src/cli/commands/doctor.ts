@@ -404,17 +404,18 @@ async function gatherDoctorInput(cfg: chachingConfig): Promise<DoctorInput> {
 		});
 	}
 
-	// pi (and its fork omp) — JSONL session files under the sessions root.
+	// Pi / OMP — compatible JSONL session files across both session roots.
 	{
 		const enabled = cfg.providers.pi.enabled;
-		const root = expandPath(cfg.providers.pi.root);
+		const roots = cfg.providers.pi.roots.map(expandPath);
 		let sourceExists: boolean | null = null;
 		let fileCount: number | null = null;
 		let newestMtime: number | null = null;
 		if (enabled) {
-			sourceExists = existsSync(root);
+			const existingRoots = roots.filter(existsSync);
+			sourceExists = existingRoots.length > 0;
 			if (sourceExists) {
-				const files = await walkExt(root, '.jsonl');
+				const files = [...new Set((await Promise.all(existingRoots.map((root) => walkExt(root, '.jsonl')))).flat())];
 				fileCount = files.length;
 				newestMtime = await newestOf(files);
 			}
@@ -423,7 +424,7 @@ async function gatherDoctorInput(cfg: chachingConfig): Promise<DoctorInput> {
 		providers.push({
 			provider: 'pi',
 			enabled,
-			sourceLabel: cfg.providers.pi.root,
+			sourceLabel: cfg.providers.pi.roots.join(', '),
 			sourceExists,
 			fileCount,
 			newestMtime,

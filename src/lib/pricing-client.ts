@@ -21,16 +21,17 @@ export interface ClientPrice {
 	input: number;
 	output: number;
 	cacheCreation: number; // 5m / base cache-write rate (= input for OpenAI families)
+	cacheCreation1h?: number;
 	cacheRead: number;
 }
 
 // ── Claude (mirror src/lib/core/pricing/overrides.ts + the LiteLLM snapshot) ────
 // Fable 5 / Mythos 5 sit above Opus: $10/$50 per MTok, cache-write (5m) $12.50, read $1.
-const FABLE: ClientPrice = { input: 1e-5, output: 5e-5, cacheCreation: 1.25e-5, cacheRead: 1e-6 };
-const OPUS: ClientPrice = { input: 5e-6, output: 2.5e-5, cacheCreation: 6.25e-6, cacheRead: 5e-7 };
-const SONNET: ClientPrice = { input: 3e-6, output: 1.5e-5, cacheCreation: 3.75e-6, cacheRead: 3e-7 };
+const FABLE: ClientPrice = { input: 1e-5, output: 5e-5, cacheCreation: 1.25e-5, cacheCreation1h: 2e-5, cacheRead: 1e-6 };
+const OPUS: ClientPrice = { input: 5e-6, output: 2.5e-5, cacheCreation: 6.25e-6, cacheCreation1h: 1e-5, cacheRead: 5e-7 };
+const SONNET: ClientPrice = { input: 3e-6, output: 1.5e-5, cacheCreation: 3.75e-6, cacheCreation1h: 6e-6, cacheRead: 3e-7 };
 const SONNET5: ClientPrice = { input: 2e-6, output: 1e-5, cacheCreation: 2.5e-6, cacheRead: 2e-7 };
-const HAIKU: ClientPrice = { input: 1e-6, output: 5e-6, cacheCreation: 1.25e-6, cacheRead: 1e-7 };
+const HAIKU: ClientPrice = { input: 1e-6, output: 5e-6, cacheCreation: 1.25e-6, cacheCreation1h: 2e-6, cacheRead: 1e-7 };
 
 // Superseded generations that priced differently before a family-wide cut: Opus
 // dropped from $15/$75 to $5/$25 at the 4.5 release, Haiku from $0.25/$1.25 (Claude
@@ -55,6 +56,9 @@ const LEGACY_CLAUDE_IDS: Record<string, ClientPrice> = {
 	'claude-opus-4-1': LEGACY_OPUS,
 	'claude-opus-4-1-20250805': LEGACY_OPUS,
 	'claude-3-haiku-20240307': LEGACY_HAIKU
+};
+const CURRENT_CLAUDE_IDS: Record<string, ClientPrice> = {
+	'claude-opus-5': OPUS
 };
 
 // ── OpenAI / Codex (mirror overrides + static/pricing snapshot) ─────────────────
@@ -105,6 +109,7 @@ export function resolvePriceClient(model: string): ClientPrice | null {
 	// Superseded Claude generations, checked by exact id before the family
 	// regexes (which only key on the family name, not the price-cut generation).
 	if (LEGACY_CLAUDE_IDS[model]) return LEGACY_CLAUDE_IDS[model];
+	if (CURRENT_CLAUDE_IDS[model]) return CURRENT_CLAUDE_IDS[model];
 
 	// Claude families. Fable/Mythos first — nothing else matches those names.
 	if (/fable|mythos/i.test(model)) return FABLE;

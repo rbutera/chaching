@@ -29,10 +29,10 @@ export interface PiReadOptions {
 }
 
 export async function readPiRecords(
-	root: string,
+	roots: readonly string[],
 	opts: PiReadOptions = {}
 ): Promise<PiReadResult> {
-	let files = await walkJsonl(root);
+	let files = [...new Set((await Promise.all(roots.map(walkJsonl))).flat())].sort();
 	if (opts.modifiedSince !== undefined) {
 		const since = opts.modifiedSince;
 		const fresh: string[] = [];

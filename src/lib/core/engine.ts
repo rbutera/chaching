@@ -5,7 +5,7 @@
 // the Rollup and fans deltas out to subscribers. Both the SvelteKit server and the
 // CLI consume this in-process.
 
-import { watch, type FSWatcher } from 'node:fs';
+import { existsSync, watch, type FSWatcher } from 'node:fs';
 import { sep } from 'node:path';
 import { hostname } from 'node:os';
 import { Rollup } from './rollup/rollup';
@@ -19,7 +19,7 @@ import { isoDayUTC } from './ingest/parse';
 import { HistoryStore } from './history/store';
 import { ProviderStatus } from './provider-status';
 import { readCodexRecords } from './providers/codex/local';
-import { readPiRecords } from './providers/pi/local';
+import { readPiRecords, type PiReadResult } from './providers/pi/local';
 import { readOpenCodeSessions } from './providers/opencode/sqlite';
 import { fetchCursorUsageRecords } from './providers/cursor/api';
 import type { RollupDelta, RollupSnapshot, UsageRecord } from '../types';
@@ -60,6 +60,7 @@ const HOUR_PUBLISH_WINDOW_MS = 48 * 60 * 60 * 1000;
 // Random 0-15s jitter added to each wall-clock-aligned burst so all pool machines hit the
 // SAME serverless wake window (aligned instant) while spreading their connects within it.
 const SYNC_JITTER_MS = 15_000;
+const PI_HISTORY_REVISION = 'pi-family-roots-v1';
 
 type DeltaListener = (delta: RollupDelta) => void;
 
@@ -100,6 +101,8 @@ class Ingestion {
 	private piSeenFiles = new Set<string>();
 	/** incremental floor for the next pi re-poll (wall clock, NOT the `now` seam) */
 	private piScanSince = 0;
+	/** cold Pi-family scan reused by the one-time history backfill and normal ingestion */
+	private piInitialRead: PiReadResult | null = null;
 	/** opencode source stamp (db + -wal mtime) at last ingest; re-ingest only on change */
 	private opencodeSourceMtime = -1;
 	private opencodeCounted = false;
@@ -161,7 +164,7 @@ class Ingestion {
 		// and let the live scan freeze normally, whether or not sync is configured. Pooling adds
 		// a peer OVERLAY on top; it never replaces the durable local store, so leaving a pool
 		// loses nothing local. MUST happen before any rollup.add call so frozen days are skipped.
-		this.loadHistory(cfg);
+		await this.loadHistory(cfg);
 		// Cursor Admin API spend is account-global; in pooled mode it feeds a publish-only
 		// rollup (see the field doc), never the local rollup.
 		if (isConfigured(cfg.sync)) {
@@ -214,7 +217,7 @@ class Ingestion {
 		}
 
 		if (cfg.providers.pi.enabled) {
-			await this.ingestPi(expandPath(cfg.providers.pi.root));
+			await this.ingestPi(cfg.providers.pi.roots.map(expandPath));
 		}
 
 		// Env-first: if the token is absent from config, fall back to the env var so
@@ -381,13 +384,14 @@ class Ingestion {
 	}
 
 	/** Open the history DB and seed the rollup with frozen aggregates + sessions. */
-	private loadHistory(cfg: chachingConfig): void {
+	private async loadHistory(cfg: chachingConfig): Promise<void> {
 		if (!cfg.history.enabled) return;
 		try {
 			const store = new HistoryStore();
 			store.open(expandPath(cfg.history.dbPath));
 			this.historyStore = store;
 			const frozen = store.frozenDays();
+			await this.backfillPiFamilyHistory(store, frozen, cfg);
 			this.rollup.setFrozenDays(frozen);
 			this.rollup.loadAggregates(store.loadAggregates(), store.loadSessions());
 		} catch (error) {
@@ -397,6 +401,31 @@ class Ingestion {
 				this.historyStore = null;
 			}
 		}
+	}
+
+	private async backfillPiFamilyHistory(
+		store: HistoryStore,
+		frozen: ReadonlySet<string>,
+		cfg: chachingConfig
+	): Promise<void> {
+		if (!cfg.providers.pi.enabled || store.hasRevision(PI_HISTORY_REVISION)) return;
+		const roots = cfg.providers.pi.roots.map(expandPath);
+		const ompRoot = expandPath('~/.omp/agent/sessions');
+		if (!roots.includes(ompRoot) || !existsSync(ompRoot)) return;
+
+		const result = await readPiRecords(roots);
+		this.piInitialRead = result;
+		if (result.errors.length > 0) return;
+
+		const backfill = new Rollup();
+		const keys = new Set<string>();
+		for (const record of result.records) {
+			if (!frozen.has(record.day) || keys.has(record.key)) continue;
+			keys.add(record.key);
+			backfill.add(record);
+		}
+		const { aggregates, sessions } = backfill.freezeCandidates(frozen);
+		store.backfillProviderHistory(PI_HISTORY_REVISION, 'pi', aggregates, sessions);
 	}
 
 	/**
@@ -476,12 +505,16 @@ class Ingestion {
 		}
 	}
 
-	private async ingestPi(root: string, modifiedSince?: number): Promise<void> {
+	private async ingestPi(roots: readonly string[], modifiedSince?: number): Promise<void> {
 		try {
 			// Wall clock on purpose (same rationale as codex): the incremental floor is
 			// an mtime fact and must not run through the `now` seam tests fake for "today".
 			const scanStart = Date.now();
-			const result = await readPiRecords(root, { modifiedSince });
+			const result =
+				modifiedSince === undefined && this.piInitialRead
+					? this.piInitialRead
+					: await readPiRecords(roots, { modifiedSince });
+			this.piInitialRead = null;
 			for (const file of result.files) {
 				if (this.piSeenFiles.has(file)) continue;
 				this.piSeenFiles.add(file);
@@ -631,7 +664,7 @@ class Ingestion {
 				await this.ingestCodex(expandPath(cfg.providers.codex.root), this.codexScanSince);
 			}
 			if (cfg.providers.pi.enabled) {
-				await this.ingestPi(expandPath(cfg.providers.pi.root), this.piScanSince);
+				await this.ingestPi(cfg.providers.pi.roots.map(expandPath), this.piScanSince);
 			}
 			if (cfg.providers.opencode.enabled) {
 				const dbPath = expandPath(cfg.providers.opencode.dbPath);

@@ -16,11 +16,22 @@ describe('resolvePriceClient — Claude families', () => {
 		expect(resolvePriceClient('claude-haiku-4-5')!.input).toBe(1e-6);
 	});
 
+	it('prices exact Opus 5 cache TTLs', () => {
+		expect(resolvePriceClient('claude-opus-5')).toEqual({
+			input: 5e-6,
+			output: 2.5e-5,
+			cacheCreation: 6.25e-6,
+			cacheCreation1h: 1e-5,
+			cacheRead: 5e-7
+		});
+	});
+
 	it('prices Fable 5 / Mythos 5 ($10/$50 per MTok, cache-write $12.50, read $1)', () => {
 		expect(resolvePriceClient('claude-fable-5')).toEqual({
 			input: 1e-5,
 			output: 5e-5,
 			cacheCreation: 1.25e-5,
+			cacheCreation1h: 2e-5,
 			cacheRead: 1e-6
 		});
 		expect(resolvePriceClient('claude-mythos-5')!.input).toBe(1e-5);

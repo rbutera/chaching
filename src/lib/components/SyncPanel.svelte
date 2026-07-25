@@ -27,6 +27,7 @@
 	let monthlyUsd = $state('200');
 
 	const providers = ['claude', 'codex', 'opencode', 'pi', 'cursor'];
+	const syncProviderLabel = (provider: string) => (provider === 'pi' ? 'Pi / OMP' : provider);
 
 	async function run(action: SyncAction): Promise<boolean> {
 		error = '';
@@ -184,7 +185,7 @@
 					<label>
 						provider
 						<select bind:value={provider}>
-							{#each providers as item}<option value={item}>{item}</option>{/each}
+							{#each providers as item}<option value={item}>{syncProviderLabel(item)}</option>{/each}
 						</select>
 					</label>
 					<label>
@@ -212,7 +213,7 @@
 				<div class="mapping-list">
 					{#each providers as mappedProvider}
 						<label>
-							{mappedProvider}
+							{syncProviderLabel(mappedProvider)}
 							<select
 								value={mappedSubscription(status.machine.id, mappedProvider)}
 								onchange={(event) =>

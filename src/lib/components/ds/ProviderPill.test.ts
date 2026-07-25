@@ -11,7 +11,7 @@ describe('ProviderPill', () => {
 			['codex', 'Codex', 'var(--p-codex)'],
 			['opencode', 'OpenCode', 'var(--p-opencode)'],
 			['cursor', 'Cursor', 'var(--p-cursor)'],
-			['pi', 'Pi', 'var(--p-pi)']
+			['pi', 'Pi / OMP', 'var(--p-pi)']
 		];
 		for (const [provider, name, hue] of cases) {
 			const { container } = render(ProviderPill, { props: { provider } });

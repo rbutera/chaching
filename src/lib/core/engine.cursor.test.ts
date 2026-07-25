@@ -78,7 +78,7 @@ function pooledCursorConfig(): chachingConfig {
 				pollSeconds: 36_000
 			},
 			opencode: { enabled: false, dbPath: '' },
-			pi: { enabled: false, root: '' }
+			pi: { enabled: false, roots: [] }
 		}
 	};
 }

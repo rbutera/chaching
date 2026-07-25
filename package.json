@@ -1,7 +1,7 @@
 {
 	"name": "chaching",
-	"version": "1.15.1",
-	"description": "Local multi-provider AI token spend dashboard for Claude Code, Codex, OpenCode, and Cursor.",
+	"version": "1.16.0",
+	"description": "Local multi-provider AI token spend dashboard for Claude Code, Codex, OpenCode, Pi, OMP, and Cursor.",
 	"private": false,
 	"type": "module",
 	"license": "PolyForm-Noncommercial-1.0.0",
@@ -38,6 +38,7 @@
 		"claude-code",
 		"codex",
 		"opencode",
+		"oh-my-pi",
 		"cursor",
 		"dashboard"
 	],

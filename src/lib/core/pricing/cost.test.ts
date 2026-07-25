@@ -28,6 +28,36 @@ describe('cost resolution', () => {
 		expect(cost as number).toBeGreaterThan(0);
 	});
 
+	it('prices exact Claude Opus 5 standard and cache TTL buckets', () => {
+		expect(
+			computeCost('claude-opus-5', {
+				input: 1_000_000,
+				output: 1_000_000,
+				cacheCreation: 0,
+				cacheRead: 0
+			})
+		).toBeCloseTo(30);
+		expect(
+			computeCost(
+				'claude-opus-5',
+				{ input: 0, output: 0, cacheCreation: 2_000_000, cacheRead: 1_000_000 },
+				1_000_000,
+				1_000_000
+			)
+		).toBeCloseTo(16.75);
+	});
+
+	it('keeps Opus 5 at standard rates throughout its 1M context window', () => {
+		const request = {
+			input: 900_000,
+			output: 10_000,
+			cacheCreation: 0,
+			cacheRead: 100_000
+		};
+		expect(computeCost('claude-opus-5', request, 0, 0, 1_000_000)).toBeCloseTo(4.8);
+		expect(resolvePrice('claude-opus-5')?.long_context_threshold_tokens).toBeUndefined();
+	});
+
 	it('returns null (not zero) for a genuinely unknown model, so it is flagged not silently free', () => {
 		expect(computeCost('totally-made-up-model-xyz-9000', tokens)).toBeNull();
 		expect(resolvePrice('totally-made-up-model-xyz-9000')).toBeNull();

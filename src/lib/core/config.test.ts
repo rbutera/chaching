@@ -61,6 +61,30 @@ describe('config', () => {
 		expect(defaultConfig().providers.codex.enabled).toBe(true);
 		expect(defaultConfig().providers.opencode.enabled).toBe(true);
 		expect(defaultConfig().providers.cursor.enabled).toBe(false);
+		expect(defaultConfig().providers.pi).toEqual({
+			enabled: true,
+			roots: ['~/.pi/agent/sessions', '~/.omp/agent/sessions']
+		});
+	});
+
+	it('normalizes plural and legacy Pi-family session roots without surprising custom configs', () => {
+		expect(
+			normalizeConfig({ providers: { pi: { roots: ['~/pi-a', '~/omp-b'] } } }).providers.pi.roots
+		).toEqual(['~/pi-a', '~/omp-b']);
+		expect(
+			normalizeConfig({ providers: { pi: { root: '~/.pi/agent/sessions' } } }).providers.pi.roots
+		).toEqual(['~/.pi/agent/sessions', '~/.omp/agent/sessions']);
+		expect(
+			normalizeConfig({ providers: { pi: { root: '/Volumes/archive/pi-sessions' } } }).providers.pi
+				.roots
+		).toEqual(['/Volumes/archive/pi-sessions']);
+	});
+
+	it('prefers a non-empty plural Pi roots array over the legacy singular root', () => {
+		const pi = normalizeConfig({
+			providers: { pi: { root: '/legacy', roots: ['/explicit'] } }
+		}).providers.pi;
+		expect(pi.roots).toEqual(['/explicit']);
 	});
 
 	it('redacts Cursor admin API token from public config responses', () => {

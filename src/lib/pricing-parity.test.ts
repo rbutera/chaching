@@ -46,6 +46,7 @@ describe('pricing parity — PRICE_OVERRIDES (server) vs resolvePriceClient', ()
 			expect(client!.input).toBe(entry.input_cost_per_token);
 			expect(client!.output).toBe(entry.output_cost_per_token);
 			expect(client!.cacheCreation).toBe(entry.cache_creation_input_token_cost);
+			expect(client!.cacheCreation1h).toBe(entry.cache_creation_input_token_cost_above_1hr);
 			expect(client!.cacheRead).toBe(entry.cache_read_input_token_cost);
 		});
 	}

@@ -306,6 +306,7 @@ subscription mapping, the interval/cost trade-off, security, and troubleshooting
 | **Claude Code** | `~/.claude/projects/**/*.jsonl` and `~/.config/claude/projects/**/*.jsonl` | De-duplicated by `message.id:requestId`. ~30-day log retention (history DB outlives it). |
 | **Codex** | `~/.codex/sessions/**` (JSONL) | Uses `last_token_usage`, not cumulative totals, so repeated turn snapshots don't double-count. |
 | **OpenCode** | `~/.local/share/opencode/opencode.db` (SQLite) | Read via `node:sqlite`, one record per assistant `message`. OpenCode reports `cost: 0` for Zen/Go/subscription usage, so cost is computed from a vendored [models.dev](https://models.dev) price map (cache rates included) rather than trusted. |
+| **Pi / OMP** | `~/.pi/agent/sessions/**/*.jsonl` and `~/.omp/agent/sessions/**/*.jsonl` | Recursively reads compatible Pi-family v3 sessions, including nested OMP subagents. Forked history deduplicates by upstream response identity; cache TTL and server-tool usage are retained. |
 | **Cursor** | Local via the [opencode-cursor](https://github.com/Nomadcxx/opencode-cursor) bridge (`providerID: cursor-acp` in the OpenCode DB), **or** the Cursor Admin API (`POST api.cursor.com/teams/filtered-usage-events`). | The bridge path is fully local and needs no token — Anthropic models used through Cursor land in the OpenCode DB and are attributed to the Cursor provider. The Admin API is an optional alternate source for non-bridge usage (needs `CURSOR_ADMIN_API_TOKEN` or `chaching init`; `chargedCents` authoritative). **Enable only one** — they don't dedup against each other, so running both double-counts. |
 
 Everything local is read-only. **The Cursor Admin API is the only provider path that makes a network call**, and only if you turn it on; the opencode-cursor bridge path is local.
@@ -340,6 +341,7 @@ Missing file = sensible defaults (Claude Code, Codex, OpenCode on; Cursor off un
     "claude": { "enabled": true, "roots": ["~/.claude", "~/.config/claude"] },
     "codex": { "enabled": true, "root": "~/.codex/sessions" },
     "opencode": { "enabled": true, "dbPath": "~/.local/share/opencode/opencode.db" },
+    "pi": { "enabled": true, "roots": ["~/.pi/agent/sessions", "~/.omp/agent/sessions"] },
     "cursor": { "enabled": false, "adminApiToken": "", "email": null, "pollSeconds": 3600 }
   }
 }
@@ -364,6 +366,7 @@ tailscale serve --https=443 off   # stop sharing
 - **OpenCode / Cursor-via-bridge cost** is computed, not trusted: OpenCode reports `cost: 0` for Zen/Go/subscription usage, so chaching prices each model from a vendored [models.dev](https://models.dev) snapshot (`static/pricing/modelsdev-prices.json`), provider-aware so cache economics stay accurate (Anthropic and GPT-5.6 models bill cache writes; most older OpenAI models don't). Genuinely-free models price at `$0`; anything unpriced is flagged unknown, never a faked `$0`. The Cursor Admin API path still trusts its own `chargedCents`.
 - **Kimi K3** is priced through the Kimi/Moonshot, OpenCode Zen, and OpenCode Go provider ids at its launch rates: `$3/M` input, `$15/M` output, and `$0.30/M` cached input. This covers direct Kimi Code/Pi sessions as well as `opencode/kimi-k3` and `opencode-go/kimi-k3`.
 - **GPT-5.6 pricing** is tier-specific: Sol is $5/$30, Terra $2.50/$15, and Luna $1/$6 per million input/output tokens. Cached input is 10% of input. Explicit cache writes are 1.25× input. Requests above 272K prompt tokens charge the full request at 2× input and 1.5× output; exactly 272K stays at standard rates.
+- **Claude Opus 5 pricing** is exact: $5/$25 per million input/output tokens, $6.25/M for 5-minute cache writes, $10/M for 1-hour cache writes, and $0.50/M for cache reads. Its full 1M context window remains on standard rates.
 - **Cache reads are billed (at a discount), not free.** GPT-5.6 also bills cache writes, but Codex's local `token_count` records currently expose cached reads without a separate cache-write count. chaching prices only the classes it can observe rather than guessing cache writes. Cache panels show standard-rate class breakdowns; `TOTAL BURN` uses the authoritative per-request calculation, including GPT-5.6 long-context multipliers.
 - **Reasoning tokens** fold into `output_tokens` in the Claude logs. No separate breakdown.
 - **Work vs personal** isn't in any log. The optional cutover timestamp is a user-set approximation, nothing more.

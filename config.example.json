@@ -33,6 +33,10 @@
 			"enabled": true,
 			"dbPath": "~/.local/share/opencode/opencode.db"
 		},
+		"pi": {
+			"enabled": true,
+			"roots": ["~/.pi/agent/sessions", "~/.omp/agent/sessions"]
+		},
 		"cursor": {
 			"enabled": false,
 			"adminApiToken": "",

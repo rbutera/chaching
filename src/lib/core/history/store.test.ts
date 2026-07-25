@@ -118,6 +118,55 @@ describe('HistoryStore', () => {
 		expect([...b.frozenDays()].sort()).toEqual(['2026-05-30', '2026-05-31']);
 		b.close();
 	});
+
+	it('backfills a provider once and replaces an existing row only when the scan is more complete', async () => {
+		const dbPath = await tmpDb();
+		const store = new HistoryStore();
+		store.open(dbPath);
+		const existing = { ...agg('2026-07-23', 'claude-opus-5', 5, 1), provider: 'pi' };
+		const existingSession = { ...session('omp-session', Date.UTC(2026, 6, 23, 10)), provider: 'pi', requests: 5 };
+		store.freezeDays(['2026-07-23'], [existing], [existingSession]);
+
+		const richer = { ...existing, requests: 8, cost: 3 };
+		const poorerSession = { ...existingSession, requests: 4, cost: 0.5 };
+		expect(
+			store.backfillProviderHistory('pi-family-v1', 'pi', [richer], [poorerSession])
+		).toBe(true);
+		expect(store.hasRevision('pi-family-v1')).toBe(true);
+		expect(store.loadAggregates().find((row) => row.provider === 'pi')?.requests).toBe(8);
+		expect(store.loadSessions().find((row) => row.provider === 'pi')?.requests).toBe(5);
+
+		expect(
+			store.backfillProviderHistory(
+				'pi-family-v1',
+				'pi',
+				[{ ...richer, requests: 99 }],
+				[]
+			)
+		).toBe(false);
+		expect(store.loadAggregates().find((row) => row.provider === 'pi')?.requests).toBe(8);
+		store.close();
+	});
+
+	it('does not reduce a retained provider row when the scanned source is pruned', async () => {
+		const dbPath = await tmpDb();
+		const store = new HistoryStore();
+		store.open(dbPath);
+		const existing = { ...agg('2026-07-23', 'claude-opus-5', 8, 3), provider: 'pi' };
+		store.freezeDays(['2026-07-23'], [existing], []);
+
+		store.backfillProviderHistory(
+			'pi-family-v1',
+			'pi',
+			[{ ...existing, requests: 4, cost: 0.5 }],
+			[]
+		);
+		expect(store.loadAggregates().find((row) => row.provider === 'pi')).toMatchObject({
+			requests: 8,
+			cost: 3
+		});
+		store.close();
+	});
 });
 
 describe('HistoryStore.openReadOnly — diagnostic reads must not mutate', () => {

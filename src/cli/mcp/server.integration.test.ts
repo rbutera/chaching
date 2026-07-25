@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
@@ -19,10 +21,28 @@ describe('mcp server — stdio integration smoke', () => {
 	it.runIf(hasCliBundle())(
 		'initializes, lists tools, and answers a tools/call over stdio',
 		async () => {
+			const configHome = await mkdtemp(join(tmpdir(), 'chaching-mcp-test-'));
+			const configDir = join(configHome, 'chaching');
+			await mkdir(configDir, { recursive: true });
+			await writeFile(
+				join(configDir, 'config.json'),
+				JSON.stringify({
+					history: { enabled: false },
+					sync: { enabled: false },
+					providers: {
+						claude: { enabled: false },
+						codex: { enabled: false },
+						opencode: { enabled: false },
+						cursor: { enabled: false },
+						pi: { enabled: false }
+					}
+				})
+			);
 			const transport = new StdioClientTransport({
 				command: process.execPath,
 				args: [join(repoRoot, 'bin', 'chaching.js'), 'mcp'],
 				cwd: repoRoot,
+				env: { XDG_CONFIG_HOME: configHome },
 				stderr: 'ignore'
 			});
 			const client = new Client({ name: 'chaching-smoke', version: '0.0.0' });
@@ -59,6 +79,7 @@ describe('mcp server — stdio integration smoke', () => {
 				);
 			} finally {
 				await client.close().catch(() => {});
+				await rm(configHome, { recursive: true, force: true });
 			}
 		},
 		30_000

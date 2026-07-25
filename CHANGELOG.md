@@ -4,6 +4,18 @@ All notable changes to chaching. Follows [semver](https://semver.org/); dates ar
 
 ## Unreleased
 
+## 1.16.0 — 2026-07-25
+
+### Added
+
+- **Pi / Oh My Pi session and usage history.** The existing `pi` provider now recursively scans both `~/.pi/agent/sessions` and `~/.omp/agent/sessions`, including nested OMP subagents, while preserving custom legacy roots. OMP cache TTL splits, server web-tool counts, session/project metadata, and fork-stable response identities flow through the normal rollup and sync contracts.
+- **A one-time frozen-history backfill** makes OMP usage from before the upgrade visible without reducing more-complete retained rows or replaying the migration on every launch.
+- **Exact Claude Opus 5 pricing** at $5/$25 per million input/output tokens, $6.25/M for 5-minute cache writes, $10/M for 1-hour cache writes, and $0.50/M for cache reads. The full 1M context window remains at standard rates.
+
+### Fixed
+
+- Stats/router and MCP subprocess tests now use isolated local configuration, preventing those gates from mutating live ChaChing state or overflowing as a user's session history grows.
+
 ## 1.15.1 — 2026-07-19
 
 ### Fixed

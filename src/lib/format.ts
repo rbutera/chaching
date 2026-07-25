@@ -93,6 +93,8 @@ export function providerLabel(provider: string): string {
 			return 'OpenCode';
 		case 'cursor':
 			return 'Cursor';
+		case 'pi':
+			return 'Pi / OMP';
 		default:
 			return provider;
 	}
@@ -100,10 +102,10 @@ export function providerLabel(provider: string): string {
 
 /** Short display label for a model id, e.g. "Opus 4.8". */
 export function modelLabel(model: string): string {
-	const m = model.match(/^claude-(opus|sonnet|haiku)-(\d+)-(\d+)/i);
+	const m = model.match(/^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?/i);
 	if (m) {
 		const name = m[1][0].toUpperCase() + m[1].slice(1);
-		return `${name} ${m[2]}.${m[3]}`;
+		return `${name} ${m[2]}${m[3] ? `.${m[3]}` : ''}`;
 	}
 	return model;
 }

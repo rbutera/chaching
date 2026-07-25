@@ -30,8 +30,8 @@ export interface CodexProviderConfig {
 }
 
 /**
- * Pi (and its fork omp — same `~/.pi/agent/sessions` path + JSONL format, so one
- * reader covers both). Default ON, like the other local-log providers
+ * Pi and Oh My Pi share the same version-3 JSONL session format, so one reader
+ * covers both roots. Default ON, like the other local-log providers
  * (claude/codex/opencode); disable with `{"providers":{"pi":{"enabled":false}}}`.
  *
  * TODO(subscription): Pi has no subscription/subsidy block yet. Unlike Claude/Codex
@@ -44,7 +44,7 @@ export interface CodexProviderConfig {
  */
 export interface PiProviderConfig {
 	enabled: boolean;
-	root: string;
+	roots: string[];
 }
 
 
@@ -127,6 +127,11 @@ const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 5178;
 const DEFAULT_CURSOR_POLL_SECONDS = 3600;
 const DEFAULT_HISTORY_DB_PATH = '~/.local/share/chaching/history.db';
+const LEGACY_DEFAULT_PI_ROOT = '~/.pi/agent/sessions';
+export const DEFAULT_PI_SESSION_ROOTS = [
+	LEGACY_DEFAULT_PI_ROOT,
+	'~/.omp/agent/sessions'
+] as const;
 
 let cache: chachingConfig | null = null;
 
@@ -160,7 +165,7 @@ export function defaultConfig(): chachingConfig {
 			codex: { enabled: true, root: '~/.codex/sessions', subscription: { ...DEFAULT_SUBSCRIPTION } },
 			cursor: { enabled: false, adminApiToken: '', email: null, pollSeconds: DEFAULT_CURSOR_POLL_SECONDS },
 			opencode: { enabled: true, dbPath: '~/.local/share/opencode/opencode.db' },
-			pi: { enabled: true, root: '~/.pi/agent/sessions' }
+			pi: { enabled: true, roots: [...DEFAULT_PI_SESSION_ROOTS] }
 		}
 	};
 }
@@ -221,7 +226,7 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 			},
 			pi: {
 				enabled: booleanOr(pi.enabled, defaults.providers.pi.enabled),
-				root: stringOr(pi.root, defaults.providers.pi.root)
+				roots: normalizePiRoots(pi)
 			}
 		}
 	};
@@ -255,7 +260,7 @@ export function publicConfig(cfg: chachingConfig): PublicchachingConfig {
 				adminApiTokenConfigured: cfg.providers.cursor.adminApiToken.length > 0
 			},
 			opencode: { ...cfg.providers.opencode },
-			pi: { ...cfg.providers.pi }
+			pi: { ...cfg.providers.pi, roots: [...cfg.providers.pi.roots] }
 		}
 	};
 }
@@ -358,6 +363,19 @@ function stringArrayOr(value: unknown, fallback: string[]): string[] {
 	if (!Array.isArray(value)) return fallback;
 	const strings = value.filter((item) => typeof item === 'string' && item.length > 0);
 	return strings.length > 0 ? strings : fallback;
+}
+
+function normalizePiRoots(pi: Record<string, unknown>): string[] {
+	if (Array.isArray(pi.roots)) {
+		const roots = pi.roots.filter(
+			(item): item is string => typeof item === 'string' && item.length > 0
+		);
+		if (roots.length > 0) return roots;
+	}
+	if (typeof pi.root === 'string' && pi.root.length > 0) {
+		return pi.root === LEGACY_DEFAULT_PI_ROOT ? [...DEFAULT_PI_SESSION_ROOTS] : [pi.root];
+	}
+	return [...DEFAULT_PI_SESSION_ROOTS];
 }
 
 function nullableStringRecord(value: unknown): Record<string, string | null> {

@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { modelColor, modelFamily, hueOf } from './format.js';
+import { modelColor, modelFamily, modelLabel, providerLabel, hueOf } from './format.js';
 import { tokens } from './brand/tokens.js';
 
 describe('modelFamily', () => {
@@ -15,6 +15,13 @@ describe('modelFamily', () => {
 		expect(modelFamily('claude-sonnet-4-5')).toBe('sonnet');
 		expect(modelFamily('claude-haiku-3-5')).toBe('haiku');
 		expect(modelFamily('gpt-5')).toBe('other');
+	});
+});
+
+describe('Pi / OMP labels', () => {
+	it('labels the shared provider and the major-only Opus 5 model id', () => {
+		expect(providerLabel('pi')).toBe('Pi / OMP');
+		expect(modelLabel('claude-opus-5')).toBe('Opus 5');
 	});
 });
 

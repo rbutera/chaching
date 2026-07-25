@@ -46,7 +46,7 @@ function disabledConfig(): chachingConfig {
 			codex: { enabled: false, root: '', subscription: { ...DEFAULT_SUBSCRIPTION } },
 			cursor: { enabled: false, adminApiToken: '', email: null, pollSeconds: 3600 },
 			opencode: { enabled: false, dbPath: '' },
-			pi: { enabled: false, root: '' }
+			pi: { enabled: false, roots: [] }
 		}
 	};
 }

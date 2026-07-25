@@ -9,11 +9,13 @@
  * - stats --json emits pure JSON with no art bytes (subprocess)
  */
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterAll, afterEach, beforeAll } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 
 import {
 	noArt,
@@ -42,6 +44,31 @@ const exec = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..', '..');
 const cliBundle = join(root, 'dist', 'cli', 'index.js');
+let cliConfigHome = '';
+
+beforeAll(async () => {
+	cliConfigHome = await mkdtemp(join(tmpdir(), 'chaching-cli-test-'));
+	const configDir = join(cliConfigHome, 'chaching');
+	await mkdir(configDir, { recursive: true });
+	await writeFile(
+		join(configDir, 'config.json'),
+		JSON.stringify({
+			history: { enabled: false },
+			sync: { enabled: false },
+			providers: {
+				claude: { enabled: false },
+				codex: { enabled: false },
+				opencode: { enabled: false },
+				cursor: { enabled: false },
+				pi: { enabled: false }
+			}
+		})
+	);
+});
+
+afterAll(async () => {
+	if (cliConfigHome) await rm(cliConfigHome, { recursive: true, force: true });
+});
 
 async function runCli(
 	args: string[],
@@ -50,7 +77,8 @@ async function runCli(
 	try {
 		const { stdout, stderr } = await exec('node', [cliBundle, ...args], {
 			timeout: 30_000,
-			env: { ...process.env, ...env }
+			maxBuffer: 10 * 1024 * 1024,
+			env: { ...process.env, XDG_CONFIG_HOME: cliConfigHome, ...env }
 		});
 		return { stdout, stderr, code: 0 };
 	} catch (err: unknown) {

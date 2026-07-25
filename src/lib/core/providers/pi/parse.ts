@@ -1,6 +1,7 @@
 import type { TokenCounts, UsageRecord } from '../../../types';
-import { costFromPriceEntry } from '../../pricing/cost';
+import { costFromPriceEntry, resolvePrice } from '../../pricing/cost';
 import { resolveModelsDevPrice } from '../../pricing/modelsdev';
+import { PRICE_OVERRIDES } from '../../pricing/overrides';
 import { isoDayUTC } from '../../ingest/parse';
 
 // Pi (and its fork omp) append-only session JSONL, one object per line. The header
@@ -70,22 +71,34 @@ export function createPiLineParser(ctx: PiParserContext): PiLineParser {
 			// pricing catalog only; the chaching provider tag is always "pi".
 			const priceProvider = stringValue(message.provider) ?? '';
 			const price = resolvePiPrice(priceProvider, model);
-			const cost = price ? costFromPriceEntry(price, tokens) : null;
+			const cttl = objectValue(usage.cttl);
+			const requested1h = numberValue(cttl.ephemeral1h) || numberValue(usage.cacheWrite1h);
+			const cacheCreation1h = clamp(requested1h, 0, cacheCreation);
+			const requested5m = numberValue(cttl.ephemeral5m) || numberValue(usage.cacheWrite5m);
+			const cacheCreation5m = clamp(requested5m, 0, cacheCreation - cacheCreation1h);
+			const server = objectValue(usage.server);
+			const cost = price
+				? costFromPriceEntry(price, tokens, cacheCreation1h, cacheCreation5m)
+				: null;
 
 			sequence += 1;
 			const entryId = stringValue(obj.id) ?? `seq-${sequence}`;
+			const responseId = stringValue(message.responseId);
+			const key = responseId
+				? `pi:response:${responseId}`
+				: `pi:entry:${entryId}:${ts}:${priceProvider}:${model}`;
 
 			return {
-				key: `pi:${headerId}:${entryId}`,
+				key,
 				provider: 'pi',
 				timestamp: ts,
 				day: isoDayUTC(ts),
 				model,
 				tokens,
-				cacheCreation1h: 0,
-				cacheCreation5m: 0,
-				webSearchRequests: 0,
-				webFetchRequests: 0,
+				cacheCreation1h,
+				cacheCreation5m,
+				webSearchRequests: numberValue(server.webSearch),
+				webFetchRequests: numberValue(server.webFetch),
 				sessionId: headerId,
 				project,
 				isSidechain: false,
@@ -103,6 +116,8 @@ export function createPiLineParser(ctx: PiParserContext): PiLineParser {
  * Genuinely-unknown ids still return null (unpriced, flagged — never a faked $0).
  */
 function resolvePiPrice(provider: string, model: string) {
+	const exact = PRICE_OVERRIDES[model];
+	if (exact) return exact;
 	const hit = resolveModelsDevPrice(provider, model);
 	if (hit) return hit;
 	const lower = model.toLowerCase();
@@ -110,7 +125,7 @@ function resolvePiPrice(provider: string, model: string) {
 		const lowered = resolveModelsDevPrice(provider, lower);
 		if (lowered) return lowered;
 	}
-	return null;
+	return resolvePrice(model);
 }
 
 /** Prefer the numeric `message.timestamp` (epoch ms); fall back to the ISO line timestamp. */
@@ -148,4 +163,8 @@ function stringValue(value: unknown): string | null {
 
 function numberValue(value: unknown): number {
 	return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function clamp(value: number, min: number, max: number): number {
+	return Math.min(Math.max(value, min), max);
 }
