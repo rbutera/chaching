@@ -28,13 +28,35 @@ All notable changes to chaching. Follows [semver](https://semver.org/); dates ar
 - Simplified the dashboard by removing the redundant left spend rail and standalone cost-estimate box, and moved the Counterfactual Lab to the bottom of the page.
 - Expanded the sync guide with an executable Neon setup, a three-machine rollout, subscription-topology examples, nightly scheduler guidance, and the required restart when a running dashboard joins a pool out of band.
 
-## 1.15.0 — 2026-07-17
+## 1.15.0 — 2026-07-19
+
+### Added
+
+- **`chaching mcp`, a read-only MCP server over stdio,** so any coding-agent client (Claude Code, Codex, OpenCode) can ask "how much has today cost?" or "is cache efficiency collapsing?" mid-loop. The contract is read-only, advisory, and content-free: no tool mutates anything or can enforce a budget, and results are aggregates only (dollars, token counts, rates, statuses, model ids, period labels), never a prompt, a transcript, or a filesystem path. Seven tools: `spend_today`, `burn_since`, `cache_efficiency`, `subscription_headroom`, `provider_status`, `quote_tokens`, `unknown_pricing`.
+- **The Counterfactual Lab: `chaching whatif` plus a web region.** Reprices the selected window's real usage under a different basis and ranks the results, across three scenario kinds: `alt-model`, `no-cache`, and `plan-fit`. Flags: `--period`, `--model`, `--json`, `--no-art`. Every scenario carries a mandatory price-only counterfactual label, because repricing tokens cannot model the different conversation a different model would have had.
+- **A recomposed dashboard**, rebuilt as a bento grid from extracted regions (hero, sticky controls, stat row, value band, lifetime, heatmap, by-model, by-project, sessions, honesty footer) rather than one monolith. Adds a sticky command bar with bulk clear-filters, a summary rail, register chrome with a thermal-paper texture, and an animated odometer hero and rail on `@number-flow/svelte`.
+
+### Fixed
+
+- **Counterfactual honesty.** Scenarios reprice against the recorded actual side, split cache writes correctly, and return a whole-triple `null` when a total is unavailable rather than a half-fabricated delta. Slices the resolver knows but that contain unknown-cost requests are excluded from both sides, and ranking derives its targets from the unfiltered window, so an active filter cannot silently reorder the ledger.
+- Hero coverage honesty and a shared odometer cadence, with the motion tests given real teeth.
+- The MCP content-free guard no longer echoes the blocked value in its refusal.
+- Subscription presets moved to a client-safe module; `@number-flow/svelte` is SSR-compiled via `ssr.noExternal`.
+
+## 1.14.0 — 2026-07-17
+
+Tagged but never published to npm; the registry went from `1.13.0` straight to `1.15.0`, which carries everything below.
 
 ### Added
 
 - **Kimi K3 pricing** across Kimi/Moonshot, OpenCode Zen, and OpenCode Go at the published launch rates, including cached-input billing.
 - **Chaching Sync** for opt-in multi-machine pools backed by PostgreSQL, with shared subscription mapping, CLI/wizard/web setup, and dashboard machine/subscription filters. Local SQLite remains the zero-config default. Each machine stays local-first and publishes compact day/hour/session **aggregates** — raw usage records never leave the machine. Subscription attribution is a read-time join (remaps are instant and retroactive), joining loses nothing, and leaving creates no local gap because local SQLite never stops recording.
 - **`sync.intervalMinutes`** (`chaching sync interval <minutes>`, wizard prompt, default 15): a wall-clock-aligned publish cadence so all pool machines burst in one window and a serverless Postgres endpoint (e.g. Neon free tier) scales to zero between them. A 3-machine 24/7 pool at 15 min lands ≈62 of Neon's 100 free CU-hours/month; higher only makes peers' data staler, never your own. `chaching sync status` reports the interval and this machine's last-published time.
+- **The Pi provider**, reading `~/.pi/agent/sessions` and on by default, matching claude/codex/opencode. Priced through models.dev with no cache subtraction, since Pi input is cache-exclusive. Subsidy attribution is deliberately deferred: a Pi session mixes subscription, pay-as-you-go, and Zen/Go usage in one log, so subsidising all of it against one flat fee would be dishonest.
+
+### Fixed
+
+- Closed data-integrity holes in pooled accounting, kept filtered coverage honest, and made onboarding, failure, and drill-down states report what actually happened rather than an optimistic default.
 
 ## 1.13.0 — 2026-07-11
 
