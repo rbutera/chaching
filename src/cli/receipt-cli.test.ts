@@ -1,44 +1,34 @@
 // Subprocess smoke tests for `chaching receipt` — routing, flags, --json shape,
 // non-TTY pipe-safety, --no-art, redaction default, unknown-flag, help registration.
 
-import { describe, it, expect, vi } from 'vitest';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { describe, it, expect, vi, afterAll } from 'vitest';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { existsSync, rmSync, readFileSync } from 'node:fs';
+import { createCliFixture, runCliWith } from './cli-test-harness';
 
 vi.setConfig({ testTimeout: 60_000 });
 
-const exec = promisify(execFile);
-const here = dirname(fileURLToPath(import.meta.url));
-const root = join(here, '..', '..');
-const cliBundle = join(root, 'dist', 'cli', 'index.js');
+// Hermetic seeded data root: without it every spawn cold-scanned the developer's
+// real ~/.claude (~17s each) and blew the execFile timeout under parallel load.
+const fx = createCliFixture();
+afterAll(() => fx.cleanup());
 
-async function runCli(
+function runCli(
 	args: string[],
 	opts: { env?: NodeJS.ProcessEnv } = {}
 ): Promise<{ stdout: string; stderr: string; code: number }> {
-	try {
-		const { stdout, stderr } = await exec('node', [cliBundle, ...args], {
-			timeout: 45_000,
-			maxBuffer: 32 * 1024 * 1024,
-			env: { ...process.env, ...opts.env }
-		});
-		return { stdout, stderr, code: 0 };
-	} catch (err: unknown) {
-		const e = err as { stdout?: string; stderr?: string; code?: number };
-		return { stdout: e.stdout ?? '', stderr: e.stderr ?? '', code: e.code ?? 1 };
-	}
+	return runCliWith(fx, args, opts);
 }
 
 describe('receipt — routing + help', () => {
 	it('receipt subcommand runs and exits 0', async () => {
 		const { code, stdout } = await runCli(['receipt', '--no-art']);
 		expect(code).toBe(0);
-		// either a real receipt (TOTAL BURN) or the empty-state hint
-		expect(stdout).toMatch(/TOTAL BURN|chaching init/);
+		// The fixture seeds priced spend, so this must be a REAL receipt. (Before the
+		// fixture this was `TOTAL BURN|chaching init` because the outcome depended on
+		// the developer's machine — it passed either way.)
+		expect(stdout).toContain('TOTAL BURN');
 	});
 
 	it('receipt appears in --help with its flags', async () => {

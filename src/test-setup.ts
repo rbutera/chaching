@@ -1,7 +1,15 @@
 // Vitest global setup. jest-dom matchers (toBeInTheDocument, etc.) are only meaningful
-// in the jsdom component tests, but importing them here is harmless in the node env
-// (they just register matchers). Component tests opt into jsdom per-file.
-import '@testing-library/jest-dom/vitest';
+// in the jsdom component tests; component tests opt into jsdom per-file.
+//
+// The import is DYNAMIC and window-gated on purpose: setupFiles run once per test
+// file, and eagerly pulling jest-dom into the ~85 node-env files that can never use
+// a DOM matcher was pure overhead on every one of them. Gating it keeps the matchers
+// exactly where they're meaningful.
+export {}; // keep this file an ES module so the top-level await below is legal
+
+if (typeof window !== 'undefined') {
+	await import('@testing-library/jest-dom/vitest');
+}
 
 // jsdom has no layout engine: every element reports 0×0, which starves
 // @tanstack/virtual (it measures the scroll element to decide how many rows to

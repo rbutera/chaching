@@ -1,42 +1,32 @@
 // Subprocess smoke tests for `chaching wrapped` — routing, flags, --json shape,
 // non-TTY pipe-safety, --no-art, --month validation, unknown-flag, help registration.
 
-import { describe, it, expect, vi } from 'vitest';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { describe, it, expect, vi, afterAll } from 'vitest';
+import { createCliFixture, runCliWith } from './cli-test-harness';
 
 vi.setConfig({ testTimeout: 60_000 });
 
-const exec = promisify(execFile);
-const here = dirname(fileURLToPath(import.meta.url));
-const root = join(here, '..', '..');
-const cliBundle = join(root, 'dist', 'cli', 'index.js');
+// Hermetic seeded data root: without it every spawn cold-scanned the developer's
+// real ~/.claude (~17s each) and blew the execFile timeout under parallel load.
+const fx = createCliFixture();
+afterAll(() => fx.cleanup());
 
-async function runCli(
+function runCli(
 	args: string[],
 	opts: { env?: NodeJS.ProcessEnv } = {}
 ): Promise<{ stdout: string; stderr: string; code: number }> {
-	try {
-		const { stdout, stderr } = await exec('node', [cliBundle, ...args], {
-			timeout: 45_000,
-			maxBuffer: 32 * 1024 * 1024,
-			env: { ...process.env, ...opts.env }
-		});
-		return { stdout, stderr, code: 0 };
-	} catch (err: unknown) {
-		const e = err as { stdout?: string; stderr?: string; code?: number };
-		return { stdout: e.stdout ?? '', stderr: e.stderr ?? '', code: e.code ?? 1 };
-	}
+	return runCliWith(fx, args, opts);
 }
 
 describe('wrapped — routing + help', () => {
 	it('wrapped subcommand runs and exits 0', async () => {
 		const { code, stdout } = await runCli(['wrapped', '--no-art']);
 		expect(code).toBe(0);
-		// either a real recap (THE HEADLINE) or the empty-state message
-		expect(stdout).toMatch(/THE HEADLINE|no spend this month/);
+		// The fixture seeds spend in the current month, so this must be a REAL recap.
+		// (Before the fixture this was `THE HEADLINE|no spend this month` because the
+		// outcome depended on the developer's machine — it passed either way.)
+		expect(stdout).toContain('THE HEADLINE');
+		expect(stdout).not.toContain('no spend this month');
 	});
 
 	it('wrapped appears in --help with its flags', async () => {

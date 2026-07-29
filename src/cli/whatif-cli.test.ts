@@ -2,53 +2,45 @@
 // cost-honesty invariants, --model targeting, --period validation, unknown-flag,
 // NO_COLOR discipline, and help registration. Mirrors wrapped-cli.test.ts.
 
-import { describe, it, expect, vi } from 'vitest';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { describe, it, expect, vi, afterAll } from 'vitest';
+import {
+	binLauncher,
+	createCliFixture,
+	runCliWith,
+	runNode as runNodeWith
+} from './cli-test-harness';
 
 vi.setConfig({ testTimeout: 60_000 });
 
-const exec = promisify(execFile);
-const here = dirname(fileURLToPath(import.meta.url));
-const root = join(here, '..', '..');
-const cliBundle = join(root, 'dist', 'cli', 'index.js');
-// The real launcher (force-exit logic for one-shot commands) — a regression there
-// isn't visible when tests only run the bundle directly.
-const binLauncher = join(root, 'bin', 'chaching.js');
+// Hermetic seeded data root: without it every spawn cold-scanned the developer's
+// real ~/.claude (~17s each) and blew the execFile timeout under parallel load.
+const fx = createCliFixture();
+afterAll(() => fx.cleanup());
 
-async function runNode(
+function runNode(
 	entry: string,
 	args: string[],
 	opts: { env?: NodeJS.ProcessEnv } = {}
 ): Promise<{ stdout: string; stderr: string; code: number }> {
-	try {
-		const { stdout, stderr } = await exec('node', [entry, ...args], {
-			timeout: 45_000,
-			maxBuffer: 32 * 1024 * 1024,
-			env: { ...process.env, ...opts.env }
-		});
-		return { stdout, stderr, code: 0 };
-	} catch (err: unknown) {
-		const e = err as { stdout?: string; stderr?: string; code?: number };
-		return { stdout: e.stdout ?? '', stderr: e.stderr ?? '', code: e.code ?? 1 };
-	}
+	return runNodeWith(entry, args, { ...opts, fixture: fx });
 }
 
 function runCli(
 	args: string[],
 	opts: { env?: NodeJS.ProcessEnv } = {}
 ): Promise<{ stdout: string; stderr: string; code: number }> {
-	return runNode(cliBundle, args, opts);
+	return runCliWith(fx, args, opts);
 }
 
 describe('whatif — routing + help', () => {
 	it('whatif subcommand runs and exits 0', async () => {
 		const { code, stdout } = await runCli(['whatif', '--no-art']);
 		expect(code).toBe(0);
-		// either a real ledger (the region header) or the friendly empty state
-		expect(stdout).toMatch(/counterfactual lab|no data found/);
+		// The fixture seeds priced spend, so this must be a REAL ledger. (Before the
+		// fixture this was `counterfactual lab|no data found` because the outcome
+		// depended on the developer's machine — it passed either way.)
+		expect(stdout).toContain('counterfactual lab');
+		expect(stdout).not.toContain('no data found');
 	});
 
 	it('runs through the real bin/chaching.js launcher and force-exits cleanly', async () => {
@@ -56,7 +48,7 @@ describe('whatif — routing + help', () => {
 		// path must let `whatif` finish and exit 0, so a launcher regression is caught.
 		const { code, stdout } = await runNode(binLauncher, ['whatif', '--no-art']);
 		expect(code).toBe(0);
-		expect(stdout).toMatch(/counterfactual lab|no data found/);
+		expect(stdout).toContain('counterfactual lab');
 	});
 
 	it('whatif appears in --help with its flags', async () => {
@@ -107,6 +99,9 @@ describe('whatif --json', () => {
 		const { stdout, code } = await runCli(['whatif', '--json', '--period', 'month']);
 		expect(code).toBe(0);
 		const parsed = JSON.parse(stdout);
+		// Guard the loop below: on an empty result set every assertion inside it is
+		// skipped and the test passes without checking anything.
+		expect((parsed.results as unknown[]).length).toBeGreaterThan(0);
 		for (const r of parsed.results as Array<Record<string, unknown>>) {
 			// mandatory honesty label on every scenario
 			expect((r.notes as string[]).some((n) => n.includes('Price-only counterfactual'))).toBe(true);
@@ -136,10 +131,13 @@ describe('whatif --json', () => {
 		expect(code).toBe(0);
 		const parsed = JSON.parse(stdout);
 		expect(parsed.targetModel).toBe('claude-haiku-4-5');
+		// With the seeded fixture the alt-model scenario is always produced, so this
+		// is asserted outright rather than behind an `if (alt)` that skipped silently.
 		const alt = (parsed.results as Array<Record<string, unknown>>).find(
 			(r) => r.kind === 'alt-model'
 		);
-		if (alt) expect(alt.id).toBe('alt-model:claude-haiku-4-5');
+		expect(alt).toBeDefined();
+		expect(alt!.id).toBe('alt-model:claude-haiku-4-5');
 	});
 });
 
