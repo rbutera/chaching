@@ -35,6 +35,16 @@
 	// Five-hour blocks currently carry no attribution dimension. Suppress this one
 	// panel under a pool filter instead of showing a whole-pool number in a scoped view.
 	let activeBlock = $derived(poolFilterActive ? null : (snap?.blocks.find((b) => b.isActive) ?? null));
+	let tokenmaxxQuotas = $derived(
+		(syncStatus?.providerQuotas ?? []).flatMap((status) =>
+			status.source === 'tokenmaxx'
+				? status.accounts.flatMap((account) => {
+					const window = account.windows.find((candidate) => candidate.id === 'weekly_all');
+					return window ? [{ ...account, window, machineId: status.machineId }] : [];
+				})
+				: []
+		)
+	);
 
 	const isDayBucket = (b: PeriodBucket) => /^\d{4}-\d{2}-\d{2}$/.test(b.key);
 
@@ -68,7 +78,23 @@
 		</div>
 
 		<div class="panel cap-panel">
-			<h2 class="panel-title"><span>5-hour window · cap proximity</span></h2>
+			{#if tokenmaxxQuotas.length > 0}
+				<h2 class="panel-title"><span>Anthropic quota · Tokenmaxx</span></h2>
+				<div class="quota-list">
+					{#each tokenmaxxQuotas as quota (`${quota.machineId}:${quota.label}`)}
+						<div class="quota-row">
+							<div class="quota-head">
+								<span>{quota.label}</span>
+								<strong>{Math.round(quota.window.usedPercent)}%</strong>
+							</div>
+							<progress max="100" value={quota.window.usedPercent}></progress>
+							<p>{quota.window.resetAt ? `resets ${new Date(quota.window.resetAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : 'reset pending'}</p>
+						</div>
+					{/each}
+				</div>
+				<Divider variant="solid" />
+			{/if}
+			<h2 class="panel-title"><span>5-hour API-cost window</span></h2>
 			{#if activeBlock}
 				<SpendMeter amount={activeBlock.cost} context="block" label={`closes ${new Date(activeBlock.endTs).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`} />
 				<p class="cap-sub">{compactTokens(totalTokens(activeBlock.tokens))} tokens this window</p>
@@ -148,6 +174,34 @@
 		font-family: var(--font-mono);
 		font-size: 0.76rem;
 		color: var(--text-muted);
+	}
+	.quota-list {
+		display: grid;
+		gap: 0.8rem;
+		margin-bottom: 1rem;
+	}
+	.quota-row {
+		display: grid;
+		gap: 0.25rem;
+	}
+	.quota-head {
+		display: flex;
+		justify-content: space-between;
+		gap: 1rem;
+		font-size: 0.8rem;
+	}
+	.quota-head strong {
+		font-family: var(--font-mono);
+	}
+	.quota-row progress {
+		width: 100%;
+		height: 0.55rem;
+		accent-color: var(--accent);
+	}
+	.quota-row p {
+		margin: 0;
+		color: var(--text-dim);
+		font-size: 0.68rem;
 	}
 	.cap-note {
 		margin: 0.6rem 0 0;

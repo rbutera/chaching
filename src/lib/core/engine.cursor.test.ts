@@ -56,6 +56,7 @@ function pooledCursorConfig(): chachingConfig {
 		cutoverTs: null,
 		server: { host: '127.0.0.1', port: 5178, origin: '' },
 		history: { enabled: false, dbPath: '' },
+		tokenmaxx: { enabled: false, dbPath: '' },
 		// Sync configured but pointed at a refused port: connectSync fails and degrades to
 		// local-only, but the pooled cursorRollup is created before the connect attempt.
 		sync: {

@@ -249,13 +249,46 @@ describe('dashboard route — behavior contracts', () => {
 		expect((container.textContent ?? '').toLowerCase()).toContain('by model');
 	});
 
-	it('P13: 5h cap-proximity panel + recent blocks render', async () => {
+	it('P13: 5h API-cost panel + recent blocks render', async () => {
 		snapshotToEmit = richSnap();
 		const { container } = render(Page);
 		await flush();
 		expect(container.querySelector('.cap-panel')).toBeTruthy();
-		expect((container.textContent ?? '').toLowerCase()).toContain('cap proximity');
+		expect((container.textContent ?? '').toLowerCase()).toContain('api-cost window');
 		expect(container.querySelectorAll('.recent-blocks li').length).toBeGreaterThan(0);
+	});
+
+	it('renders sanitized Tokenmaxx weekly quota for each pooled account', async () => {
+		snapshotToEmit = richSnap();
+		syncStatusToReturn = {
+			enabled: true,
+			databaseConfigured: true,
+			pool: { id: 'pool', name: 'Test pool' },
+			machine: null,
+			machines: [],
+			subscriptions: [],
+			mappings: [],
+			providerQuotas: [{
+				machineId: 'nimbus',
+				source: 'tokenmaxx',
+				observedAt: '2026-08-13T23:00:00Z',
+				accounts: [90, 91, 88].map((usedPercent, index) => ({
+					label: `Claude account ${index + 1}`,
+					provider: 'claude',
+					plan: 'default_claude_max_20x',
+					hardLimitReached: false,
+					windows: [{ id: 'weekly_all', label: '7 day · all models', usedPercent, resetAt: '2026-08-15T04:00:00Z' }]
+				}))
+			}]
+		};
+		const { container } = render(Page);
+		await flush();
+		const text = container.textContent ?? '';
+		expect(text).toContain('Anthropic quota');
+		expect(text).toContain('Claude account 1');
+		expect(text).toContain('90%');
+		expect(text).toContain('91%');
+		expect(text).toContain('88%');
 	});
 
 	it('P7: cross-day session browser renders rows', async () => {

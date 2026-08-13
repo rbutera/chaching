@@ -14,7 +14,8 @@ import type {
 	TokenCounts,
 	UsageRecord
 } from '../../types';
-import { getPricingMeta, hasPrice } from '../pricing/cost';
+import { computeCost, getPricingMeta, hasPrice } from '../pricing/cost';
+import type { TokenmaxxAggregate } from '../providers/tokenmaxx/sqlite';
 import { isoDayUTC } from '../ingest/parse';
 import { BlockAccumulator } from './blocks';
 
@@ -300,6 +301,113 @@ export class Rollup {
 		// coverage
 		if (this.earliestDay == null || rec.day < this.earliestDay) this.earliestDay = rec.day;
 		if (this.latestDay == null || rec.day > this.latestDay) this.latestDay = rec.day;
+	}
+
+	/**
+	 * Reconcile transcript-derived usage upward to a proxy-observed aggregate. Tokenmaxx
+	 * sees responses that Claude Code does not persist (for example internal/background
+	 * model calls), while transcripts retain the session/project detail Tokenmaxx lacks.
+	 * Only the positive difference is added, so overlapping observations never double-count.
+	 */
+	reconcileTokenmaxx(target: TokenmaxxAggregate, machineId?: string): boolean {
+		const matching = [...this.dayModel.entries()].filter(([, aggregate]) =>
+			aggregate.day === target.day &&
+			aggregate.provider === target.provider &&
+			aggregate.model === target.model &&
+			(aggregate.machineId === machineId || aggregate.machineId == null)
+		);
+		const before = zeroTokens();
+		let beforeRequests = 0;
+		for (const [, aggregate] of matching) {
+			addTokens(before, aggregate.tokens);
+			beforeRequests += aggregate.requests;
+		}
+		const delta: TokenCounts = {
+			input: Math.max(0, target.tokens.input - before.input),
+			output: Math.max(0, target.tokens.output - before.output),
+			cacheCreation: Math.max(0, target.tokens.cacheCreation - before.cacheCreation),
+			cacheRead: Math.max(0, target.tokens.cacheRead - before.cacheRead)
+		};
+		const requestDelta = Math.max(0, target.requests - beforeRequests);
+		if (Object.values(delta).every((value) => value === 0) && requestDelta === 0) return false;
+
+		const computedCost = computeCost(target.model, delta, 0, delta.cacheCreation);
+		const cost = computedCost ?? 0;
+		const unknownRequests = computedCost == null ? requestDelta : 0;
+		if (computedCost == null) this.unknownPriceModels.add(target.model);
+
+		const selected = matching.find(([, aggregate]) => aggregate.machineId === machineId) ?? matching[0];
+		const dmKey = selected?.[0] ?? recordKey(target.day, target.provider, target.model, machineId);
+		let current = selected?.[1];
+		if (!current) {
+			current = {
+				day: target.day,
+				provider: target.provider,
+				model: target.model,
+				machineId,
+				tokens: zeroTokens(),
+				requests: 0,
+				cost: 0,
+				costUnknownRequests: 0
+			};
+			this.dayModel.set(dmKey, current);
+		}
+		addTokens(current.tokens, delta);
+		current.requests += requestDelta;
+		current.cost += cost;
+		current.costUnknownRequests += unknownRequests;
+
+		let extra = this.dayModelExtra.get(dmKey);
+		if (!extra) {
+			extra = zeroExtra();
+			this.dayModelExtra.set(dmKey, extra);
+		}
+		extra.cacheCreation5m += delta.cacheCreation;
+
+		const timestamp = target.lastTs;
+		const id = `tokenmaxx-background:${target.day}:${target.model}`;
+		const correctionMachineId = current.machineId;
+		const sKey = sessionKey(target.provider, id, correctionMachineId);
+		let session = this.sessions.get(sKey);
+		if (!session) {
+			session = {
+				sessionId: id,
+				provider: target.provider,
+				machineId: correctionMachineId,
+				project: '(Tokenmaxx background)',
+				firstTs: target.firstTs,
+				lastTs: timestamp,
+				tokens: zeroTokens(),
+				requests: 0,
+				cost: 0,
+				costUnknownRequests: 0,
+				modelCounts: new Map()
+			};
+			this.sessions.set(sKey, session);
+		}
+		addTokens(session.tokens, delta);
+		session.requests += requestDelta;
+		session.cost += cost;
+		session.costUnknownRequests += unknownRequests;
+		session.firstTs = Math.min(session.firstTs, target.firstTs);
+		session.lastTs = Math.max(session.lastTs, timestamp);
+		session.modelCounts.set(target.model, (session.modelCounts.get(target.model) ?? 0) + requestDelta);
+
+		addTokens(this.totalTokens, delta);
+		this.totalRequests += requestDelta;
+		this.totalCost += cost;
+		this.totalCostUnknown += unknownRequests;
+		this.recordsCounted += requestDelta;
+		this.modelCost.set(target.model, (this.modelCost.get(target.model) ?? 0) + cost);
+		this.providerCost.set(target.provider, (this.providerCost.get(target.provider) ?? 0) + cost);
+		this.dirtyAny = true;
+		this.dirtyDayModel.add(dmKey);
+		this.dirtySessions.add(sKey);
+		this.pubDirtyDays.add(dayKey(target.day, target.provider, target.model));
+		this.pubDirtySessions.add(sKey);
+		if (this.earliestDay == null || target.day < this.earliestDay) this.earliestDay = target.day;
+		if (this.latestDay == null || target.day > this.latestDay) this.latestDay = target.day;
+		return true;
 	}
 
 	/**

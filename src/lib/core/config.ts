@@ -67,6 +67,11 @@ export interface HistoryConfig {
 	dbPath: string;
 }
 
+export interface TokenmaxxConfig {
+	enabled: boolean;
+	dbPath: string;
+}
+
 export interface SyncConfig {
 	enabled: boolean;
 	/** PostgreSQL connection string. Secret: never expose through publicConfig(). */
@@ -96,6 +101,7 @@ export interface chachingConfig {
 		origin: string;
 	};
 	history: HistoryConfig;
+	tokenmaxx: TokenmaxxConfig;
 	sync: SyncConfig;
 	providers: {
 		claude: ClaudeProviderConfig;
@@ -108,6 +114,7 @@ export interface chachingConfig {
 
 export interface PublicchachingConfig extends Omit<chachingConfig, 'providers' | 'history' | 'sync'> {
 	history: HistoryConfig;
+	tokenmaxx: TokenmaxxConfig;
 	sync: Omit<SyncConfig, 'databaseUrl'> & { databaseConfigured: boolean };
 	providers: {
 		claude: ClaudeProviderConfig;
@@ -127,6 +134,7 @@ const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 5178;
 const DEFAULT_CURSOR_POLL_SECONDS = 3600;
 const DEFAULT_HISTORY_DB_PATH = '~/.local/share/chaching/history.db';
+const DEFAULT_TOKENMAXX_DB_PATH = '~/.tokenmaxx/state.sqlite';
 const LEGACY_DEFAULT_PI_ROOT = '~/.pi/agent/sessions';
 export const DEFAULT_PI_SESSION_ROOTS = [
 	LEGACY_DEFAULT_PI_ROOT,
@@ -147,6 +155,7 @@ export function defaultConfig(): chachingConfig {
 		cutoverTs: null,
 		server: { host: DEFAULT_HOST, port: DEFAULT_PORT, origin: '' },
 		history: { enabled: true, dbPath: DEFAULT_HISTORY_DB_PATH },
+		tokenmaxx: { enabled: true, dbPath: DEFAULT_TOKENMAXX_DB_PATH },
 		sync: {
 			enabled: false,
 			databaseUrl: '',
@@ -176,6 +185,7 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 	const providers = objectRecord(root.providers);
 	const server = objectRecord(root.server);
 	const history = objectRecord(root.history);
+	const tokenmaxx = objectRecord(root.tokenmaxx);
 	const sync = objectRecord(root.sync);
 	const claude = objectRecord(providers.claude);
 	const codex = objectRecord(providers.codex);
@@ -193,6 +203,10 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 		history: {
 			enabled: booleanOr(history.enabled, defaults.history.enabled),
 			dbPath: stringOr(history.dbPath, defaults.history.dbPath)
+		},
+		tokenmaxx: {
+			enabled: booleanOr(tokenmaxx.enabled, defaults.tokenmaxx.enabled),
+			dbPath: stringOr(tokenmaxx.dbPath, defaults.tokenmaxx.dbPath)
 		},
 		sync: {
 			enabled: booleanOr(sync.enabled, defaults.sync.enabled),
@@ -237,6 +251,7 @@ export function publicConfig(cfg: chachingConfig): PublicchachingConfig {
 		cutoverTs: cfg.cutoverTs,
 		server: { ...cfg.server },
 		history: { ...cfg.history },
+		tokenmaxx: { ...cfg.tokenmaxx },
 		sync: {
 			enabled: cfg.sync.enabled,
 			poolId: cfg.sync.poolId,

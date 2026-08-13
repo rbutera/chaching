@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
+import { expandPath } from '../fs-utils';
+import { readTokenmaxxQuota } from '../providers/tokenmaxx/sqlite';
 import {
 	clearConfigCache,
 	loadConfig,
@@ -19,12 +21,25 @@ export function localSyncStatus(error: string | null = null): SyncStatus {
 		machines: [],
 		subscriptions: [],
 		mappings: [],
+		providerQuotas: [],
 		error
 	};
 }
 
 export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus> {
 	const cfg = config ?? (await loadConfig());
+	let localQuota: ReturnType<typeof readTokenmaxxQuota> = null;
+	try {
+		localQuota = cfg.tokenmaxx.enabled ? readTokenmaxxQuota(expandPath(cfg.tokenmaxx.dbPath)) : null;
+	} catch {
+		// Quota display is supplementary; token reconciliation reports ingest failures separately.
+	}
+	const localProviderQuotas = localQuota ? [{
+		machineId: cfg.sync.machineId ?? hostname(),
+		source: 'tokenmaxx',
+		observedAt: localQuota.observedAt,
+		accounts: localQuota.accounts
+	}] : [];
 	// The publish cadence lives only in the local 0600 config, so attach it to every status
 	// branch here rather than in the store (which never reads config).
 	const intervalMinutes = cfg.sync.intervalMinutes;
@@ -32,7 +47,8 @@ export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus
 		return {
 			...localSyncStatus(),
 			databaseConfigured: cfg.sync.databaseUrl.length > 0,
-			intervalMinutes
+			intervalMinutes,
+			providerQuotas: localProviderQuotas
 		};
 	}
 	const store = new PostgresSyncStore(
@@ -43,7 +59,11 @@ export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus
 	try {
 		await store.open();
 		await store.heartbeat(cfg.sync.machineName, hostname());
-		return { ...(await store.status()), intervalMinutes };
+		const status = await store.status();
+		const remoteQuotas = (status.providerQuotas ?? []).filter((quota) =>
+			!localProviderQuotas.some((local) => local.machineId === quota.machineId && local.source === quota.source)
+		);
+		return { ...status, intervalMinutes, providerQuotas: [...remoteQuotas, ...localProviderQuotas] };
 	} catch (cause) {
 		// Configured but unreachable: keep the locally-known identity so the dashboard
 		// shows "joined, pool offline" instead of falling back to onboarding (M3).
@@ -57,7 +77,8 @@ export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus
 				poolId: cfg.sync.poolId,
 				machineId: cfg.sync.machineId,
 				machineName: cfg.sync.machineName
-			}
+			},
+			providerQuotas: localProviderQuotas
 		};
 	} finally {
 		await store.close().catch(() => {});
@@ -337,4 +358,3 @@ export function assertCursorScopeReady(cfg: chachingConfig): void {
 		);
 	}
 }
-

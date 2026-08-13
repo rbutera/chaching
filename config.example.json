@@ -9,6 +9,10 @@
 		"enabled": true,
 		"dbPath": "~/.local/share/chaching/history.db"
 	},
+	"tokenmaxx": {
+		"enabled": true,
+		"dbPath": "~/.tokenmaxx/state.sqlite"
+	},
 	"sync": {
 		"enabled": false,
 		"databaseUrl": "",

@@ -32,6 +32,7 @@ function disabledConfig(): chachingConfig {
 		cutoverTs: null,
 		server: { host: '127.0.0.1', port: 5178, origin: '' },
 		history: { enabled: false, dbPath: '' },
+		tokenmaxx: { enabled: false, dbPath: '' },
 		sync: {
 			enabled: false,
 			databaseUrl: '',

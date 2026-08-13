@@ -88,3 +88,76 @@ describe('Rollup publish surface', () => {
 		expect(blocks[0].isActive).toBe(true);
 	});
 });
+
+describe('Tokenmaxx reconciliation', () => {
+	it('adds only proxy-observed usage missing from transcripts', () => {
+		const rollup = new Rollup();
+		rollup.add(record({
+			provider: 'claude',
+			model: 'claude-opus-5',
+			tokens: { input: 10, output: 20, cacheCreation: 30, cacheRead: 100 },
+			cost: 0
+		}));
+
+		expect(rollup.reconcileTokenmaxx({
+			day: DAY,
+			provider: 'claude',
+			model: 'claude-opus-5',
+			tokens: { input: 10, output: 25, cacheCreation: 30, cacheRead: 150 },
+			requests: 2,
+			firstTs: Date.parse(`${DAY}T10:00:00Z`),
+			lastTs: Date.parse(`${DAY}T11:00:00Z`)
+		}, 'machine-a')).toBe(true);
+
+		const snapshot = rollup.snapshot();
+		expect(snapshot.totals.tokens).toEqual({ input: 10, output: 25, cacheCreation: 30, cacheRead: 150 });
+		expect(snapshot.totals.requests).toBe(2);
+		expect(snapshot.blocks[0]?.tokens.cacheRead).toBe(100);
+		expect(snapshot.sessions).toEqual(expect.arrayContaining([
+			expect.objectContaining({
+				project: '(Tokenmaxx background)',
+				tokens: { input: 0, output: 5, cacheCreation: 0, cacheRead: 50 },
+				requests: 1
+			})
+		]));
+	});
+
+	it('does not invent a request when only a token class needs correction', () => {
+		const rollup = new Rollup();
+		rollup.add(record({
+			provider: 'claude',
+			model: 'claude-opus-5',
+			tokens: { input: 10, output: 20, cacheCreation: 0, cacheRead: 100 },
+			cost: 0
+		}));
+
+		rollup.reconcileTokenmaxx({
+			day: DAY,
+			provider: 'claude',
+			model: 'claude-opus-5',
+			tokens: { input: 10, output: 20, cacheCreation: 0, cacheRead: 120 },
+			requests: 1,
+			firstTs: Date.parse(`${DAY}T10:00:00Z`),
+			lastTs: Date.parse(`${DAY}T11:00:00Z`)
+		}, 'machine-a');
+
+		expect(rollup.snapshot().totals.requests).toBe(1);
+		expect(rollup.snapshot().totals.tokens.cacheRead).toBe(120);
+	});
+
+	it('never reduces transcript totals when the proxy aggregate is lower', () => {
+		const rollup = new Rollup();
+		rollup.add(record({ provider: 'claude', model: 'claude-opus-5' }));
+
+		expect(rollup.reconcileTokenmaxx({
+			day: DAY,
+			provider: 'claude',
+			model: 'claude-opus-5',
+			tokens: { input: 1, output: 1, cacheCreation: 0, cacheRead: 0 },
+			requests: 0,
+			firstTs: Date.parse(`${DAY}T10:00:00Z`),
+			lastTs: Date.parse(`${DAY}T11:00:00Z`)
+		}, 'machine-a')).toBe(false);
+		expect(rollup.snapshot().totals.tokens.input).toBe(100);
+	});
+});

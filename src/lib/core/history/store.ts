@@ -237,6 +237,80 @@ export class HistoryStore {
 		}
 	}
 
+	/** Persist aggregate corrections for already-frozen days without ever reducing history. */
+	reconcileProviderHistory(
+		provider: string,
+		aggregates: readonly FrozenAgg[],
+		sessions: readonly SessionSummary[]
+	): void {
+		const db = this.require();
+		const upsertAgg = db.prepare(`
+			INSERT INTO day_model_agg (
+				day, provider, model, input, output, cache_creation, cache_read,
+				cache_creation_1h, cache_creation_5m, web_search_requests, web_fetch_requests,
+				requests, cost, cost_unknown_requests
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (day, provider, model) DO UPDATE SET
+				input = MAX(input, excluded.input),
+				output = MAX(output, excluded.output),
+				cache_creation = MAX(cache_creation, excluded.cache_creation),
+				cache_read = MAX(cache_read, excluded.cache_read),
+				cache_creation_1h = MAX(cache_creation_1h, excluded.cache_creation_1h),
+				cache_creation_5m = MAX(cache_creation_5m, excluded.cache_creation_5m),
+				web_search_requests = MAX(web_search_requests, excluded.web_search_requests),
+				web_fetch_requests = MAX(web_fetch_requests, excluded.web_fetch_requests),
+				requests = MAX(requests, excluded.requests),
+				cost = MAX(cost, excluded.cost),
+				cost_unknown_requests = MAX(cost_unknown_requests, excluded.cost_unknown_requests)
+		`);
+		const upsertSession = db.prepare(`
+			INSERT INTO session (
+				session_id, provider, project, first_ts, last_ts,
+				input, output, cache_creation, cache_read, requests, cost, cost_unknown_requests, models
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (session_id, provider) DO UPDATE SET
+				last_ts = MAX(last_ts, excluded.last_ts),
+				input = MAX(input, excluded.input),
+				output = MAX(output, excluded.output),
+				cache_creation = MAX(cache_creation, excluded.cache_creation),
+				cache_read = MAX(cache_read, excluded.cache_read),
+				requests = MAX(requests, excluded.requests),
+				cost = MAX(cost, excluded.cost),
+				cost_unknown_requests = MAX(cost_unknown_requests, excluded.cost_unknown_requests),
+				models = excluded.models
+		`);
+
+		db.exec('BEGIN');
+		try {
+			for (const aggregate of aggregates) {
+				if (aggregate.provider !== provider) continue;
+				upsertAgg.run(
+					aggregate.day, aggregate.provider, aggregate.model,
+					aggregate.tokens.input, aggregate.tokens.output,
+					aggregate.tokens.cacheCreation, aggregate.tokens.cacheRead,
+					aggregate.cacheCreation1h, aggregate.cacheCreation5m,
+					aggregate.webSearchRequests, aggregate.webFetchRequests,
+					aggregate.requests, aggregate.cost, aggregate.costUnknownRequests
+				);
+			}
+			for (const session of sessions) {
+				if (session.provider !== provider || session.project !== '(Tokenmaxx background)') continue;
+				upsertSession.run(
+					session.sessionId, session.provider, session.project,
+					session.firstTs, session.lastTs,
+					session.tokens.input, session.tokens.output,
+					session.tokens.cacheCreation, session.tokens.cacheRead,
+					session.requests, session.cost, session.costUnknownRequests,
+					JSON.stringify(session.models)
+				);
+			}
+			db.exec('COMMIT');
+		} catch (error) {
+			db.exec('ROLLBACK');
+			throw error;
+		}
+	}
+
 	/**
 	 * Freeze a batch of newly-complete past days in a single transaction. `days` is the
 	 * set of days being frozen; `aggregates` / `sessions` are the rows to upsert (callers

@@ -2,7 +2,8 @@
 // today is never frozen. Drives runOnce over a temp Claude root + temp history DB
 // with an injected "today" clock so assertions don't depend on the wall clock.
 
-import { mkdtemp, mkdir, rm, writeFile, chmod } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, chmod, unlink } from 'node:fs/promises';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -63,6 +64,7 @@ function cfg(root: string, dbPath: string): chachingConfig {
 		cutoverTs: null,
 		server: { host: '127.0.0.1', port: 5178, origin: '' },
 		history: { enabled: true, dbPath },
+		tokenmaxx: { enabled: false, dbPath: '' },
 		sync: {
 			enabled: false,
 			databaseUrl: '',
@@ -92,6 +94,38 @@ function totalRequests(dayModel: { requests: number }[]): number {
 }
 
 describe('engine freeze-past-days invariants', () => {
+	it('persists Tokenmaxx corrections after both source stores disappear', async () => {
+		const root = await makeRoot([{ day: '2026-06-01', tokens: { input: 100, output: 20 } }]);
+		const dbDir = await mkdtemp(join(tmpdir(), 'chaching-tokenmaxx-history-'));
+		roots.push(dbDir);
+		const historyPath = join(dbDir, 'history.db');
+		const tokenmaxxPath = join(dbDir, 'tokenmaxx.sqlite');
+		const tokenmaxx = new DatabaseSync(tokenmaxxPath);
+		tokenmaxx.exec(`
+			CREATE TABLE token_events (
+				at INTEGER NOT NULL, provider TEXT NOT NULL, model TEXT,
+				input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
+				cache_read_tokens INTEGER NOT NULL, cache_creation_tokens INTEGER NOT NULL
+			)
+		`);
+		tokenmaxx.prepare('INSERT INTO token_events VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+			Date.parse('2026-06-01T12:00:00Z'), 'anthropic', 'claude-opus-4-8',
+			100, 25, 50, 10
+		);
+		tokenmaxx.close();
+
+		const config = cfg(root, historyPath);
+		config.tokenmaxx = { enabled: true, dbPath: tokenmaxxPath };
+		const first = await runOnce(config, clockAt('2026-06-02'));
+		expect(first.totals.tokens).toEqual({ input: 100, output: 25, cacheCreation: 10, cacheRead: 50 });
+
+		await rm(join(root, 'projects'), { recursive: true, force: true });
+		await unlink(tokenmaxxPath);
+		const restored = await runOnce(config, clockAt('2026-06-03'));
+		expect(restored.totals.tokens).toEqual(first.totals.tokens);
+		expect(restored.totals.requests).toBe(1);
+	});
+
 	it('freezes past days into the DB but never today', async () => {
 		// D1, D2 are past; D3 is today. 2 requests each.
 		const root = await makeRoot([

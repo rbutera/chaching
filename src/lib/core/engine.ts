@@ -21,6 +21,11 @@ import { ProviderStatus } from './provider-status';
 import { readCodexRecords } from './providers/codex/local';
 import { readPiRecords, type PiReadResult } from './providers/pi/local';
 import { readOpenCodeSessions } from './providers/opencode/sqlite';
+import {
+	readTokenmaxxAggregates,
+	readTokenmaxxQuota,
+	type TokenmaxxQuotaSnapshot
+} from './providers/tokenmaxx/sqlite';
 import { fetchCursorUsageRecords } from './providers/cursor/api';
 import type { RollupDelta, RollupSnapshot, UsageRecord } from '../types';
 import { isConfigured } from './sync/manager';
@@ -106,6 +111,9 @@ class Ingestion {
 	/** opencode source stamp (db + -wal mtime) at last ingest; re-ingest only on change */
 	private opencodeSourceMtime = -1;
 	private opencodeCounted = false;
+	/** Tokenmaxx source stamp (db + -wal mtime) at last reconciliation. */
+	private tokenmaxxSourceMtime = -1;
+	private tokenmaxxQuota: TokenmaxxQuotaSnapshot | null = null;
 	private deltaTimer: NodeJS.Timeout | null = null;
 	private listeners = new Set<DeltaListener>();
 	private ready: Promise<void> | null = null;
@@ -220,6 +228,10 @@ class Ingestion {
 			await this.ingestPi(cfg.providers.pi.roots.map(expandPath));
 		}
 
+		if (cfg.tokenmaxx.enabled) {
+			await this.ingestTokenmaxx(expandPath(cfg.tokenmaxx.dbPath));
+		}
+
 		// Env-first: if the token is absent from config, fall back to the env var so
 		// users who source the token from the environment don't have to store it in the file.
 		const cursorToken =
@@ -325,6 +337,13 @@ class Ingestion {
 		await this.syncStore.publishDayAggregates(scope, days);
 		await this.syncStore.publishHourAggregates(scope, hours);
 		await this.syncStore.publishSessions(scope, sessions);
+		if (this.tokenmaxxQuota) {
+			await this.syncStore.publishProviderQuota(
+				'tokenmaxx',
+				this.tokenmaxxQuota.observedAt,
+				this.tokenmaxxQuota.accounts
+			);
+		}
 
 		const cursorScope = this.cursorScope();
 		if (this.cursorRollup && cursorScope) {
@@ -550,14 +569,45 @@ class Ingestion {
 		}
 	}
 
+	private async ingestTokenmaxx(dbPath: string): Promise<void> {
+		try {
+			const stamp = await this.sqliteSourceStamp(dbPath);
+			const machineId = this.resolvedConfig && isConfigured(this.resolvedConfig.sync)
+				? this.resolvedConfig.sync.machineId ?? undefined
+				: undefined;
+			const correctedProviders = new Set<string>();
+			for (const aggregate of readTokenmaxxAggregates(dbPath)) {
+				if (this.rollup.reconcileTokenmaxx(aggregate, machineId)) {
+					correctedProviders.add(aggregate.provider);
+				}
+			}
+			this.tokenmaxxQuota = readTokenmaxxQuota(dbPath);
+			if (this.historyStore && correctedProviders.size > 0) {
+				const frozen = this.rollup.frozenDaySet();
+				const { aggregates, sessions } = this.rollup.freezeCandidates(frozen);
+				for (const provider of correctedProviders) {
+					this.historyStore.reconcileProviderHistory(provider, aggregates, sessions);
+				}
+			}
+			this.tokenmaxxSourceMtime = stamp;
+			this.providerStatus.clear('tokenmaxx');
+		} catch (error) {
+			this.providerStatus.recordError('tokenmaxx', error);
+		}
+	}
+
 	/** Latest mtime across the OpenCode db and its WAL (WAL writes may not touch the db file). */
-	private async opencodeSourceStamp(dbPath: string): Promise<number> {
+	private async sqliteSourceStamp(dbPath: string): Promise<number> {
 		let latest = -1;
 		for (const p of [dbPath, `${dbPath}-wal`]) {
 			const m = await safeMtime(p);
 			if (m != null && m > latest) latest = m;
 		}
 		return latest;
+	}
+
+	private async opencodeSourceStamp(dbPath: string): Promise<number> {
+		return this.sqliteSourceStamp(dbPath);
 	}
 
 	private async ingestCursor(adminApiToken: string, email: string | null): Promise<void> {
@@ -646,7 +696,8 @@ class Ingestion {
 		if (
 			!cfg.providers.codex.enabled &&
 			!cfg.providers.opencode.enabled &&
-			!cfg.providers.pi.enabled
+			!cfg.providers.pi.enabled &&
+			!cfg.tokenmaxx.enabled
 		)
 			return;
 		this.localProviderTimer = setInterval(
@@ -670,6 +721,11 @@ class Ingestion {
 				const dbPath = expandPath(cfg.providers.opencode.dbPath);
 				const stamp = await this.opencodeSourceStamp(dbPath);
 				if (stamp > this.opencodeSourceMtime) await this.ingestOpenCode(dbPath);
+			}
+			if (cfg.tokenmaxx.enabled) {
+				const dbPath = expandPath(cfg.tokenmaxx.dbPath);
+				const stamp = await this.sqliteSourceStamp(dbPath);
+				if (stamp > this.tokenmaxxSourceMtime) await this.ingestTokenmaxx(dbPath);
 			}
 			if (this.disposed) return;
 			this.maybeFreezeLive();

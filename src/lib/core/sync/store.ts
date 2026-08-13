@@ -1,13 +1,19 @@
 import { Pool, type PoolClient } from 'pg';
 import type { SessionSummary } from '../../types';
 import type { FrozenAgg, HourAgg } from '../rollup/rollup';
-import type { SyncMachine, SyncMapping, SyncStatus, SyncSubscription } from './types';
+import type {
+	ProviderQuotaStatus,
+	SyncMachine,
+	SyncMapping,
+	SyncStatus,
+	SyncSubscription
+} from './types';
 
 const SCHEMA = 'chaching_sync';
 const HOUR_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 /** Bump when the DDL in `migrate()` changes. `open()` runs the DDL only when the recorded
  * schema_version differs, so a status GET no longer re-runs full DDL every call (C9). */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 /**
  * Incremental peer reads back off the max-watermark by this margin. `updated_at` is stamped at
  * transaction START (`now()`), but a row only becomes visible at COMMIT; a peer whose publish
@@ -256,10 +262,22 @@ export class PostgresSyncStore {
 		);
 	}
 
+	async publishProviderQuota(source: string, observedAt: string, accounts: ProviderQuotaStatus['accounts']): Promise<void> {
+		const { poolId, machineId } = this.identity();
+		await this.pool.query(
+			`INSERT INTO ${SCHEMA}.machine_provider_status
+			 (pool_id, machine_id, source, observed_at, payload, updated_at)
+			 VALUES ($1, $2, $3, $4, $5::jsonb, now())
+			 ON CONFLICT (pool_id, machine_id, source) DO UPDATE SET
+			 observed_at = EXCLUDED.observed_at, payload = EXCLUDED.payload, updated_at = now()`,
+			[poolId, machineId, source, observedAt, JSON.stringify({ accounts })]
+		);
+	}
+
 	async status(): Promise<SyncStatus> {
 		const { poolId, machineId } = this.identity();
 		await this.open();
-		const [poolResult, machineResult, subscriptionResult, mappingResult] = await Promise.all([
+		const [poolResult, machineResult, subscriptionResult, mappingResult, quotaResult] = await Promise.all([
 			this.pool.query(`SELECT id, name FROM ${SCHEMA}.pool WHERE id = $1`, [poolId]),
 			this.pool.query(
 				`SELECT id, name, hostname, last_seen_at, last_published_at
@@ -275,6 +293,12 @@ export class PostgresSyncStore {
 				`SELECT machine_id, provider, subscription_id
 				 FROM ${SCHEMA}.machine_subscription WHERE pool_id = $1
 				 ORDER BY machine_id, provider`,
+				[poolId]
+			),
+			this.pool.query(
+				`SELECT machine_id, source, observed_at, payload
+				 FROM ${SCHEMA}.machine_provider_status WHERE pool_id = $1
+				 ORDER BY machine_id, source`,
 				[poolId]
 			)
 		]);
@@ -301,6 +325,15 @@ export class PostgresSyncStore {
 			provider: String(row.provider),
 			subscriptionId: row.subscription_id == null ? null : String(row.subscription_id)
 		}));
+		const providerQuotas: ProviderQuotaStatus[] = quotaResult.rows.map((row) => {
+			const payload = jsonObject(row.payload) as { accounts?: ProviderQuotaStatus['accounts'] };
+			return {
+				machineId: String(row.machine_id),
+				source: String(row.source),
+				observedAt: dateString(row.observed_at) ?? '',
+				accounts: Array.isArray(payload.accounts) ? payload.accounts : []
+			};
+		});
 		return {
 			enabled: true,
 			databaseConfigured: true,
@@ -308,7 +341,8 @@ export class PostgresSyncStore {
 			machine: machines.find((machine) => machine.id === machineId) ?? null,
 			machines,
 			subscriptions,
-			mappings
+			mappings,
+			providerQuotas
 		};
 	}
 
@@ -770,6 +804,17 @@ async function migrate(client: PoolClient): Promise<void> {
 		);
 		CREATE INDEX IF NOT EXISTS machine_session_agg_pool_updated
 			ON ${SCHEMA}.machine_session_agg(pool_id, updated_at);
+		CREATE TABLE IF NOT EXISTS ${SCHEMA}.machine_provider_status (
+			pool_id text NOT NULL,
+			machine_id text NOT NULL,
+			source text NOT NULL,
+			observed_at timestamptz NOT NULL,
+			payload jsonb NOT NULL,
+			updated_at timestamptz NOT NULL DEFAULT now(),
+			PRIMARY KEY (pool_id, machine_id, source),
+			FOREIGN KEY (pool_id, machine_id)
+				REFERENCES ${SCHEMA}.machine(pool_id, id) ON DELETE CASCADE
+		);
 		CREATE TABLE IF NOT EXISTS ${SCHEMA}.schema_version (
 			id integer PRIMARY KEY,
 			version integer NOT NULL

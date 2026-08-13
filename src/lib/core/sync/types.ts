@@ -23,6 +23,28 @@ export interface SyncMapping {
 	subscriptionId: string | null;
 }
 
+export interface ProviderQuotaWindow {
+	id: string;
+	label: string;
+	usedPercent: number;
+	resetAt: string | null;
+}
+
+export interface ProviderQuotaAccount {
+	label: string;
+	provider: string;
+	plan: string | null;
+	hardLimitReached: boolean;
+	windows: ProviderQuotaWindow[];
+}
+
+export interface ProviderQuotaStatus {
+	machineId: string;
+	source: string;
+	observedAt: string;
+	accounts: ProviderQuotaAccount[];
+}
+
 /**
  * Pool identity known from the local `0600` config alone, without reaching PostgreSQL.
  * Surfaced when sync is configured but the database is unreachable so a joined-but-offline
@@ -42,6 +64,7 @@ export interface SyncStatus {
 	machines: SyncMachine[];
 	subscriptions: SyncSubscription[];
 	mappings: SyncMapping[];
+	providerQuotas?: ProviderQuotaStatus[];
 	/** False when viewed through a remote/reverse-proxied dashboard. */
 	managementAllowed?: boolean;
 	/**

@@ -20,6 +20,7 @@ function baseConfig(poolId: string, machineId: string, over: Partial<chachingCon
 		// history OFF so the test isolates the pooled overlay path (local-first history is
 		// covered by engine.test.ts B1). The peer overlay is the subject here.
 		history: { enabled: false, dbPath: '' },
+		tokenmaxx: { enabled: false, dbPath: '' },
 		sync: {
 			enabled: true,
 			databaseUrl: databaseUrl!,

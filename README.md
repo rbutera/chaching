@@ -304,6 +304,7 @@ subscription mapping, the interval/cost trade-off, security, and troubleshooting
 | Provider | What it reads | Notes |
 |---|---|---|
 | **Claude Code** | `~/.claude/projects/**/*.jsonl` and `~/.config/claude/projects/**/*.jsonl` | De-duplicated by `message.id:requestId`. ~30-day log retention (history DB outlives it). |
+| **Tokenmaxx** | `~/.tokenmaxx/state.sqlite` (SQLite) | Auto-detected supplementary source. Reconciles Claude/Codex token classes upward to Tokenmaxx's proxy-observed totals without double-counting transcript usage; missing proxy-only traffic is labelled `(Tokenmaxx background)`. Account identities never leave the machine. |
 | **Codex** | `~/.codex/sessions/**` (JSONL) | Uses `last_token_usage`, not cumulative totals, so repeated turn snapshots don't double-count. |
 | **OpenCode** | `~/.local/share/opencode/opencode.db` (SQLite) | Read via `node:sqlite`, one record per assistant `message`. OpenCode reports `cost: 0` for Zen/Go/subscription usage, so cost is computed from a vendored [models.dev](https://models.dev) price map (cache rates included) rather than trusted. |
 | **Pi / OMP** | `~/.pi/agent/sessions/**/*.jsonl` and `~/.omp/agent/sessions/**/*.jsonl` | Recursively reads compatible Pi-family v3 sessions, including nested OMP subagents. Forked history deduplicates by upstream response identity; cache TTL and server-tool usage are retained. |
@@ -328,6 +329,7 @@ Missing file = sensible defaults (Claude Code, Codex, OpenCode on; Cursor off un
   "cutoverTs": null,
   "server": { "host": "127.0.0.1", "port": 5178 },
   "history": { "enabled": true, "dbPath": "~/.local/share/chaching/history.db" },
+  "tokenmaxx": { "enabled": true, "dbPath": "~/.tokenmaxx/state.sqlite" },
   "sync": {
     "enabled": false,
     "databaseUrl": "",

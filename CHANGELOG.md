@@ -4,6 +4,18 @@ All notable changes to chaching. Follows [semver](https://semver.org/); dates ar
 
 ## Unreleased
 
+## 1.17.0 — 2026-08-13
+
+### Added
+
+- **Tokenmaxx reconciliation.** When `~/.tokenmaxx/state.sqlite` exists, proxy-observed Claude and Codex totals are reconciled with transcript usage by UTC day, model, and token class. Only positive differences are added, under `(Tokenmaxx background)`, so transcript session/project attribution remains intact and overlapping observations never double-count.
+- **Real Anthropic quota windows for pooled Tokenmaxx accounts.** The dashboard shows sanitized 7-day percentages and reset times from Tokenmaxx. Synced rows contain generic account labels only, never email addresses, account IDs, credentials, or raw events.
+
+### Fixed
+
+- Tokenmaxx-only background and internal model calls are persisted into chaching history, including corrections to already-frozen days, so Tokenmaxx retention cannot make usage disappear later.
+- The rolling dollar-based panel is now labelled `5-hour API-cost window`; it no longer claims to represent Anthropic cap proximity.
+
 ## 1.16.0 — 2026-07-25
 
 ### Added

@@ -76,7 +76,7 @@ async function pooledPair(): Promise<{
 	return { poolId, a, b, storeA, storeB };
 }
 
-suite('PostgresSyncStore v2 aggregate ledger', () => {
+suite('PostgresSyncStore aggregate ledger', () => {
 	it('loads peer machine day aggregates and excludes own rows, incrementally', { timeout: 30_000 }, async () => {
 		const { a, b, storeA, storeB } = await pooledPair();
 		try {
@@ -194,6 +194,28 @@ suite('PostgresSyncStore v2 aggregate ledger', () => {
 		}
 	});
 
+	it('round-trips sanitized provider quota status by machine', { timeout: 30_000 }, async () => {
+		const { a, storeA, storeB } = await pooledPair();
+		try {
+			await storeA.publishProviderQuota('tokenmaxx', '2026-08-13T23:00:00Z', [{
+				label: 'Claude account 1',
+				provider: 'claude',
+				plan: 'default_claude_max_20x',
+				hardLimitReached: false,
+				windows: [{ id: 'weekly_all', label: '7 day · all models', usedPercent: 91, resetAt: '2026-08-15T04:00:00Z' }]
+			}]);
+			const status = await storeB.status();
+			expect(status.providerQuotas).toEqual([expect.objectContaining({
+				machineId: a,
+				source: 'tokenmaxx',
+				accounts: [expect.objectContaining({ label: 'Claude account 1' })]
+			})]);
+		} finally {
+			await storeA.close();
+			await storeB.close();
+		}
+	});
+
 	it('C9 — records schema_version and a fresh open succeeds via the version fast-path', { timeout: 30_000 }, async () => {
 		const store1 = new PostgresSyncStore(databaseUrl!, randomUUID(), randomUUID());
 		const store2 = new PostgresSyncStore(databaseUrl!, randomUUID(), randomUUID());
@@ -204,7 +226,7 @@ suite('PostgresSyncStore v2 aggregate ledger', () => {
 				`SELECT version FROM chaching_sync.schema_version WHERE id = 1`
 			);
 			expect(first.rowCount).toBe(1);
-			expect(Number(first.rows[0].version)).toBe(2);
+			expect(Number(first.rows[0].version)).toBe(3);
 
 			// A second, independent store opens against the already-migrated schema without error:
 			// the fast-path SELECT sees the current version and skips the DDL + advisory lock.

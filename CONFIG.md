@@ -56,6 +56,25 @@ is frozen on a future run, once it becomes a past day.
 Set `enabled` to `false` to disable the store entirely (chaching then shows only what the
 current logs cover). Uses Node's built-in `node:sqlite`, so it requires Node `>=24.16.0`.
 
+## Tokenmaxx
+
+```json
+"tokenmaxx": {
+	"enabled": true,
+	"dbPath": "~/.tokenmaxx/state.sqlite"
+}
+```
+
+Tokenmaxx is an auto-detected supplementary source. When its database exists, chaching compares
+proxy-observed daily model totals with the Claude/Codex records already ingested and adds only the
+positive difference. Transcript session and project attribution is preserved; proxy-only usage is
+shown under `(Tokenmaxx background)`. Corrections to completed days are written into chaching's
+history database, so they survive Tokenmaxx's event retention.
+
+Tokenmaxx's Anthropic quota snapshots are published to a configured chaching Sync pool using
+generic account labels. Email addresses, Tokenmaxx account IDs, credentials, and raw events are
+never published. If the database or quota tables do not exist, this source is a no-op.
+
 ## Chaching Sync
 
 ```json
