@@ -4,6 +4,12 @@ All notable changes to chaching. Follows [semver](https://semver.org/); dates ar
 
 ## Unreleased
 
+## 1.18.0 — 2026-08-21
+
+### Fixed
+
+- **Test suite green under Node 26.** jsdom under vitest 4 + Node 26 leaves `window.localStorage` unset (Node's own `localStorage` is gated behind `--localstorage-file`), which broke the client/component tests. `src/test-setup.ts` now installs a minimal in-memory `Storage` for the jsdom env only. Test-only change; nothing shipped is affected.
+
 ## 1.17.0 — 2026-08-13
 
 ### Added

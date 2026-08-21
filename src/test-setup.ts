@@ -16,6 +16,31 @@ if (typeof window !== 'undefined') {
 // render, and with a 0px viewport renders none). Give the scroll container +
 // its rows a realistic measured size so the virtualizer renders a real window.
 // Guarded to the jsdom env so the node suite is untouched.
+// jsdom under vitest 4 + Node 26 does not expose window.localStorage (Node's own
+// experimental localStorage is gated behind --localstorage-file, and vitest's jsdom
+// env leaves the slot empty). Component/client tests rely on it, so give the jsdom
+// env a minimal in-memory Storage. Guarded to jsdom; the node suite is untouched.
+if (typeof window !== 'undefined' && !window.localStorage) {
+	const makeStorage = (): Storage => {
+		const map = new Map<string, string>();
+		return {
+			get length() {
+				return map.size;
+			},
+			clear: () => map.clear(),
+			getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+			key: (i: number) => Array.from(map.keys())[i] ?? null,
+			removeItem: (k: string) => void map.delete(k),
+			setItem: (k: string, v: string) => void map.set(k, String(v))
+		} as Storage;
+	};
+	Object.defineProperty(window, 'localStorage', { configurable: true, value: makeStorage() });
+	Object.defineProperty(window, 'sessionStorage', { configurable: true, value: makeStorage() });
+	// globalThis.localStorage is a read-only getter under Node 26 — defineProperty, not assign.
+	Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: window.localStorage });
+	Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: window.sessionStorage });
+}
+
 if (typeof window !== 'undefined' && typeof Element !== 'undefined') {
 	const VIEWPORT = 460; // matches SessionExplorer .scroll max-height
 	const ROW = 56;
