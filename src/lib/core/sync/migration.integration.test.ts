@@ -78,6 +78,31 @@ suite('Account schema migration', () => {
 		} finally { await store.close(); }
 	});
 
+	it('discovers one bill across machines and preserves a migrated explicit fee', async () => {
+		const one = new PostgresSyncStore(url, 'pool', 'one');
+		const two = new PostgresSyncStore(url, 'pool', 'two');
+		try {
+			await Promise.all([one.open(), two.open()]);
+			const account = { id: 'paid', provider: 'claude', name: 'Discovered', account: '', tier: 'max-20x', monthlyUsd: 200, feeSource: 'inferred', identityKey: 'v1:shared' } satisfies Parameters<typeof one.discoverAccount>[0];
+			expect(await one.discoverAccount(account)).toBe('paid');
+			const ids = await Promise.all([
+				one.discoverAccount(account),
+				two.discoverAccount({ ...account, id: 'other-local-id', monthlyUsd: 300, feeSource: 'explicit' })
+			]);
+			expect(ids).toEqual(['paid', 'paid']);
+			const status = await one.status();
+			expect(status.subscriptions.filter(a => a.provider === 'claude')).toEqual([
+				expect.objectContaining({ id: 'paid', name: 'Work', monthlyUsd: 175, feeSource: 'explicit', identityKey: 'v1:shared' })
+			]);
+			expect(status.mappings.filter(m => m.provider === 'claude')).toHaveLength(2);
+			const newAccount = { ...account, id: 'new-one', identityKey: 'v1:new', monthlyUsd: null };
+			const newIds = await Promise.all([one.discoverAccount(newAccount), two.discoverAccount({ ...newAccount, id: 'new-two' })]);
+			expect(new Set(newIds).size).toBe(1);
+			await expect(one.discoverAccount({ ...account, identityKey: 'v1:wrong' })).rejects.toThrow('different provider identity');
+			expect((await one.status()).subscriptions.filter(a => a.identityKey === 'v1:new')).toHaveLength(1);
+		} finally { await Promise.all([one.close(), two.close()]); }
+	});
+
 	it('rejects obsolete writes from an open connection and rolls back a fresh v3 migration', async () => {
 		const oldClient = await db.connect();
 		const store = new PostgresSyncStore(url, 'pool', 'one');

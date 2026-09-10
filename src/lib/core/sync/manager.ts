@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { expandPath } from '../fs-utils';
-import { readTokenmaxxAccounts, type TokenmaxxQuotaSnapshot } from '../providers/tokenmaxx/sqlite';
+import { accountIdentityKey, readTokenmaxxAccounts, type TokenmaxxQuotaSnapshot } from '../providers/tokenmaxx/sqlite';
 import { accountQuotaSnapshot, refreshAccountDiscovery } from '../account-discovery';
 import {
 	loadConfig,
@@ -24,6 +24,24 @@ export function localSyncStatus(error: string | null = null): SyncStatus {
 		providerQuotas: [],
 		error
 	};
+}
+
+export async function publishDiscoveredAccounts(store: PostgresSyncStore, cfg: chachingConfig): Promise<void> {
+	if (!cfg.sync.poolId) return;
+	const linked = new Set(Object.values(cfg.providerAccounts).flat());
+	for (const account of cfg.accounts) {
+		if (!linked.has(account.id) || !account.identity || account.pendingLegacyIds?.length) continue;
+		await store.discoverAccount({
+			id: account.id,
+			provider: account.provider,
+			name: account.name,
+			tier: account.tier,
+			monthlyUsd: account.monthlyUsd,
+			feeSource: account.feeSource,
+			account: '',
+			identityKey: accountIdentityKey(account.provider, account.identity, cfg.sync.poolId)
+		});
+	}
 }
 
 export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus> {
@@ -59,6 +77,7 @@ export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus
 	try {
 		await store.open();
 		await store.heartbeat(cfg.sync.machineName, hostname());
+		await publishDiscoveredAccounts(store, cfg);
 		const status = await store.status();
 		const remoteQuotas = (status.providerQuotas ?? []).filter((quota) =>
 			!localProviderQuotas.some((local) => local.machineId === quota.machineId && local.source === quota.source)

@@ -29,7 +29,7 @@ import {
 } from './providers/tokenmaxx/sqlite';
 import { fetchCursorUsageRecords } from './providers/cursor/api';
 import type { RollupDelta, RollupSnapshot, UsageRecord } from '../types';
-import { isConfigured } from './sync/manager';
+import { isConfigured, publishDiscoveredAccounts } from './sync/manager';
 import { isPoolGlobalUsage, usageDedupKey } from './sync/record-key';
 import {
 	PostgresSyncStore,
@@ -274,6 +274,7 @@ class Ingestion {
 		try {
 			await store.open();
 			await store.heartbeat(cfg.sync.machineName, hostname());
+			await publishDiscoveredAccounts(store, cfg);
 			this.syncStore = store;
 			await this.refreshSubscriptionIndex();
 			// Full publish on connect: every local day/session (frozen history + live) plus the
@@ -786,6 +787,7 @@ class Ingestion {
 				if (!this.disposed) this.emitSyncSnapshot();
 				return;
 			}
+			await publishDiscoveredAccounts(this.syncStore, await loadConfig());
 			const published = await this.publishLocal(false);
 			// Clear only what was published; keys dirtied during the awaits survive to next burst (C3).
 			this.rollup.clearPublishDirty(published ?? undefined);

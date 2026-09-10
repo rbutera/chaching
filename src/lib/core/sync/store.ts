@@ -336,6 +336,46 @@ export class PostgresSyncStore {
 		};
 	}
 
+	async discoverAccount(account: SyncSubscription & { identityKey: string }): Promise<string> {
+		const { poolId, machineId } = this.identity();
+		const client = await this.pool.connect();
+		try {
+			await client.query('BEGIN');
+			// ponytail: serialize discovery per pool; use identity-scoped locks if discovery throughput matters.
+			await client.query(`SELECT id FROM ${SCHEMA}.pool WHERE id = $1 FOR UPDATE`, [poolId]);
+			const machine = await client.query(`SELECT id FROM ${SCHEMA}.machine WHERE pool_id = $1 AND id = $2 FOR UPDATE`, [poolId, machineId]);
+			if (machine.rowCount === 0) throw new Error('Machine does not exist in this pool');
+			const existing = await client.query(
+				`SELECT id, provider, identity_key FROM ${SCHEMA}.account
+				 WHERE pool_id = $1 AND (id = $2 OR (provider = $3 AND identity_key = $4)) FOR UPDATE`,
+				[poolId, account.id, account.provider, account.identityKey]
+			);
+			if (existing.rows.length > 1) throw new Error('Discovered identity matches two Account bills; resolve the Account match before syncing');
+			const row = existing.rows[0];
+			if (row && (row.provider !== account.provider || (row.identity_key && row.identity_key !== account.identityKey)))
+				throw new Error('Account ID is already bound to a different provider identity');
+			const id = row ? String(row.id) : account.id;
+			await client.query(
+				`INSERT INTO ${SCHEMA}.account AS saved (pool_id, id, provider, name, account, tier, monthly_usd, identity_key, fee_source)
+				 VALUES ($1,$2,$3,$4,'',$5,$6,$7,$8)
+				 ON CONFLICT (pool_id, id) DO UPDATE SET identity_key = EXCLUDED.identity_key,
+				 tier = CASE WHEN saved.fee_source = 'explicit' THEN saved.tier ELSE EXCLUDED.tier END,
+				 monthly_usd = CASE WHEN saved.fee_source = 'explicit' THEN saved.monthly_usd ELSE EXCLUDED.monthly_usd END,
+				 fee_source = CASE WHEN saved.fee_source = 'explicit' THEN saved.fee_source ELSE EXCLUDED.fee_source END`,
+				[poolId, id, account.provider, account.name, account.tier, account.monthlyUsd, account.identityKey, account.feeSource ?? 'inferred']
+			);
+			await client.query(
+				`INSERT INTO ${SCHEMA}.machine_account (pool_id, machine_id, provider, account_id)
+				 VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`, [poolId, machineId, account.provider, id]
+			);
+			await client.query('COMMIT');
+			return id;
+		} catch (error) {
+			await client.query('ROLLBACK');
+			throw error;
+		} finally { client.release(); }
+	}
+
 	async addSubscription(subscription: SyncSubscription): Promise<void> {
 		const { poolId } = this.identity();
 		await this.pool.query(
