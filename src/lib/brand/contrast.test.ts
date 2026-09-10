@@ -113,3 +113,20 @@ describe('brass-vs-haiku OKLab ΔE separation', () => {
 		expect(brass).not.toBe('#e0a52f'); // the superseded v1.6.0 accent
 	});
 });
+
+import { palettes, paletteVars, semanticGroups } from './prototype-palettes';
+
+// The prototype's text-coloured categories may appear as small labels, so use 4.5 throughout.
+describe.each(palettes)('$name prototype semantic contrast', (palette) => {
+	const vars = paletteVars(palette);
+	it('every readable role clears 4.5 on every fill, including meter tracks', () => {
+		for (const names of Object.values(semanticGroups)) for (const name of names) {
+			for (const surface of palette.surfaces) {
+				expect(wcagContrast(vars[name], surface), `${name} ${vars[name]} on ${surface}`).toBeGreaterThanOrEqual(4.5);
+			}
+		}
+	});
+	it('accent and Haiku remain separate', () => {
+		expect(differenceEuclidean('oklab')(palette.accent, palette.yellow)).toBeGreaterThanOrEqual(0.085);
+	});
+});
