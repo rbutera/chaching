@@ -10,7 +10,7 @@
 // data constants), so a dropped feature shows up as a missing region/control.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, cleanup, fireEvent } from '@testing-library/svelte';
+import { render, cleanup, fireEvent, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import Page from './+page.svelte';
 import type { DayModelAgg, RollupSnapshot, TokenCounts, SessionSummary } from '$lib/types';
@@ -401,13 +401,13 @@ describe('dashboard route — behavior contracts', () => {
 
 	it('P10: subsidisation card renders (fed off /api/config, month-basis)', async () => {
 		snapshotToEmit = richSnap();
-		const { container } = render(Page);
+		const { container, getByRole, getAllByRole } = render(Page);
 		await flush();
 		expect(container.querySelector('.value-grid')).toBeTruthy();
-		// the SubsidisationCard itself survived (heading + at least one tier control),
-		// not just *something* in the value band.
 		expect(container.querySelector('#subsidy-heading')).toBeTruthy();
-		expect(container.querySelectorAll('.value-grid select, .value-grid button, .value-grid input').length).toBeGreaterThan(0);
+		expect(container.querySelector('[aria-label="combined subsidy multiple"]')?.textContent).toContain('×');
+		await fireEvent.click(getByRole('button', { name: 'Settings' }));
+		expect(getAllByRole('combobox', { name: 'Plan' })).toHaveLength(2);
 	});
 
 	it('M6: pooled subsidy card renders per-subscription value (shared fee counted once)', async () => {
@@ -458,6 +458,102 @@ describe('dashboard route — behavior contracts', () => {
 });
 
 describe('dashboard route — motion (reduced-motion contract)', () => {
+	it('retains an unsaved sibling plan while another provider saves', async () => {
+		snapshotToEmit = richSnap();
+		const view = render(Page);
+		await flush();
+		await fireEvent.click(view.getByRole('button', { name: 'Settings' }));
+		const codex = within(view.getByRole('form', { name: 'Codex plan' }));
+		await fireEvent.input(codex.getByRole('spinbutton'), { target: { value: '88' } });
+		const claude = within(view.getByRole('form', { name: 'Claude Code plan' }));
+		await fireEvent.click(claude.getByRole('button', { name: 'Save' }));
+		await flush();
+		expect(claude.getByRole('status').textContent).toBe('Saved');
+		expect(codex.getByRole('spinbutton')).toHaveProperty('value', '88');
+		expect(codex.getByRole('combobox')).toHaveProperty('value', 'custom');
+	});
+
+	it('includes the session detail sheet in application-level motion suppression', async () => {
+		localStorage.setItem('chaching.reducedMotion', '1');
+		snapshotToEmit = richSnap();
+		const view = render(Page);
+		await flush();
+		await fireEvent.click(view.getAllByRole('button', { name: /Open session detail/ })[0]);
+		expect(view.getByRole('dialog').closest('.still')).toBeTruthy();
+	});
+
+	it('saves plan settings through the endpoint, reports failures, and retains the saved fee on reload', async () => {
+		const saved = { providers: { claude: { enabled: true, subscription: { tier: 'corporate', monthlyUsd: 99 } }, codex: { enabled: false, subscription: { tier: 'free', monthlyUsd: 0 } } } };
+		let fail = true;
+		vi.mocked(fetch).mockImplementation(async (input, init) => {
+			if (String(input).startsWith('/api/config')) {
+				if (init?.method === 'POST') {
+					if (fail) return new Response('unavailable', { status: 503 });
+					saved.providers.claude.subscription = { tier: 'custom', monthlyUsd: 275.50 };
+				}
+				return Response.json(saved);
+			}
+			return Response.json({});
+		});
+		snapshotToEmit = richSnap();
+		let view = render(Page);
+		await flush();
+		expect(view.queryByRole('spinbutton')).toBeNull();
+		await fireEvent.click(view.getByRole('button', { name: 'Settings' }));
+		await fireEvent.change(view.getByRole('combobox', { name: 'Plan' }), { target: { value: 'max-5x' } });
+		expect(view.getByRole('spinbutton')).toHaveProperty('value', '100');
+		await fireEvent.input(view.getByRole('spinbutton'), { target: { value: '275.50' } });
+		await fireEvent.click(view.getByRole('button', { name: 'Save' }));
+		await flush();
+		expect(view.getByRole('alert').textContent).toContain('503');
+		expect(view.queryByRole('status')).toBeNull();
+		expect(saved.providers.claude.subscription.monthlyUsd).toBe(99);
+		expect(view.getByRole('spinbutton')).toHaveProperty('value', '275.50');
+		fail = false;
+		await fireEvent.click(view.getByRole('button', { name: 'Save' }));
+		await flush();
+		expect(view.getByRole('status').textContent).toBe('Saved');
+		expect(fetch).toHaveBeenCalledWith('/api/config', expect.objectContaining({ body: JSON.stringify({ provider: 'claude', subscription: { tier: 'custom', monthlyUsd: 275.5 } }) }));
+		view.unmount();
+		view = render(Page);
+		await flush();
+		await fireEvent.click(view.getByRole('button', { name: 'Settings' }));
+		expect(view.getByRole('spinbutton')).toHaveProperty('value', '275.5');
+	});
+
+	it('persists appearance controls across remounts and suppresses Explore motion and art', async () => {
+		snapshotToEmit = richSnap();
+		let view = render(Page);
+		await flush();
+		await fireEvent.click(view.getByRole('button', { name: 'Settings' }));
+		await fireEvent.click(view.getByRole('checkbox', { name: /Animations/ }));
+		await fireEvent.click(view.getByRole('checkbox', { name: /Personality/ }));
+		expect(localStorage.getItem('chaching.reducedMotion')).toBe('1');
+		expect(localStorage.getItem('chaching.noArt')).toBe('1');
+		view.unmount();
+		view = render(Page);
+		await flush();
+		await fireEvent.click(view.getByRole('button', { name: 'Explore' }));
+		expect(view.container.querySelectorAll('[data-animated="true"]')).toHaveLength(0);
+		expect(view.container.textContent).not.toContain('🧾');
+		await fireEvent.click(view.getByRole('button', { name: 'Settings' }));
+		await fireEvent.click(view.getByRole('checkbox', { name: /Personality/ }));
+		expect(view.getByRole('checkbox', { name: /Animations/ })).toHaveProperty('checked', false);
+		await fireEvent.click(view.getByRole('checkbox', { name: /Animations/ }));
+		await fireEvent.click(view.getByRole('button', { name: 'Dashboard' }));
+		expect(view.container.querySelector('[data-animated="true"]')).toBeTruthy();
+	});
+
+	it('keeps system reduced motion authoritative over the saved animation preference', async () => {
+		vi.mocked(window.matchMedia).mockReturnValue({ matches: true, media: '', onchange: null, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn() });
+		snapshotToEmit = richSnap();
+		const view = render(Page);
+		await flush();
+		await fireEvent.click(view.getByRole('button', { name: 'Settings' }));
+		expect(view.getByRole('checkbox', { name: /Animations/ })).toHaveProperty('disabled', true);
+		expect(view.getByRole('checkbox', { name: /Animations/ })).toHaveProperty('checked', false);
+	});
+
 	it('shows the final hero value when prefers-reduced-motion is set (NumberFlow honours the preference, no roll)', async () => {
 		vi.stubGlobal(
 			'matchMedia',

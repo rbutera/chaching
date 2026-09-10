@@ -5,6 +5,7 @@
 	import { FeedStore } from '$lib/client/feed.svelte';
 	import { Dashboard } from '$lib/client/dashboard.svelte';
 	import DetailSheet from '$lib/components/DetailSheet.svelte';
+	import PlanSettings from '$lib/components/PlanSettings.svelte';
 	import SyncPanel from '$lib/components/SyncPanel.svelte';
 	import HeroRegion from '$lib/components/regions/HeroRegion.svelte';
 	import CommandBar from '$lib/components/CommandBar.svelte';
@@ -34,7 +35,7 @@
 		LIFETIME_FLOURISHES
 	} from '$lib/voice';
 	import { JoyController } from '$lib/client/joy';
-	import { webSuppressArt } from '$lib/client/suppress';
+	import { webSuppressArt, setWebSuppressArt } from '$lib/client/suppress';
 
 	const feed = new FeedStore();
 	const dash = new Dashboard();
@@ -100,7 +101,30 @@
 
 	// Honour prefers-reduced-motion in JS (the count-up must render the final value
 	// immediately when reduced; the token base reset already nukes CSS transitions).
-	let reducedMotion = $state(false);
+	let systemReducedMotion = $state(false);
+	let motionDisabled = $state(false);
+	let reducedMotion = $derived(systemReducedMotion || motionDisabled);
+	let preferenceError = $state('');
+
+	function togglePersonality() {
+		try {
+			setWebSuppressArt(!suppressArt);
+			suppressArt = webSuppressArt();
+			preferenceError = '';
+		} catch {
+			preferenceError = 'Could not save this preference. Browser storage may be blocked.';
+		}
+	}
+
+	function toggleMotion() {
+		try {
+			localStorage.setItem('chaching.reducedMotion', motionDisabled ? '0' : '1');
+			motionDisabled = !motionDisabled;
+			preferenceError = '';
+		} catch {
+			preferenceError = 'Could not save this preference. Browser storage may be blocked.';
+		}
+	}
 
 	// Web "no-art" equivalent (design D9): suppress personality copy + extra motion
 	// when `?no-art` or the persisted setting is on, mirroring the CLI contract.
@@ -121,9 +145,10 @@
 		}
 		void refreshQuotas();
 		suppressArt = webSuppressArt();
+		try { motionDisabled = localStorage.getItem('chaching.reducedMotion') === '1'; } catch { /* Storage is optional. */ }
 		const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-		reducedMotion = mq.matches;
-		const onMq = (e: MediaQueryListEvent) => (reducedMotion = e.matches);
+		systemReducedMotion = mq.matches;
+		const onMq = (e: MediaQueryListEvent) => (systemReducedMotion = e.matches);
 		mq.addEventListener('change', onMq);
 		return () => {
 			disposed = true;
@@ -171,32 +196,19 @@
 		tierIndex(heatDayCost, DAILY_FLOURISHES) / (DAILY_FLOURISHES.length - 1)
 	);
 
-	// Commit a tier change for one provider: optimistically update the local config
-	// copy (so the switcher + card move immediately), then persist via /api/config and
-	// merge the echoed config back. A racing SSE delta touches the feed snapshot, not
-	// this config copy, so the two never reset each other (design D7 cross-element).
+	let feeSaving = $state(false);
 	async function onTierChange(provider: SubsidisedProvider, tier: string, monthlyUsd: number) {
-		if (config) {
-			config = {
-				...config,
-				providers: {
-					...config.providers,
-					[provider]: {
-						...config.providers[provider],
-						subscription: { tier, monthlyUsd }
-					}
-				}
-			};
-		}
+		feeSaving = true;
 		try {
 			const res = await fetch(resolve('/api/config'), {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ provider, subscription: { tier, monthlyUsd } })
 			});
-			if (res.ok) config = (await res.json()) as PublicchachingConfig;
-		} catch {
-			/* keep the optimistic local copy on failure */
+			if (!res.ok) throw new Error(`Could not save the fee (${res.status}). Try again.`);
+			config = await res.json();
+		} finally {
+			feeSaving = false;
 		}
 	}
 
@@ -282,7 +294,7 @@
 
 <svelte:window onkeydown={onPageKey} />
 
-<div class="page" style="--register-heat: {registerHeat}">
+<div class="page" class:still={reducedMotion || suppressArt} style="--register-heat: {registerHeat}">
 	<header class="topbar">
 		<div class="brand">
 			<h1 class="brand-title"><BrandMark size={24} wordmark title="chaching" /></h1>
@@ -340,12 +352,29 @@
 		<main>
 			{#if section === 'Settings'}
 				<h2>Settings</h2>
+				<section class="preferences" aria-labelledby="appearance-heading">
+					<h3 id="appearance-heading">Appearance</h3>
+					<label><span>Personality<small>Remarks and emoji, including room to grow.</small></span><input type="checkbox" checked={!suppressArt} onchange={togglePersonality}/></label>
+					<label><span>Animations<small>{systemReducedMotion ? 'Reduced motion is enabled in your system settings.' : suppressArt ? 'Paused while personality is off.' : 'Rolling numbers and moving charts.'}</small></span><input type="checkbox" checked={!reducedMotion && !suppressArt} disabled={systemReducedMotion || suppressArt} onchange={toggleMotion}/></label>
+					<label><span>Celebrations<small>Chime and confetti at milestones.</small></span><input type="checkbox" checked={joyEnabled} disabled={suppressArt} onchange={toggleJoy}/></label>
+					{#if joyEnabled}<label><span>Mute chime<small>Keep celebrations silent.</small></span><input type="checkbox" checked={joyMuted} disabled={suppressArt} onchange={toggleMute}/></label>{/if}
+					{#if preferenceError}<p role="alert">{preferenceError}</p>{/if}
+				</section>
 				<SyncPanel status={syncStatus} onAction={onSyncAction}/>
-				<ValueBandRegion {feed} {dash} {config} {syncStatus} {onTierChange}/>
+				{#if config}
+					<section class="plan-settings" aria-label="Plans and fees">
+						<h3>Plans and fees</h3>
+						{#each ['claude', 'codex'] as provider}
+							{#if (provider === 'claude' || provider === 'codex') && config.providers[provider].enabled}
+								<PlanSettings {provider} subscription={config.providers[provider].subscription} busy={feeSaving} onSave={onTierChange}/>
+							{/if}
+						{/each}
+					</section>
+				{/if}
 			{:else if section === 'Explore'}
 				<h2>Explore</h2>
 				<CommandBar {feed} {dash} {syncStatus}/>
-				<HeroRegion {feed} {dash} {reducedMotion} {suppressArt}/>
+				<HeroRegion {feed} {dash} reducedMotion={reducedMotion || suppressArt} {suppressArt}/>
 				<StatRowRegion {feed} {dash}/>
 				<HeatmapRegion {feed} {dash}/>
 				<ByModelRegion {feed} {dash} {syncStatus} {suppressArt} reducedMotion={reducedMotion || suppressArt}/>
@@ -358,17 +387,26 @@
 				<SpendChart {feed} {dash} reducedMotion={reducedMotion || suppressArt}/>
 				<QuotaRegion {dash} {syncStatus} {now} reducedMotion={reducedMotion || suppressArt}/>
 				<section aria-label="Recent sessions"><div class="section-heading"><h2>Sessions</h2><button onclick={exploreRecentSessions}>View all →</button></div><SessionExplorer compact sessions={recentSessions} now={snap.generatedAt} onOpen={s => dash.openSessionDrill(s)}/></section>
-				<ValueBandRegion {feed} {dash} {config} {syncStatus} {onTierChange}/>
+				<ValueBandRegion {feed} {dash} {config} {syncStatus}/>
 			{/if}
 		</main>
 	{/if}
-</div>
 
 {#if snap && dash.drill}
 	<DetailSheet drill={dash.drill} snapshot={snap} onClose={() => dash.closeDrill()} />
 {/if}
+</div>
 
 <style>
+	.plan-settings {max-width:720px;display:grid;gap:16px}
+	.plan-settings h3 {font-size:18px;margin:0}
+	.preferences {border:1px solid var(--border);border-radius:var(--radius);padding:20px;max-width:720px}
+	.preferences h3 {font-size:18px;margin:0 0 12px}
+	.preferences label {display:flex;justify-content:space-between;align-items:center;gap:24px;padding:12px 0;border-top:1px solid var(--border);font-size:14px;cursor:pointer}
+	.preferences small {display:block;color:var(--text-muted);font-size:12px;margin-top:4px}
+	.preferences input {accent-color:var(--accent);width:18px;height:18px;flex:none}
+	.preferences p {color:var(--bad)}
+	.page.still :global(*), .page.still :global(*::before), .page.still :global(*::after) {animation:none !important;transition:none !important;scroll-behavior:auto !important}
 	.page{max-width:1440px;margin:auto;padding:0 40px 40px}.topbar{display:flex;align-items:center;gap:28px;padding:8px 0;border-bottom:1px solid var(--border)}.brand{display:flex;align-items:center;gap:10px}.brand-title{margin:0}.ver{font:var(--type-label);color:var(--text-muted)}nav{display:flex;gap:20px}button{font:inherit;cursor:pointer;color:var(--text);background:none;border:0;min-height:36px}nav button{color:var(--text-muted)}nav button.active{color:var(--text);box-shadow:0 2px var(--accent)}button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.topbar-right{margin-left:auto;display:flex;align-items:center;gap:16px}.joy-controls{display:flex;gap:6px;font-size:11px}.conn{display:flex;align-items:center;gap:6px;font:var(--type-label)}.dot{width:6px;height:6px;border-radius:50%}main{display:grid;gap:20px;padding-top:16px;min-width:0}.section-heading{display:flex;justify-content:space-between;align-items:center}h2{font:var(--type-title)}.loading{min-height:65vh;display:grid;align-content:center;justify-items:center;text-align:center}.loading-sub{color:var(--text-muted);font-size:12px}.spinner{width:24px;height:24px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spinner{animation:none}}@media(max-width:760px){.page{padding:0 16px 24px}.topbar{gap:12px;flex-wrap:wrap}.ver,.conn-txt{display:none}nav{gap:12px}nav button{font-size:12px}.topbar-right{gap:8px}.joy-controls{display:none}main{gap:16px}}@media(max-width:500px){.topbar-right{display:none}.brand :global(svg){max-width:105px}nav{margin-left:auto;gap:8px}}
 	@media(max-height:650px){main{gap:8px;padding-top:8px}}
 </style>

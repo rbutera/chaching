@@ -124,7 +124,7 @@
 		<p class="summary">
 			<strong>{status.machine.name}</strong> is contributing to pool
 			<code>{status.pool.id}</code>. It publishes compact aggregates to the shared PostgreSQL pool;
-			local SQLite history keeps running, so this machine's own numbers are always live.
+			this machine's own numbers keep updating live.
 			{#if status.intervalMinutes}
 				Peers refresh at most every {status.intervalMinutes} min.
 			{/if}
@@ -348,6 +348,10 @@
 <style>
 	.sync-panel {
 		margin-bottom: 1rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 20px;
+		min-width: 0;
 	}
 	.sync-head,
 	.rows li,
@@ -416,6 +420,7 @@
 	}
 	code {
 		color: var(--accent);
+		overflow-wrap: anywhere;
 	}
 	.sync-grid {
 		display: grid;
@@ -437,6 +442,8 @@
 	.rows span {
 		display: flex;
 		flex-direction: column;
+		min-width: 0;
+		overflow-wrap: anywhere;
 	}
 	small {
 		color: var(--text-dim);
@@ -474,6 +481,8 @@
 		color: var(--text);
 		padding: 0.45rem 0.55rem;
 		font-family: var(--font-sans);
+		min-height: 40px;
+		font-size: 14px;
 	}
 	button {
 		border: 1px solid var(--border);
@@ -488,6 +497,10 @@
 	button:disabled {
 		cursor: wait;
 		opacity: 0.6;
+	}
+	button:focus-visible, input:focus-visible, select:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
 	}
 	button.primary,
 	.mode-switch button.active {

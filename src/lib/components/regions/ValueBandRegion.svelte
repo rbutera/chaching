@@ -3,7 +3,6 @@
 	import type { Dashboard } from '$lib/client/dashboard.svelte';
 	import type { PublicchachingConfig } from '$lib/core/config';
 	import type { SyncStatusView } from '$lib/client/sync';
-	import type { SubsidisedProvider } from '$lib/core/subsidisation';
 	import CachePanel from '$lib/components/CachePanel.svelte';
 	import SubsidisationCard from '$lib/components/SubsidisationCard.svelte';
 	import PoolSubsidisationCard from '$lib/components/PoolSubsidisationCard.svelte';
@@ -17,14 +16,12 @@
 		feed,
 		dash,
 		config,
-		syncStatus,
-		onTierChange
+		syncStatus
 	}: {
 		feed: FeedStore;
 		dash: Dashboard;
 		config: PublicchachingConfig | null;
 		syncStatus: SyncStatusView | null;
-		onTierChange: (provider: SubsidisedProvider, tier: string, monthlyUsd: number) => void;
 	} = $props();
 
 	let snap = $derived(feed.snapshot);
@@ -134,7 +131,7 @@
 			wholePlanFee={dash.machineFilter.size > 0}
 		/>
 	{:else if subsidy && subsidyConfig}
-		<SubsidisationCard rollup={subsidy} windowLabel={heroLabel} config={subsidyConfig} {onTierChange} burnPace={pace} />
+		<SubsidisationCard rollup={subsidy} windowLabel={heroLabel} burnPace={pace} />
 	{/if}
 </section>
 

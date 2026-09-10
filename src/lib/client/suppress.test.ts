@@ -6,13 +6,20 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { webSuppressArt } from './suppress.js';
+import { webSuppressArt, setWebSuppressArt } from './suppress.js';
 
 function setSearch(search: string) {
 	window.history.replaceState({}, '', `/${search}`);
 }
 
 describe('webSuppressArt', () => {
+	it('turning personality back on clears a forced URL without dropping other parameters', () => {
+		setSearch('?no-art&other=retained');
+		setWebSuppressArt(false);
+		expect(webSuppressArt()).toBe(false);
+		expect(window.location.search).toBe('?other=retained');
+		expect(localStorage.getItem('chaching.noArt')).toBe('0');
+	});
 	beforeEach(() => {
 		setSearch('');
 		window.localStorage.clear();

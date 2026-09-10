@@ -5,12 +5,7 @@
 	// rate (day = fee/30, week = ×7, month = the full fee, quarter = ×90). The
 	// receipt footer and `chaching wrapped` keep the calendar-month basis. $0-tier
 	// renders "∞ — all of it". Brass-accent headline.
-	//
-	// Owns the per-provider tier switcher (a preset <select> + a Custom number input
-	// shown only for Custom), controlled off the publicConfig the page holds. On
-	// change it emits `onTierChange`, which the page POSTs to /api/config.
 	import { money } from '$lib/format';
-	import { SUBSCRIPTION_PRESETS, type SubscriptionPreset } from '$lib/core/subscription-presets';
 	import type {
 		BurnPace,
 		SubsidisedProvider,
@@ -20,17 +15,11 @@
 	let {
 		rollup,
 		windowLabel,
-		config,
-		onTierChange,
 		burnPace = null
 	}: {
 		rollup: WindowSubsidisationRollup;
 		/** the human window label the page already renders (e.g. "Last 7 days", a pinned day) */
 		windowLabel: string;
-		/** the current persisted tier/fee per provider (from publicConfig) */
-		config: Record<SubsidisedProvider, { enabled: boolean; tier: string; monthlyUsd: number }>;
-		/** commit a tier change for one provider; the page persists via /api/config */
-		onTierChange: (provider: SubsidisedProvider, tier: string, monthlyUsd: number) => void;
 		/** whole-account month-to-date burn-pace projection; null suppresses the line (cost-honesty guards) */
 		burnPace?: BurnPace | null;
 	} = $props();
@@ -49,26 +38,6 @@
 
 	let enabledProviders = $derived(rollup.providers.filter((p) => p.enabled));
 
-
-	function presetsFor(provider: SubsidisedProvider): SubscriptionPreset[] {
-		return SUBSCRIPTION_PRESETS[provider];
-	}
-
-	function onSelect(provider: SubsidisedProvider, value: string): void {
-		if (value === 'custom') {
-			// Keep the current amount as the seed for the Custom field.
-			onTierChange(provider, 'custom', config[provider].monthlyUsd);
-			return;
-		}
-		const preset = presetsFor(provider).find((p) => p.id === value);
-		if (preset) onTierChange(provider, preset.id, preset.monthlyUsd);
-	}
-
-	function onCustomAmount(provider: SubsidisedProvider, raw: string): void {
-		const n = Number(raw);
-		const monthlyUsd = Number.isFinite(n) && n >= 0 ? n : 0;
-		onTierChange(provider, 'custom', monthlyUsd);
-	}
 </script>
 
 <section class="subsidy" aria-labelledby="subsidy-heading">
@@ -124,37 +93,7 @@
 						<span class="net-dim">net {money(p.sub.netSubsidyUsd)} vs {money(p.windowFeeUsd)} pro-rated</span>
 					{/if}
 				</div>
-				<div class="switcher">
-					<label class="sw-label" for={`tier-${p.provider}`}>{label} plan</label>
-					<select
-						id={`tier-${p.provider}`}
-						class="sw-select"
-						value={config[p.provider].tier}
-						onchange={(e) => onSelect(p.provider, (e.currentTarget as HTMLSelectElement).value)}
-					>
-						{#each presetsFor(p.provider) as preset (preset.id)}
-							<option value={preset.id}>
-								{preset.label}{preset.custom ? '' : ` · ${money(preset.monthlyUsd)}`}
-							</option>
-						{/each}
-					</select>
-					{#if config[p.provider].tier === 'custom'}
-						<span class="sw-custom-label">
-							<span class="dollar" aria-hidden="true">$</span>
-							<input
-								class="sw-custom num"
-								type="number"
-								min="0"
-								step="1"
-								inputmode="decimal"
-								aria-label={`${label} custom monthly fee in USD`}
-								value={config[p.provider].monthlyUsd}
-								onchange={(e) => onCustomAmount(p.provider, (e.currentTarget as HTMLInputElement).value)}
-							/>
-							<span class="per">/mo</span>
-						</span>
-					{/if}
-				</div>
+
 			</li>
 		{/each}
 	</ul>
@@ -255,59 +194,5 @@
 	.prov-detail {
 		font-size: 0.74rem;
 		color: var(--fg-muted);
-	}
-	.switcher {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-		margin-top: 0.15rem;
-	}
-	.sw-label {
-		font-size: 0.7rem;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: var(--fg-dim);
-	}
-	.sw-select {
-		background: var(--surface-2);
-		color: var(--fg);
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-sm);
-		padding: 0.3rem 0.5rem;
-		font-size: 0.8rem;
-		font-family: inherit;
-		cursor: pointer;
-	}
-	.sw-select:focus-visible,
-	.sw-custom:focus-visible {
-		outline: 2px solid var(--accent);
-		outline-offset: 1px;
-	}
-	.sw-custom-label {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.2rem;
-		background: var(--surface-2);
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-sm);
-		padding: 0.2rem 0.45rem;
-	}
-	.dollar,
-	.per {
-		font-size: 0.78rem;
-		color: var(--fg-dim);
-	}
-	.sw-custom {
-		width: 5.5ch;
-		background: transparent;
-		border: none;
-		color: var(--fg);
-		font-size: 0.82rem;
-		font-variant-numeric: tabular-nums;
-		font-family: var(--font-num);
-	}
-	.sw-custom:focus {
-		outline: none;
 	}
 </style>

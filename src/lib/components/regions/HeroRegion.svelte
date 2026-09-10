@@ -130,16 +130,8 @@
 				<MoneyOdometer amount={displayCost} size="hero" tone="gold" {reducedMotion} />
 			{/if}
 			{#if heroDelta}
-				<span class="delta {heroDelta.dir}">
+				<span class="delta {heroDelta.dir}" title={`Compared with the preceding equal-length window: ${money(hero?.prior.cost ?? 0)}`} aria-label={`${heroDelta.text} compared with the preceding equal-length window`}>
 					{heroDelta.text}
-					<span class="sub">vs prior {money(hero?.prior.cost ?? 0)}</span>
-				</span>
-			{:else if !focusedDay && hero && !hero.priorHasBaseline}
-				<!-- Baseline rule (2026-07-02): gap days count as $0, so the only
-				     unrenderable comparison is a prior window with NO recorded
-				     spend at all (a % of zero is meaningless). Say why. -->
-				<span class="delta none" title="The equal-length window before this one has no recorded spend, so there is nothing to compare against yet.">
-					no prior spend to compare
 				</span>
 			{/if}
 		</div>
@@ -152,7 +144,7 @@
 				title="Open a shareable receipt PNG of this view in a new tab"
 				aria-label="Open a shareable receipt of the current view in a new tab"
 			>
-				🧾 Receipt
+				{suppressArt ? '' : '🧾 '}Receipt
 			</button>
 		</div>
 	</div>
@@ -246,17 +238,8 @@
 	.delta.down {
 		color: var(--good);
 	}
-	.delta.none {
-		color: var(--text-dim);
-		font-weight: 400;
-	}
 	.delta.flat {
 		color: var(--text-dim);
-	}
-	.delta .sub {
-		font-size: 0.7rem;
-		color: var(--text-dim);
-		font-weight: 400;
 	}
 	.flourish {
 		margin-top: 0.5rem;

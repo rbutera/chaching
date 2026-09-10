@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
-import userEvent from '@testing-library/user-event';
 import SubsidisationCard from './SubsidisationCard.svelte';
 import { buildWindowSubsidisation, type ProviderSubsidisationConfig } from '$lib/core/subsidisation';
 import type { DayModelAgg } from '$lib/types';
@@ -41,9 +40,8 @@ function setup(claudeFee = 99, claudeTier = 'corporate', window = WEEK) {
 		codex: enabled('pro', 20)
 	};
 	const rollup = buildWindowSubsidisation(grain, config, window);
-	const onTierChange = vi.fn();
-	render(SubsidisationCard, { rollup, windowLabel: 'Last 7 days', config, onTierChange });
-	return { onTierChange, rollup };
+	render(SubsidisationCard, { rollup, windowLabel: 'Last 7 days' });
+	return { rollup };
 }
 
 describe('SubsidisationCard — window-based (follows the period selector)', () => {
@@ -88,9 +86,7 @@ describe('SubsidisationCard — window-based (follows the period selector)', () 
 		const rollup = buildWindowSubsidisation(grain, config, WEEK);
 		render(SubsidisationCard, {
 			rollup,
-			windowLabel: 'Last 7 days',
-			config,
-			onTierChange: vi.fn()
+			windowLabel: 'Last 7 days'
 		});
 		expect(document.body.textContent).toContain('subsidy');
 		expect(document.body.textContent).toContain('vs the pro-rated fee');
@@ -103,36 +99,11 @@ describe('SubsidisationCard — window-based (follows the period selector)', () 
 		const rollup = buildWindowSubsidisation(grain, config, WEEK);
 		render(SubsidisationCard, {
 			rollup,
-			windowLabel: 'Last 7 days',
-			config,
-			onTierChange: vi.fn()
+			windowLabel: 'Last 7 days'
 		});
 		expect(screen.getByLabelText('combined subsidy multiple').textContent).toContain('∞');
 		expect(document.body.textContent).not.toContain('Infinity');
 		expect(document.body.textContent).not.toContain('NaN');
 	});
 
-	it('selecting a preset emits onTierChange with the preset id + fee', async () => {
-		const user = userEvent.setup();
-		const { onTierChange } = setup();
-		const select = screen.getByLabelText('Claude plan') as HTMLSelectElement;
-		await user.selectOptions(select, 'max-5x');
-		expect(onTierChange).toHaveBeenCalledWith('claude', 'max-5x', 100);
-	});
-
-	it('selecting Custom reveals the amount input and commits the typed value', async () => {
-		const user = userEvent.setup();
-		const { onTierChange } = setup(250, 'custom');
-		const input = screen.getByLabelText('Claude custom monthly fee in USD') as HTMLInputElement;
-		expect(input).toBeTruthy();
-		await user.clear(input);
-		await user.type(input, '275');
-		await user.tab(); // commit on blur (change event)
-		expect(onTierChange).toHaveBeenCalledWith('claude', 'custom', 275);
-	});
-
-	it('the Custom amount input is hidden for a non-custom tier', () => {
-		setup(99, 'corporate');
-		expect(screen.queryByLabelText('Claude custom monthly fee in USD')).toBeNull();
-	});
 });
