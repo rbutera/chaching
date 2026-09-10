@@ -31,6 +31,11 @@ export interface ProviderQuotaWindow {
 }
 
 export interface ProviderQuotaAccount {
+	/** Pool-scoped digest of provider identity; never a registration ID or email. */
+	identityKey?: string;
+	/** Absent on older peers or when Tokenmaxx cannot establish the current selection. */
+	current?: boolean;
+	observedAt?: string;
 	label: string;
 	provider: string;
 	plan: string | null;

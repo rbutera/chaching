@@ -1,5 +1,7 @@
 import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import { z } from 'zod';
 import type { TokenCounts } from '../../../types';
 import type { ProviderQuotaAccount } from '../../sync/types';
 
@@ -26,11 +28,31 @@ interface AggregateRow {
 	last_ts: number;
 }
 
-interface QuotaRow {
-	id: string;
-	account_payload: string;
-	observed_at: string;
-	usage_payload: string;
+const accountSchema = z.object({
+	plan: z.string().nullable().optional(),
+	externalAccountId: z.string().trim().min(1).nullable().optional(),
+	externalUserId: z.string().trim().min(1).nullable().optional()
+});
+const quotaWindowSchema = z.object({
+	id: z.string().min(1),
+	label: z.string(),
+	usedPercent: z.number().finite().min(0).max(100),
+	resetAt: z.string().datetime({ offset: true }).nullable()
+});
+const usageSchema = z.object({
+	hardLimitReached: z.boolean(),
+	windows: z.array(z.unknown())
+});
+const quotaRowSchema = z.object({
+	id: z.string(),
+	provider: z.enum(['anthropic', 'openai']),
+	account_payload: z.string(),
+	observed_at: z.string().datetime({ offset: true }),
+	usage_payload: z.string()
+});
+
+function parseJson(value: string): unknown {
+	try { return JSON.parse(value); } catch { return null; }
 }
 
 export interface TokenmaxxQuotaSnapshot {
@@ -82,7 +104,7 @@ export function readTokenmaxxAggregates(dbPath: string): TokenmaxxAggregate[] {
 	}
 }
 
-export function readTokenmaxxQuota(dbPath: string): TokenmaxxQuotaSnapshot | null {
+export function readTokenmaxxQuota(dbPath: string, identityScope?: string): TokenmaxxQuotaSnapshot | null {
 	if (!existsSync(dbPath)) return null;
 
 	const db = new DatabaseSync(dbPath, { readOnly: true });
@@ -93,38 +115,55 @@ export function readTokenmaxxQuota(dbPath: string): TokenmaxxQuotaSnapshot | nul
 		`).get() as { count: number } | undefined;
 		if (Number(tables?.count) !== 2) return null;
 		const rows = db.prepare(`
-			SELECT a.id, a.payload AS account_payload,
+			SELECT a.id, a.provider, a.payload AS account_payload,
 				u.observed_at, u.payload AS usage_payload
 			FROM accounts a
 			JOIN usage_snapshots u ON u.account_id = a.id
-			WHERE a.provider = 'anthropic'
+			WHERE a.provider IN ('anthropic', 'openai')
 			ORDER BY a.id
-		`).all() as unknown as QuotaRow[];
+		`).all().flatMap(row => {
+			const parsed = quotaRowSchema.safeParse(row);
+			return parsed.success ? [parsed.data] : [];
+		});
 		if (rows.length === 0) return null;
 
-		const accounts = rows.map((row, index): ProviderQuotaAccount => {
-			const account = JSON.parse(row.account_payload) as { plan?: unknown };
-			const usage = JSON.parse(row.usage_payload) as {
-				hardLimitReached?: unknown;
-				windows?: Array<{ id?: unknown; label?: unknown; usedPercent?: unknown; resetAt?: unknown }>;
-			};
-			return {
-				label: `Claude account ${index + 1}`,
-				provider: 'claude',
-				plan: typeof account.plan === 'string' ? account.plan : null,
-				hardLimitReached: usage.hardLimitReached === true,
-				windows: (usage.windows ?? [])
-					.filter((window) => typeof window.id === 'string' && typeof window.usedPercent === 'number')
-					.map((window) => ({
-						id: String(window.id),
-						label: typeof window.label === 'string' ? window.label : String(window.id),
-						usedPercent: Number(window.usedPercent),
-						resetAt: typeof window.resetAt === 'string' ? window.resetAt : null
-					}))
-			};
+		const active = new Map<string, string | null>();
+		if (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'provider_states'").get()) {
+			for (const row of db.prepare('SELECT payload FROM provider_states').all()) {
+				if (typeof row.payload !== 'string') continue;
+				const parsed = z.object({ provider: z.string(), activeAccountId: z.string().nullable() }).safeParse(parseJson(row.payload));
+				if (parsed.success) active.set(parsed.data.provider, parsed.data.activeAccountId);
+			}
+		}
+		const accounts = rows.flatMap((row, index): (ProviderQuotaAccount & { observedAt: string })[] => {
+			const account = accountSchema.safeParse(parseJson(row.account_payload));
+			const usage = usageSchema.safeParse(parseJson(row.usage_payload));
+			if (!account.success || !usage.success) return [];
+			const provider = row.provider === 'anthropic' ? 'claude' : 'codex';
+			const identity = account.data;
+			const canIdentify = identity.externalAccountId && (provider === 'claude' || identity.externalUserId);
+			return [{
+				label: `${provider === 'claude' ? 'Claude' : 'Codex'} account ${index + 1}`,
+				provider,
+				plan: identity.plan ?? null,
+				observedAt: row.observed_at,
+				...(active.has(row.provider) ? { current: active.get(row.provider) === row.id } : {}),
+				...(identityScope && canIdentify ? {
+					identityKey: `v1:${createHash('sha256').update(JSON.stringify([
+						'chaching-account-v1', identityScope, provider, identity.externalAccountId,
+						provider === 'codex' ? identity.externalUserId : null
+					])).digest('hex')}`
+				} : {}),
+				hardLimitReached: usage.data.hardLimitReached,
+				windows: usage.data.windows.flatMap(window => {
+					const parsed = quotaWindowSchema.safeParse(window);
+					return parsed.success ? [parsed.data] : [];
+				})
+			}];
 		});
+		if (accounts.length === 0) return null;
 		return {
-			observedAt: rows.reduce((latest, row) => row.observed_at > latest ? row.observed_at : latest, ''),
+			observedAt: accounts.reduce((latest, account) => Date.parse(account.observedAt) > Date.parse(latest) ? account.observedAt : latest, accounts[0].observedAt),
 			accounts
 		};
 	} finally {

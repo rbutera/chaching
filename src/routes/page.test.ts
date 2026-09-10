@@ -92,6 +92,12 @@ class FakeEventSource {
 }
 
 beforeEach(() => {
+	// jsdom has no layout observation; responsive geometry is checked in the browser.
+	vi.stubGlobal('ResizeObserver', class {
+		observe() {}
+		unobserve() {}
+		disconnect() {}
+	});
 	vi.useFakeTimers({ toFake: ['Date'] });
 	vi.setSystemTime(new Date('2026-06-19T12:00:00Z'));
 	localStorage.clear();
@@ -177,6 +183,10 @@ describe('dashboard route — landmarks + structure (a11y, layout adoption)', ()
 		await flush();
 		const overview = getByRole('region', { name: 'Spend overview' });
 		const sessions = getByRole('region', { name: 'Recent sessions' });
+		const chart = getByRole('region', { name: /^Spend$/ });
+		const quotas = getByRole('region', { name: 'Account quotas' });
+		expect(chart.nextElementSibling).toBe(quotas);
+		expect(quotas.compareDocumentPosition(sessions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 		expect(overview.compareDocumentPosition(sessions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 		expect(container.querySelector('.whatif')).toBeNull();
 		expect(container.querySelector('.summary-rail')).toBeNull();
@@ -197,12 +207,43 @@ describe('dashboard route — landmarks + structure (a11y, layout adoption)', ()
 });
 
 describe('dashboard route — behavior contracts', () => {
+	it('does not let a pending quota refresh restore a pool after leaving it', async () => {
+		vi.useFakeTimers();
+		snapshotToEmit = richSnap();
+		const machine = { id: 'machine', name: 'Test machine', hostname: 'test', lastSeenAt: null };
+		const joined = { enabled: true, databaseConfigured: true, pool: { id: 'pool', name: 'Old pool' }, machine, machines: [machine], subscriptions: [], mappings: [], providerQuotas: [] };
+		const left = { ...joined, enabled: false, databaseConfigured: false, pool: null, machine: null, machines: [] };
+		const originalFetch = fetch;
+		let reads = 0;
+		let resolveStale: (response: Response) => void = () => { throw new Error('Refresh did not start'); };
+		vi.stubGlobal('fetch', (url: RequestInfo | URL, init?: RequestInit) => {
+			if (String(url) !== '/api/sync') return originalFetch(url, init);
+			if (init?.method === 'POST') return Promise.resolve(Response.json(left));
+			if (++reads === 1) return Promise.resolve(Response.json(joined));
+			return new Promise<Response>(resolve => { resolveStale = resolve; });
+		});
+		const { getByRole, queryByRole } = render(Page);
+		await vi.advanceTimersByTimeAsync(0);
+		await tick();
+		await fireEvent.click(getByRole('button', { name: 'Settings' }));
+		await vi.advanceTimersByTimeAsync(30_000);
+		expect(reads).toBe(2);
+		await fireEvent.click(getByRole('button', { name: 'leave pool' }));
+		await fireEvent.click(getByRole('button', { name: 'confirm leave' }));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(queryByRole('button', { name: 'leave pool' })).toBeNull();
+		resolveStale(Response.json(joined));
+		await vi.advanceTimersByTimeAsync(0);
+		await tick();
+		expect(queryByRole('button', { name: 'leave pool' })).toBeNull();
+	});
+
 	it('P1: shows all five period keys incl. Quarter + All', async () => {
 		snapshotToEmit = richSnap();
 		const { getByRole } = render(Page);
 		await flush();
 		// PeriodSwitcher is a tablist of D/W/M/Q/All
-		for (const label of ['Day', 'Week', 'Month', 'Quarter', 'All'])
+		for (const label of ['1d', '7d', '30d', '90d', 'All'])
 			expect(getByRole('tab', { name: label })).toBeTruthy();
 	});
 
@@ -236,16 +277,18 @@ describe('dashboard route — behavior contracts', () => {
 
 	it('P12: by-model breakdown renders and the panel is present', async () => {
 		snapshotToEmit = richSnap();
-		const { container } = render(Page);
+		const { container, getByRole } = render(Page);
 		await flush();
+		await fireEvent.click(getByRole('button', { name: 'Explore' }));
 		expect(container.querySelector('.by-model')).toBeTruthy();
 		expect((container.textContent ?? '').toLowerCase()).toContain('by model');
 	});
 
 	it('P13: 5h API-cost panel + recent blocks render', async () => {
 		snapshotToEmit = richSnap();
-		const { container } = render(Page);
+		const { container, getByRole } = render(Page);
 		await flush();
+		await fireEvent.click(getByRole('button', { name: 'Explore' }));
 		expect(container.querySelector('.cap-panel')).toBeTruthy();
 		expect((container.textContent ?? '').toLowerCase()).toContain('api-cost window');
 		expect(container.querySelectorAll('.recent-blocks li').length).toBeGreaterThan(0);
@@ -274,14 +317,17 @@ describe('dashboard route — behavior contracts', () => {
 				}))
 			}]
 		};
-		const { container } = render(Page);
+		const { container, getByRole, getAllByRole } = render(Page);
 		await flush();
+		expect(container.textContent).toContain('Current account unavailable');
+		await fireEvent.click(getByRole('button', { name: /^All accounts$/ }));
 		const text = container.textContent ?? '';
-		expect(text).toContain('Anthropic quota');
+		expect(text).toContain('Accounts');
 		expect(text).toContain('Claude account 1');
-		expect(text).toContain('90%');
-		expect(text).toContain('91%');
-		expect(text).toContain('88%');
+		expect(getAllByRole('meter').map(meter => meter.getAttribute('aria-valuenow'))).toEqual(['10', '9', '12']);
+		await fireEvent.click(getByRole('button', { name: /^By provider$/ }));
+		expect(getAllByRole('meter')).toHaveLength(3);
+		expect(JSON.parse(localStorage.getItem('chaching.ui.v1')!).quotaView).toBe('provider');
 	});
 
 	it('P7: cross-day session browser renders rows', async () => {

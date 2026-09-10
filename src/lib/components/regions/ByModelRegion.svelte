@@ -2,13 +2,12 @@
 	import type { FeedStore } from '$lib/client/feed.svelte';
 	import type { Dashboard } from '$lib/client/dashboard.svelte';
 	import type { SyncStatusView } from '$lib/client/sync';
-	import TrendChart from '$lib/components/TrendChart.svelte';
+	import SpendChart from './SpendChart.svelte';
 	import Donut from '$lib/components/Donut.svelte';
 	import SpendMeter from '$lib/components/ds/SpendMeter.svelte';
 	import Divider from '$lib/components/ds/Divider.svelte';
-	import { money, compactTokens, fmtPeriodKey } from '$lib/format';
+	import { money, compactTokens } from '$lib/format';
 	import { totalTokens } from '$lib/core/aggregate';
-	import type { PeriodBucket } from '$lib/core/aggregate';
 
 	let {
 		feed,
@@ -19,18 +18,10 @@
 	let snap = $derived(feed.snapshot);
 	let focusedDay = $derived(dash.focusedDay);
 
-	// UTC today (YYYY-MM-DD): the live tail; passed to the trend chart to mark today's bar.
-	let todayUTC = $derived(new Date(snap?.generatedAt ?? Date.now()).toISOString().slice(0, 10));
-
-	// trend buckets (always full rolling window — the navigation surface)
-	let trend = $derived<PeriodBucket[]>(snap ? dash.trend(snap) : []);
 	// scoped models — pinned-day-scoped when focused, else period-scoped.
 	let modelTotals = $derived(
 		snap ? (focusedDay ? dash.focusedModels(snap, focusedDay) : dash.models(snap)) : []
 	);
-	// stacking order = models by cost (scoped)
-	let stackModels = $derived(modelTotals.map((m) => m.model));
-
 	let poolFilterActive = $derived(dash.machineFilter.size > 0 || dash.subscriptionFilter.size > 0);
 	// Five-hour blocks currently carry no attribution dimension. Suppress this one
 	// panel under a pool filter instead of showing a whole-pool number in a scoped view.
@@ -46,31 +37,13 @@
 		)
 	);
 
-	const isDayBucket = (b: PeriodBucket) => /^\d{4}-\d{2}-\d{2}$/.test(b.key);
-
-	function onTrendPick(b: PeriodBucket) {
-		if (!snap) return;
-		// A single-DAY bar pins the focused day (the new primary path, single source of truth).
-		// A coarse week/month bar (long-span trend) keeps the existing bucket-range drill —
-		// focusedDay is single-day only, so a week bar opens the DetailSheet, not a pin.
-		if (isDayBucket(b)) {
-			dash.setFocusedDay(snap, b.key);
-			return;
-		}
-		const range = dash.bucketDayRange(snap, b);
-		dash.openPeriodDrill({ from: range.from, to: range.to, periodKey: b.key, label: fmtPeriodKey(b.key) });
-	}
 </script>
 
 <!-- REGION 7 · BY-MODEL / 5H WINDOW GRID -->
 {#if snap}
 	<section class="grid2">
 		<div class="panel by-model">
-			{#if trend.length > 0}
-				<TrendChart buckets={trend} models={stackModels} onPick={onTrendPick} today={todayUTC} />
-			{:else}
-				<p class="empty">No data in this scope.</p>
-			{/if}
+			<SpendChart {feed} {dash}/>
 			<div class="model-break">
 				<h2 class="panel-title"><span>by model</span></h2>
 				<Donut models={modelTotals} activeFilter={dash.modelFilter} onToggle={(m) => dash.toggleModel(m)} />

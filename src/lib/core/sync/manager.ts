@@ -30,7 +30,7 @@ export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus
 	const cfg = config ?? (await loadConfig());
 	let localQuota: ReturnType<typeof readTokenmaxxQuota> = null;
 	try {
-		localQuota = cfg.tokenmaxx.enabled ? readTokenmaxxQuota(expandPath(cfg.tokenmaxx.dbPath)) : null;
+		localQuota = cfg.tokenmaxx.enabled ? readTokenmaxxQuota(expandPath(cfg.tokenmaxx.dbPath), cfg.sync.poolId || undefined) : null;
 	} catch {
 		// Quota display is supplementary; token reconciliation reports ingest failures separately.
 	}

@@ -24,21 +24,25 @@
 		buckets,
 		models,
 		onPick,
-		today = null
+		today = null,
+		reducedMotion = false
 	}: {
 		buckets: PeriodBucket[];
 		models: string[]; // stacking order (cost desc); first = bottom
 		onPick: (bucket: PeriodBucket) => void;
 		/** UTC today (YYYY-MM-DD); a day-bucket equal to it is the live tail ("so far today"). */
 		today?: string | null;
+		reducedMotion?: boolean;
 	} = $props();
 
 	// A bar is "today" only when it is a single-day bucket whose key is the UTC today: that
 	// distinguishes the live-tail partial from a PAST day a gated scan left partial (D1).
 	const isTodayBucket = (b: PeriodBucket) => today != null && b.key === today;
 
-	const W = 640;
-	const H = 280;
+	let measuredWidth = $state(640);
+	let measuredHeight = $state(280);
+	let W = $derived(measuredWidth || 640);
+	let H = $derived(measuredHeight || 280);
 	const PAD = { top: 12, right: 8, bottom: 28, left: 44 };
 
 	let plotW = $derived(W - PAD.left - PAD.right);
@@ -46,7 +50,7 @@
 
 	let maxCost = $derived(Math.max(1, ...buckets.map((b) => b.cost)));
 	let y = $derived(scaleLinear().domain([0, maxCost]).range([plotH, 0]).nice());
-	let yTicks = $derived(y.ticks(4));
+	let yTicks = $derived(y.ticks(Math.max(2, Math.floor(plotH / 50))));
 
 	// per-bar geometry, in SVG user units (the overlay maps these to % of W/H).
 	let bars = $derived.by(() => {
@@ -75,7 +79,7 @@
 	// short baseline tick centred in the bar's band. Geometry only (colour-independent).
 	const DASH_W = 0.5; // fraction of bar width for the dash tick
 
-	let labelEvery = $derived(Math.max(1, Math.ceil(buckets.length / 8)));
+	let labelEvery = $derived(Math.max(1, Math.ceil(buckets.length / Math.max(1, Math.floor(plotW / 68)))));
 
 	let hovered = $state<number | null>(null);
 	let tip = $derived(hovered != null ? bars[hovered] : null);
@@ -85,12 +89,12 @@
 	const pctY = (v: number) => (v / H) * 100;
 </script>
 
-<div class="trend">
+<div class="trend" class:still={reducedMotion}>
 	<div class="trend-head">
-		<span class="trend-title">Spend over time, stacked by model</span>
+		<span class="trend-title">Spend</span>
 	</div>
 
-	<div class="chart-wrap">
+	<div class="chart-wrap" bind:clientWidth={measuredWidth} bind:clientHeight={measuredHeight}>
 		<svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" class="chart" aria-hidden="true">
 			<defs>
 				<!-- diagonal hatch for a PARTIAL (today / gated) bar: a structural mark that
@@ -208,9 +212,8 @@
 		{/if}
 	</div>
 
-	<p class="hint">Click a bar to open its detail</p>
 
-	<table class="visually-hidden">
+	<div class="visually-hidden"><table>
 		<caption>Spend by period, stacked by model</caption>
 		<thead>
 			<tr><th>Period</th><th>Spend (USD)</th><th>Top model</th><th>Data</th></tr>
@@ -226,7 +229,7 @@
 				</tr>
 			{/each}
 		</tbody>
-	</table>
+	</table></div>
 </div>
 
 <style>
@@ -253,7 +256,7 @@
 		width: 100%;
 		height: 100%;
 		display: block;
-		overflow: visible;
+		overflow: hidden;
 	}
 	.axis-lbl {
 		fill: var(--fg-dim);
@@ -263,6 +266,11 @@
 	.bar-seg {
 		transition: opacity 0.12s;
 	}
+	.bar-seg rect { transition: y 400ms ease, height 400ms ease, width 400ms ease; }
+	.still .bar-seg, .still .bar-seg rect { transition: none; }
+	@media (prefers-reduced-motion: reduce) { .bar-seg, .bar-seg rect { transition: none; } }
+	@media (max-width: 600px) { .chart-wrap { height: 190px; } }
+	@media (max-height: 650px) { .chart-wrap { height: 125px; } }
 	.bar-seg.dim {
 		opacity: 0.5;
 	}
@@ -340,11 +348,6 @@
 		color: var(--fg);
 	}
 	.tip-empty {
-		margin: 0;
-		font-size: 0.72rem;
-		color: var(--fg-dim);
-	}
-	.hint {
 		margin: 0;
 		font-size: 0.72rem;
 		color: var(--fg-dim);

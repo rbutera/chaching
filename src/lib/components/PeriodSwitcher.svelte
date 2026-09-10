@@ -4,10 +4,10 @@
 	let { value, onChange }: { value: Period; onChange: (p: Period) => void } = $props();
 
 	const options: { id: Period; label: string }[] = [
-		{ id: 'day', label: 'Day' },
-		{ id: 'week', label: 'Week' },
-		{ id: 'month', label: 'Month' },
-		{ id: 'quarter', label: 'Quarter' },
+		{ id: 'day', label: '1d' },
+		{ id: 'week', label: '7d' },
+		{ id: 'month', label: '30d' },
+		{ id: 'quarter', label: '90d' },
 		{ id: 'all', label: 'All' }
 	];
 
@@ -65,9 +65,9 @@
 		border: none;
 		background: transparent;
 		color: var(--text-muted);
-		padding: 0.4rem 0.85rem;
+		padding: 0.3rem 0.65rem;
 		border-radius: 6px;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: 0.78rem;
 		font-weight: 550;
 		transition:

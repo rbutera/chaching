@@ -581,7 +581,7 @@ class Ingestion {
 					correctedProviders.add(aggregate.provider);
 				}
 			}
-			this.tokenmaxxQuota = readTokenmaxxQuota(dbPath);
+			this.tokenmaxxQuota = readTokenmaxxQuota(dbPath, this.resolvedConfig?.sync.poolId || undefined);
 			if (this.historyStore && correctedProviders.size > 0) {
 				const frozen = this.rollup.frozenDaySet();
 				const { aggregates, sessions } = this.rollup.freezeCandidates(frozen);

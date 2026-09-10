@@ -11,6 +11,8 @@
 	import ValueBandRegion from '$lib/components/regions/ValueBandRegion.svelte';
 	import LifetimeRegion from '$lib/components/regions/LifetimeRegion.svelte';
 	import SpendOverview from '$lib/components/regions/SpendOverview.svelte';
+	import SpendChart from '$lib/components/regions/SpendChart.svelte';
+	import QuotaRegion from '$lib/components/regions/QuotaRegion.svelte';
 	import SessionExplorer from '$lib/components/SessionExplorer.svelte';
 	import HeatmapRegion from '$lib/components/regions/HeatmapRegion.svelte';
 	import ByModelRegion from '$lib/components/regions/ByModelRegion.svelte';
@@ -36,6 +38,7 @@
 	const feed = new FeedStore();
 	const dash = new Dashboard();
 	let section = $state<'Dashboard' | 'Explore' | 'Settings'>('Dashboard');
+	let now = $state(Date.now());
 
 
 	// The persisted public config (carries the per-provider subscription block). The
@@ -44,6 +47,7 @@
 	// from the feed snapshot so a live SSE delta and a tier write never reset each other.
 	let config = $state<PublicchachingConfig | null>(null);
 	let syncStatus = $state<SyncStatusView | null>(null);
+	let syncRevision = 0;
 
 	async function loadPublicConfig() {
 		try {
@@ -55,9 +59,13 @@
 	}
 
 	async function loadSyncStatus() {
+		const revision = syncRevision;
 		try {
 			const res = await fetch(resolve('/api/sync'));
-			if (res.ok) syncStatus = (await res.json()) as SyncStatusView;
+			if (res.ok) {
+				const status = (await res.json()) as SyncStatusView;
+				if (revision === syncRevision) syncStatus = status;
+			}
 		} catch {
 			/* sync stays unavailable; the local dashboard remains fully usable */
 		}
@@ -71,6 +79,7 @@
 		});
 		const body = (await res.json().catch(() => ({}))) as SyncStatusView & { error?: string };
 		if (!res.ok) throw new Error(body.error || `Sync request failed (${res.status}).`);
+		syncRevision += 1;
 		syncStatus = body;
 		if (action.action === 'create' || action.action === 'join' || action.action === 'leave') {
 			dash.clearPoolFilters();
@@ -91,15 +100,26 @@
 
 	onMount(() => {
 		feed.start();
-		const dayClock = setInterval(() => { dash.today = new Date().toISOString().slice(0, 10); }, 1000);
+		const dayClock = setInterval(() => {
+			now = Date.now();
+			dash.today = new Date(now).toISOString().slice(0, 10);
+		}, 1000);
 		void loadPublicConfig();
-		void loadSyncStatus();
+		let disposed = false;
+		let quotaTimer: ReturnType<typeof setTimeout>;
+		async function refreshQuotas() {
+			await loadSyncStatus();
+			if (!disposed) quotaTimer = setTimeout(refreshQuotas, 30_000);
+		}
+		void refreshQuotas();
 		suppressArt = webSuppressArt();
 		const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
 		reducedMotion = mq.matches;
 		const onMq = (e: MediaQueryListEvent) => (reducedMotion = e.matches);
 		mq.addEventListener('change', onMq);
 		return () => {
+			disposed = true;
+			clearTimeout(quotaTimer);
 			feed.stop();
 			clearInterval(dayClock);
 			mq.removeEventListener('change', onMq);
@@ -327,7 +347,8 @@
 			{:else}
 				<SpendOverview {feed} {dash} {reducedMotion} {suppressArt}/>
 				<CommandBar {feed} {dash} {syncStatus}/>
-				<ByModelRegion {feed} {dash} {syncStatus}/>
+				<SpendChart {feed} {dash} reducedMotion={reducedMotion || suppressArt}/>
+				<QuotaRegion {dash} {syncStatus} {now} reducedMotion={reducedMotion || suppressArt}/>
 				<section aria-label="Recent sessions"><div class="section-heading"><h2>Sessions</h2><button onclick={() => section = 'Explore'}>View all →</button></div><SessionExplorer sessions={recentSessions} now={snap.generatedAt} onOpen={s => dash.openSessionDrill(s)}/></section>
 				<ValueBandRegion {feed} {dash} {config} {syncStatus} {onTierChange}/>
 			{/if}
@@ -341,4 +362,5 @@
 
 <style>
 	.page{max-width:1440px;margin:auto;padding:0 40px 40px}.topbar{display:flex;align-items:center;gap:28px;padding:8px 0;border-bottom:1px solid var(--border)}.brand{display:flex;align-items:center;gap:10px}.brand-title{margin:0}.ver{font:var(--type-label);color:var(--text-muted)}nav{display:flex;gap:20px}button{font:inherit;cursor:pointer;color:var(--text);background:none;border:0;min-height:36px}nav button{color:var(--text-muted)}nav button.active{color:var(--text);box-shadow:0 2px var(--accent)}button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.topbar-right{margin-left:auto;display:flex;align-items:center;gap:16px}.joy-controls{display:flex;gap:6px;font-size:11px}.conn{display:flex;align-items:center;gap:6px;font:var(--type-label)}.dot{width:6px;height:6px;border-radius:50%}main{display:grid;gap:20px;padding-top:16px;min-width:0}.section-heading{display:flex;justify-content:space-between;align-items:center}h2{font:var(--type-title)}.loading{min-height:65vh;display:grid;align-content:center;justify-items:center;text-align:center}.loading-sub{color:var(--text-muted);font-size:12px}.spinner{width:24px;height:24px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spinner{animation:none}}@media(max-width:760px){.page{padding:0 16px 24px}.topbar{gap:12px;flex-wrap:wrap}.ver,.conn-txt{display:none}nav{gap:12px}nav button{font-size:12px}.topbar-right{gap:8px}.joy-controls{display:none}main{gap:16px}}@media(max-width:500px){.topbar-right{display:none}.brand :global(svg){max-width:105px}nav{margin-left:auto;gap:8px}}
+	@media(max-height:650px){main{gap:8px;padding-top:8px}}
 </style>
