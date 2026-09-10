@@ -1,7 +1,8 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { chmod, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
-import { randomBytes } from 'node:crypto';
+import { chmod, link, mkdir, readFile, rename, rmdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 
 /**
  * Subscription plan constants live in the client-safe subscription-presets.ts
@@ -9,24 +10,24 @@ import { randomBytes } from 'node:crypto';
  * so server-side config consumers keep one import surface.
  */
 export {
-	DEFAULT_SUBSCRIPTION,
 	SUBSCRIPTION_PRESETS,
 	type SubscriptionConfig,
 	type SubscriptionPreset
 } from './subscription-presets';
-import { DEFAULT_SUBSCRIPTION, type SubscriptionConfig } from './subscription-presets';
+import { SUBSCRIPTION_PRESETS } from './subscription-presets';
+import type { Account, PrivateAccount } from './accounts';
+
+export const CONFIG_VERSION = 1;
 
 
 export interface ClaudeProviderConfig {
 	enabled: boolean;
 	roots: string[];
-	subscription: SubscriptionConfig;
 }
 
 export interface CodexProviderConfig {
 	enabled: boolean;
 	root: string;
-	subscription: SubscriptionConfig;
 }
 
 /**
@@ -91,6 +92,9 @@ export interface SyncConfig {
 }
 
 export interface chachingConfig {
+	version: number;
+	accounts: PrivateAccount[];
+	providerAccounts: Record<string, string[]>;
 	cutoverTs: number | null;
 	server: {
 		host: string;
@@ -112,7 +116,8 @@ export interface chachingConfig {
 	};
 }
 
-export interface PublicchachingConfig extends Omit<chachingConfig, 'providers' | 'history' | 'sync'> {
+export interface PublicchachingConfig extends Omit<chachingConfig, 'providers' | 'history' | 'sync' | 'accounts'> {
+	accounts: Account[];
 	history: HistoryConfig;
 	tokenmaxx: TokenmaxxConfig;
 	sync: Omit<SyncConfig, 'databaseUrl'> & { databaseConfigured: boolean };
@@ -152,6 +157,9 @@ export function configFilePath(input: ConfigPathInput = {}): string {
 
 export function defaultConfig(): chachingConfig {
 	return {
+		version: CONFIG_VERSION,
+		accounts: [],
+		providerAccounts: {},
 		cutoverTs: null,
 		server: { host: DEFAULT_HOST, port: DEFAULT_PORT, origin: '' },
 		history: { enabled: true, dbPath: DEFAULT_HISTORY_DB_PATH },
@@ -168,10 +176,9 @@ export function defaultConfig(): chachingConfig {
 		providers: {
 			claude: {
 				enabled: true,
-				roots: ['~/.claude', '~/.config/claude'],
-				subscription: { ...DEFAULT_SUBSCRIPTION }
+				roots: ['~/.claude', '~/.config/claude']
 			},
-			codex: { enabled: true, root: '~/.codex/sessions', subscription: { ...DEFAULT_SUBSCRIPTION } },
+			codex: { enabled: true, root: '~/.codex/sessions' },
 			cursor: { enabled: false, adminApiToken: '', email: null, pollSeconds: DEFAULT_CURSOR_POLL_SECONDS },
 			opencode: { enabled: true, dbPath: '~/.local/share/opencode/opencode.db' },
 			pi: { enabled: true, roots: [...DEFAULT_PI_SESSION_ROOTS] }
@@ -182,6 +189,9 @@ export function defaultConfig(): chachingConfig {
 export function normalizeConfig(raw: unknown): chachingConfig {
 	const defaults = defaultConfig();
 	const root = objectRecord(raw);
+	if (root.version !== undefined && root.version !== CONFIG_VERSION) {
+		throw new Error(`Unsupported config version ${String(root.version)}; expected ${CONFIG_VERSION}. Upgrade chaching before editing this config.`);
+	}
 	const providers = objectRecord(root.providers);
 	const server = objectRecord(root.server);
 	const history = objectRecord(root.history);
@@ -193,7 +203,11 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 	const opencode = objectRecord(providers.opencode);
 	const pi = objectRecord(providers.pi);
 
+	const { accounts, providerAccounts } = normalizeAccounts(root);
 	return {
+		version: CONFIG_VERSION,
+		accounts,
+		providerAccounts,
 		cutoverTs: numberOrNull(root.cutoverTs),
 		server: {
 			host: stringOr(server.host, defaults.server.host),
@@ -220,13 +234,11 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 		providers: {
 			claude: {
 				enabled: booleanOr(claude.enabled, defaults.providers.claude.enabled),
-				roots: stringArrayOr(claude.roots, defaults.providers.claude.roots),
-				subscription: normalizeSubscription(claude.subscription)
+				roots: stringArrayOr(claude.roots, defaults.providers.claude.roots)
 			},
 			codex: {
 				enabled: booleanOr(codex.enabled, defaults.providers.codex.enabled),
-				root: stringOr(codex.root, defaults.providers.codex.root),
-				subscription: normalizeSubscription(codex.subscription)
+				root: stringOr(codex.root, defaults.providers.codex.root)
 			},
 			cursor: {
 				enabled: booleanOr(cursor.enabled, defaults.providers.cursor.enabled),
@@ -248,6 +260,9 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 
 export function publicConfig(cfg: chachingConfig): PublicchachingConfig {
 	return {
+		version: cfg.version,
+		accounts: cfg.accounts.map(({ id, provider, name, tier, monthlyUsd, feeSource }) => ({ id, provider, name, tier, monthlyUsd, feeSource })),
+		providerAccounts: Object.fromEntries(Object.entries(cfg.providerAccounts).map(([provider, ids]) => [provider, [...ids]])),
 		cutoverTs: cfg.cutoverTs,
 		server: { ...cfg.server },
 		history: { ...cfg.history },
@@ -264,10 +279,9 @@ export function publicConfig(cfg: chachingConfig): PublicchachingConfig {
 		providers: {
 			claude: {
 				...cfg.providers.claude,
-				roots: [...cfg.providers.claude.roots],
-				subscription: { ...cfg.providers.claude.subscription }
+				roots: [...cfg.providers.claude.roots]
 			},
-			codex: { ...cfg.providers.codex, subscription: { ...cfg.providers.codex.subscription } },
+			codex: { ...cfg.providers.codex },
 			cursor: {
 				enabled: cfg.providers.cursor.enabled,
 				email: cfg.providers.cursor.email,
@@ -280,42 +294,91 @@ export function publicConfig(cfg: chachingConfig): PublicchachingConfig {
 	};
 }
 
+let loading: Promise<chachingConfig> | null = null;
+
 export async function loadConfig(): Promise<chachingConfig> {
 	if (cache) return cache;
-	try {
-		const raw = await readFile(configFilePath(), 'utf8');
-		const parsed: unknown = JSON.parse(raw);
-		cache = normalizeConfig(parsed);
-	} catch {
-		cache = defaultConfig();
-	}
-	return cache;
+	if (loading) return loading;
+	loading = readConfig();
+	try { return await loading; } finally { loading = null; }
 }
 
-export async function saveConfig(cfg: chachingConfig): Promise<void> {
-	const normalized = normalizeConfig(cfg);
-	const file = configFilePath();
+async function readConfig(): Promise<chachingConfig> {
+	let raw: string;
+	try { raw = await readFile(configFilePath(), 'utf8'); }
+	catch (error) {
+		if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return cache = defaultConfig();
+		throw error;
+	}
+	const parsed: unknown = JSON.parse(raw);
+	if (objectRecord(parsed).version === undefined) {
+		return withConfigLock(async () => {
+			const latest = await readFile(configFilePath(), 'utf8');
+			const current: unknown = JSON.parse(latest);
+			const normalized = normalizeConfig(current);
+			if (objectRecord(current).version === undefined) {
+				await writeConfigFile(`${configFilePath()}.pre-accounts`, latest, true);
+				await writeConfigFile(configFilePath(), JSON.stringify(normalized, null, 2));
+			}
+			return cache = normalized;
+		});
+	}
+	return cache = normalizeConfig(parsed);
+}
+
+export async function updateConfig(change: (config: chachingConfig) => chachingConfig): Promise<chachingConfig> {
+	return withConfigLock(async () => {
+		let raw: string | null = null;
+		try { raw = await readFile(configFilePath(), 'utf8'); }
+		catch (error) {
+			if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
+		}
+		const parsed: unknown = raw === null ? null : JSON.parse(raw);
+		const current = raw === null ? defaultConfig() : normalizeConfig(parsed);
+		const normalized = normalizeConfig(change(current));
+		if (raw !== null && objectRecord(parsed).version === undefined) await writeConfigFile(`${configFilePath()}.pre-accounts`, raw, true);
+		await writeConfigFile(configFilePath(), JSON.stringify(normalized, null, 2));
+		return cache = normalized;
+	});
+}
+
+async function withConfigLock<T>(work: () => Promise<T>): Promise<T> {
+	const lock = `${configFilePath()}.lock`;
+	await mkdir(join(configFilePath(), '..'), { recursive: true, mode: 0o700 });
+	for (let attempt = 0; ; attempt++) {
+		try { await mkdir(lock, { mode: 0o700 }); break; }
+		catch (error) {
+			if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error;
+			if (attempt === 100) throw new Error(`Config is locked: ${lock}. Stop other chaching processes; if none are running, remove this lock directory and retry.`);
+			await delay(50);
+		}
+	}
+	// ponytail: a killed writer leaves its lock; clear it only after stopping all config writers.
+	try { return await work(); } finally { await rmdir(lock); }
+}
+
+async function writeConfigFile(file: string, contents: string, exclusive = false): Promise<void> {
 	const dir = join(file, '..');
 	await mkdir(dir, { recursive: true, mode: 0o700 });
-	// Atomic write: write to a temp file then rename so a crash can't leave a partial config.
-	// Only update the in-memory cache once the rename succeeds.
 	const tmp = join(dir, `.chaching-${randomBytes(6).toString('hex')}.tmp`);
 	try {
-		await writeFile(tmp, JSON.stringify(normalized, null, 2), { encoding: 'utf8', mode: 0o600 });
+		await writeFile(tmp, contents, { encoding: 'utf8', mode: 0o600 });
 		await chmod(tmp, 0o600);
-		await rename(tmp, file);
-		// Ensure the final file has 0600 (rename may inherit different perms on some FSes).
-		await chmod(file, 0o600);
-	} catch (err) {
-		// Remove the temp file if anything went wrong, then re-throw.
+		if (exclusive) {
+			try { await link(tmp, file); }
+			catch (error) {
+				if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error;
+			}
+		} else {
+			await rename(tmp, file);
+			await chmod(file, 0o600);
+		}
+	} finally {
 		await unlink(tmp).catch(() => {});
-		throw err;
 	}
-	// Cache is updated only after the write succeeds.
-	cache = normalized;
 }
 
-/** Invalidate the in-memory config cache (useful after saveConfig in tests or re-init). */
+/** Invalidate the in-memory config cache (useful after external config edits or re-init). */
 export function clearConfigCache(): void {
 	cache = null;
 }
@@ -358,20 +421,56 @@ function positiveIntOr(value: unknown, fallback: number): number {
 	return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
-/**
- * Parse a per-provider subscription block. Missing/invalid → Corporate $99.
- * `monthlyUsd` is coerced to a non-negative finite number ($0 allowed for Free);
- * a string/negative/NaN/Infinity falls back to the default. Never throws.
- */
-function normalizeSubscription(value: unknown): SubscriptionConfig {
-	const raw = objectRecord(value);
-	const tier =
-		typeof raw.tier === 'string' && raw.tier.length > 0 ? raw.tier : DEFAULT_SUBSCRIPTION.tier;
-	const monthlyUsd =
-		typeof raw.monthlyUsd === 'number' && Number.isFinite(raw.monthlyUsd) && raw.monthlyUsd >= 0
-			? raw.monthlyUsd
-			: DEFAULT_SUBSCRIPTION.monthlyUsd;
-	return { tier, monthlyUsd };
+function normalizeAccounts(root: Record<string, unknown>): Pick<chachingConfig, 'accounts' | 'providerAccounts'> {
+	const accounts: PrivateAccount[] = [];
+	const providerAccounts: Record<string, string[]> = {};
+	if (root.version === undefined) {
+		const providers = objectRecord(root.providers);
+		const mappings = objectRecord(objectRecord(root.sync).providerSubscriptions);
+		for (const provider of ['claude', 'codex'] as const) {
+			const subscription = objectRecord(objectRecord(providers[provider]).subscription);
+			const mappedId = nullableStringOr(mappings[provider], null);
+			if (!Object.keys(subscription).length && !mappedId) continue;
+			const tier = stringOr(subscription.tier, 'unknown');
+			const fee = numberOrNull(subscription.monthlyUsd);
+			const explicit = fee !== null && fee >= 0;
+			const id = mappedId ?? randomUUID();
+			accounts.push({
+				id, provider, name: provider === 'claude' ? 'Claude' : 'Codex', tier,
+				monthlyUsd: explicit ? fee : SUBSCRIPTION_PRESETS[provider].find(p => p.id === tier && !p.custom)?.monthlyUsd ?? null,
+				feeSource: explicit ? 'explicit' : 'inferred', identity: null, registrations: [], legacy: true
+			});
+			providerAccounts[provider] = [id];
+		}
+		return { accounts, providerAccounts };
+	}
+	if (!Array.isArray(root.accounts)) throw new Error('Invalid Account config: accounts must be an array.');
+	for (const value of root.accounts) {
+		const account = objectRecord(value);
+		if (typeof account.id !== 'string' || !account.id || typeof account.provider !== 'string' || !account.provider ||
+			typeof account.name !== 'string' || typeof account.tier !== 'string' ||
+			(account.monthlyUsd !== null && (typeof account.monthlyUsd !== 'number' || !Number.isFinite(account.monthlyUsd) || account.monthlyUsd < 0)) ||
+			(account.feeSource !== 'explicit' && account.feeSource !== 'inferred') ||
+			(account.feeSource === 'explicit' && account.monthlyUsd === null) || accounts.some(a => a.id === account.id)) {
+			throw new Error('Invalid Account config: check IDs, provider, tier and monthly fee.');
+		}
+		let identity: PrivateAccount['identity'] = null;
+		if (account.identity !== null && account.identity !== undefined) {
+			const raw = objectRecord(account.identity);
+			if (typeof raw.accountId !== 'string' || !raw.accountId || (raw.userId !== null && typeof raw.userId !== 'string')) {
+				throw new Error('Invalid Account identity.');
+			}
+			identity = { accountId: raw.accountId, userId: raw.userId };
+		}
+		accounts.push({ id: account.id, provider: account.provider, name: account.name, tier: account.tier,
+			monthlyUsd: account.monthlyUsd, feeSource: account.feeSource, identity,
+			registrations: stringArrayOr(account.registrations, []), legacy: account.legacy === true });
+	}
+	for (const [provider, ids] of Object.entries(objectRecord(root.providerAccounts))) {
+		if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string')) throw new Error('Invalid provider Account links.');
+		providerAccounts[provider] = [...new Set(ids)];
+	}
+	return { accounts, providerAccounts };
 }
 
 function stringArrayOr(value: unknown, fallback: string[]): string[] {

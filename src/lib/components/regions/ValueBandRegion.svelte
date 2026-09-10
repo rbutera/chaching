@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { accountFeesByProvider } from '$lib/core/accounts';
 	import type { FeedStore } from '$lib/client/feed.svelte';
 	import type { Dashboard } from '$lib/client/dashboard.svelte';
 	import type { PublicchachingConfig } from '$lib/core/config';
@@ -37,22 +38,7 @@
 
 	// Subsidisation roll-up — follows the period selector / pinned day; the fee is
 	// pro-rated to the window from a monthlyUsd/30 daily rate.
-	let subsidyConfig = $derived(
-		config
-			? {
-					claude: {
-						enabled: config.providers.claude.enabled,
-						tier: config.providers.claude.subscription.tier,
-						monthlyUsd: config.providers.claude.subscription.monthlyUsd
-					},
-					codex: {
-						enabled: config.providers.codex.enabled,
-						tier: config.providers.codex.subscription.tier,
-						monthlyUsd: config.providers.codex.subscription.monthlyUsd
-					}
-				}
-			: null
-	);
+	let subsidyConfig = $derived(config ? accountFeesByProvider(config) : null);
 	let subsidy = $derived(snap && subsidyConfig ? dash.subsidisation(snap, subsidyConfig) : null);
 
 	// A pooled ledger can contain several subscriptions for the same provider, shared

@@ -1,3 +1,4 @@
+import { accountFeesByProvider } from '../../lib/core/accounts.js';
 // `chaching mcp` — a local, read-only MCP server over stdio (task 1.1, 2.1).
 //
 // Holds ONE live `createEngine()` for the process lifetime, exactly like `serve`
@@ -19,18 +20,7 @@ import { registerTools, type ToolContext } from './tools.js';
 function subsidyConfig(
 	cfg: chachingConfig
 ): Record<SubsidisedProvider, ProviderSubsidisationConfig> {
-	return {
-		claude: {
-			enabled: cfg.providers.claude.enabled,
-			tier: cfg.providers.claude.subscription.tier,
-			monthlyUsd: cfg.providers.claude.subscription.monthlyUsd
-		},
-		codex: {
-			enabled: cfg.providers.codex.enabled,
-			tier: cfg.providers.codex.subscription.tier,
-			monthlyUsd: cfg.providers.codex.subscription.monthlyUsd
-		}
-	};
+	return accountFeesByProvider(cfg);
 }
 
 /**

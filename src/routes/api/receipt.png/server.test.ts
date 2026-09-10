@@ -34,10 +34,9 @@ vi.mock('$lib/server/service', () => ({
 
 vi.mock('$lib/core/config', () => ({
 	loadConfig: vi.fn().mockResolvedValue({
-		providers: {
-			claude: { enabled: true, subscription: { tier: 'corporate', monthlyUsd: 99 } },
-			codex: { enabled: false, subscription: { tier: 'corporate', monthlyUsd: 0 } }
-		}
+		accounts: [{ id: 'claude', provider: 'claude', name: 'Claude', tier: 'corporate', monthlyUsd: 99, feeSource: 'explicit' }],
+		providerAccounts: { claude: ['claude'] },
+		providers: { claude: { enabled: true }, codex: { enabled: false } }
 	})
 }));
 

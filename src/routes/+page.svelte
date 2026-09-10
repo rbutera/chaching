@@ -5,6 +5,7 @@
 	import { FeedStore } from '$lib/client/feed.svelte';
 	import { Dashboard } from '$lib/client/dashboard.svelte';
 	import DetailSheet from '$lib/components/DetailSheet.svelte';
+	import Button from '$lib/components/ds/Button.svelte';
 	import PlanSettings from '$lib/components/PlanSettings.svelte';
 	import SyncPanel from '$lib/components/SyncPanel.svelte';
 	import HeroRegion from '$lib/components/regions/HeroRegion.svelte';
@@ -197,19 +198,34 @@
 	);
 
 	let feeSaving = $state(false);
-	async function onTierChange(provider: SubsidisedProvider, tier: string, monthlyUsd: number) {
+	async function onTierChange(id: string, name: string, tier: string, monthlyUsd: number) {
 		feeSaving = true;
 		try {
 			const res = await fetch(resolve('/api/config'), {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ provider, subscription: { tier, monthlyUsd } })
+				body: JSON.stringify({ account: { id, name, tier, monthlyUsd } })
 			});
 			if (!res.ok) throw new Error(`Could not save the fee (${res.status}). Try again.`);
 			config = await res.json();
 		} finally {
 			feeSaving = false;
 		}
+	}
+
+	let accountError = $state('');
+	async function addAccount(provider: SubsidisedProvider) {
+		feeSaving = true;
+		accountError = '';
+		try {
+			const res = await fetch(resolve('/api/config'), {
+				method: 'POST', headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ account: { provider, name: provider === 'claude' ? 'Claude' : 'Codex', tier: 'unknown', monthlyUsd: null } })
+			});
+			if (!res.ok) throw new Error(`Could not add the Account (${res.status}).`);
+			config = await res.json();
+		} catch (error) { accountError = error instanceof Error ? error.message : 'Could not add the Account.'; }
+		finally { feeSaving = false; }
 	}
 
 	// Lifetime ladder, keyed off the all-time total (snapshot.totals.cost). Drives the
@@ -364,11 +380,11 @@
 				{#if config}
 					<section class="plan-settings" aria-label="Plans and fees">
 						<h3>Plans and fees</h3>
-						{#each ['claude', 'codex'] as provider}
-							{#if (provider === 'claude' || provider === 'codex') && config.providers[provider].enabled}
-								<PlanSettings {provider} subscription={config.providers[provider].subscription} busy={feeSaving} onSave={onTierChange}/>
-							{/if}
+						{#each config.accounts as account (account.id)}
+							<PlanSettings {account} busy={feeSaving} onSave={onTierChange}/>
 						{/each}
+						<div><Button variant="secondary" disabled={feeSaving} onclick={() => addAccount('claude')}>Add Claude Account</Button> <Button variant="secondary" disabled={feeSaving} onclick={() => addAccount('codex')}>Add Codex Account</Button></div>
+						{#if accountError}<p role="alert">{accountError}</p>{/if}
 					</section>
 				{/if}
 			{:else if section === 'Explore'}

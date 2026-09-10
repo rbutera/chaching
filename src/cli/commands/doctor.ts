@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { request } from 'node:http';
 
 import { createEngine } from '../../lib/core/engine.js';
+import { accountConfigProblems } from '../../lib/core/accounts.js';
 import { loadConfig, type chachingConfig } from '../../lib/core/config.js';
 import { expandPath, safeMtime } from '../../lib/core/fs-utils.js';
 import { isoDayUTC } from '../../lib/core/ingest/parse.js';
@@ -78,6 +79,7 @@ export interface DoctorServerInput {
 }
 
 export interface DoctorInput {
+	accountConfig?: { version: number; problems: string[] };
 	todayUTC: string;
 	providers: DoctorProviderInput[];
 	history: DoctorHistoryInput;
@@ -256,6 +258,14 @@ export function buildDoctorReport(input: DoctorInput): DoctorReport {
 			status = 'WARN';
 		}
 		sections.push({ title: 'Pricing coverage', status, lines });
+	}
+
+	if (input.accountConfig) {
+		const { version, problems } = input.accountConfig;
+		sections.push({ title: 'Accounts', status: problems.length ? 'WARN' : 'OK', lines: [
+			{ status: 'OK', text: `config version ${version}` },
+			...problems.map(text => ({ status: 'WARN' as const, text }))
+		] });
 	}
 
 	const overall = sections.reduce<Health>((acc, s) => worst(acc, s.status), 'OK');
@@ -489,6 +499,7 @@ async function gatherDoctorInput(cfg: chachingConfig): Promise<DoctorInput> {
 	const reachable = await probeServer(cfg.server.port);
 
 	return {
+		accountConfig: { version: cfg.version, problems: accountConfigProblems(cfg) },
 		todayUTC,
 		providers,
 		history,

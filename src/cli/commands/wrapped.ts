@@ -1,3 +1,4 @@
+import { accountFeesByProvider } from '../../lib/core/accounts.js';
 // `chaching wrapped` — a Spotify-Wrapped-style MONTHLY recap in the thermal-receipt
 // voice. The receipt's fun cousin: same engine (runOnce), same PNG plumbing, same
 // personality voice + redaction semantics, but the body is a shareable "your month
@@ -58,18 +59,7 @@ export async function runWrapped(flags: WrappedFlags): Promise<void> {
 	const footer = noArt || flags.json ? '' : receiptFooter();
 
 	// Per-provider subscription config → enables the subsidy block (mirrors receipt).
-	const subscription = {
-		claude: {
-			enabled: cfg.providers.claude.enabled,
-			tier: cfg.providers.claude.subscription.tier,
-			monthlyUsd: cfg.providers.claude.subscription.monthlyUsd
-		},
-		codex: {
-			enabled: cfg.providers.codex.enabled,
-			tier: cfg.providers.codex.subscription.tier,
-			monthlyUsd: cfg.providers.codex.subscription.monthlyUsd
-		}
-	};
+	const subscription = accountFeesByProvider(cfg);
 
 	const model = buildWrapped(snapshot, {
 		month: flags.month,

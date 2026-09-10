@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, appendFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SUBSCRIPTION, type chachingConfig } from './config';
+import { type chachingConfig } from './config';
 import { createEngine } from './engine';
 import { Rollup } from './rollup/rollup';
 import type { FrozenAgg } from './rollup/rollup';
@@ -15,6 +15,7 @@ const suite = databaseUrl ? describe : describe.skip;
 
 function baseConfig(poolId: string, machineId: string, over: Partial<chachingConfig['providers']['cursor']> = {}): chachingConfig {
 	return {
+		version: 1, accounts: [], providerAccounts: {},
 		cutoverTs: null,
 		server: { host: '127.0.0.1', port: 5178, origin: '' },
 		// history OFF so the test isolates the pooled overlay path (local-first history is
@@ -31,8 +32,8 @@ function baseConfig(poolId: string, machineId: string, over: Partial<chachingCon
 			intervalMinutes: 15
 		},
 		providers: {
-			claude: { enabled: false, roots: [], subscription: { ...DEFAULT_SUBSCRIPTION } },
-			codex: { enabled: false, root: '', subscription: { ...DEFAULT_SUBSCRIPTION } },
+			claude: { enabled: false, roots: [] },
+			codex: { enabled: false, root: '' },
 			cursor: { enabled: false, adminApiToken: '', email: null, pollSeconds: 3600, ...over },
 			opencode: { enabled: false, dbPath: '' },
 			pi: { enabled: false, roots: [] }
@@ -234,7 +235,7 @@ suite('engine PostgreSQL sync mode (v2 aggregate ledger)', () => {
 			await writeFile(sessionFile, `${claudeAssistantLine('msg_cold', day)}\n`);
 
 			const cfg = baseConfig(poolId, kinto);
-			cfg.providers.claude = { enabled: true, roots: [root], subscription: { ...DEFAULT_SUBSCRIPTION } };
+			cfg.providers.claude = { enabled: true, roots: [root] };
 			engine = createEngine(cfg, () => Date.parse('2026-07-17T08:00:00Z'));
 			await engine.ensureStarted(); // cold scan runs, THEN connectSync sets syncStore
 

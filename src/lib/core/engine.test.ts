@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_SUBSCRIPTION, type chachingConfig } from './config';
+import { type chachingConfig } from './config';
 
 // Import the core engine via its relative path only — no SvelteKit $lib alias
 // resolution. If this module loaded any framework runtime, this import would fail
@@ -29,6 +29,7 @@ function syncConfiguredConfig(databaseUrl = 'postgresql://u:p@127.0.0.1:1/db'): 
 
 function disabledConfig(): chachingConfig {
 	return {
+		version: 1, accounts: [], providerAccounts: {},
 		cutoverTs: null,
 		server: { host: '127.0.0.1', port: 5178, origin: '' },
 		history: { enabled: false, dbPath: '' },
@@ -43,8 +44,8 @@ function disabledConfig(): chachingConfig {
 			intervalMinutes: 15
 		},
 		providers: {
-			claude: { enabled: false, roots: [], subscription: { ...DEFAULT_SUBSCRIPTION } },
-			codex: { enabled: false, root: '', subscription: { ...DEFAULT_SUBSCRIPTION } },
+			claude: { enabled: false, roots: [] },
+			codex: { enabled: false, root: '' },
 			cursor: { enabled: false, adminApiToken: '', email: null, pollSeconds: 3600 },
 			opencode: { enabled: false, dbPath: '' },
 			pi: { enabled: false, roots: [] }
@@ -105,7 +106,7 @@ describe('core engine (no SvelteKit)', () => {
 		tmpRoots.push(root);
 		await mkdir(join(root, 'projects'), { recursive: true });
 		const cfg = disabledConfig();
-		cfg.providers.claude = { enabled: true, roots: [root], subscription: { ...DEFAULT_SUBSCRIPTION } };
+		cfg.providers.claude = { enabled: true, roots: [root] };
 
 		const before = activeHandleCount();
 		await runOnce(cfg);
@@ -121,7 +122,7 @@ describe('core engine (no SvelteKit)', () => {
 		await mkdir(join(root, 'projects'), { recursive: true });
 
 		const cfg = disabledConfig();
-		cfg.providers.claude = { enabled: true, roots: [root], subscription: { ...DEFAULT_SUBSCRIPTION } };
+		cfg.providers.claude = { enabled: true, roots: [root] };
 
 		const before = activeHandleCount();
 		const engine = createEngine(cfg);
@@ -139,7 +140,7 @@ describe('core engine (no SvelteKit)', () => {
 		tmpRoots.push(root);
 		await mkdir(join(root, 'projects'), { recursive: true });
 		const cfg = disabledConfig();
-		cfg.providers.claude = { enabled: true, roots: [root], subscription: { ...DEFAULT_SUBSCRIPTION } };
+		cfg.providers.claude = { enabled: true, roots: [root] };
 
 		const before = activeHandleCount();
 		const engine = createEngine(cfg);
@@ -160,7 +161,7 @@ describe('codex liveness — a session written AFTER the cold scan reaches the r
 		await mkdir(join(root, '2026/07/02'), { recursive: true });
 
 		const cfg = disabledConfig();
-		cfg.providers.codex = { enabled: true, root, subscription: { ...DEFAULT_SUBSCRIPTION } };
+		cfg.providers.codex = { enabled: true, root };
 
 		const engine = createEngine(cfg);
 		try {
@@ -272,7 +273,7 @@ describe('B1 — sync configured but unreachable falls back to local frozen hist
 		// Sync configured, but the URL points at a refused port so loadSync throws.
 		const cfg = syncConfiguredConfig();
 		cfg.history = { enabled: true, dbPath: historyPath };
-		cfg.providers.codex = { enabled: true, root: codexRoot, subscription: { ...DEFAULT_SUBSCRIPTION } };
+		cfg.providers.codex = { enabled: true, root: codexRoot };
 
 		const engine = createEngine(cfg, () => Date.parse('2026-07-17T12:00:00Z'));
 		try {

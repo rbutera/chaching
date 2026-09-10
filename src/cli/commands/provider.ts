@@ -1,7 +1,7 @@
 // `chaching provider` — provider management (wave 3).
 // Subcommands: add | enable | disable <name>
 
-import { loadConfig, saveConfig, clearConfigCache } from '../../lib/core/config.js';
+import { updateConfig } from '../../lib/core/config.js';
 import { KNOWN_PROVIDERS, collectProviderSecret, type KnownProvider } from '../wizard.js';
 
 const VALID_ACTIONS = ['add', 'enable', 'disable'] as const;
@@ -36,16 +36,15 @@ export async function runProvider(args: string[]): Promise<void> {
 	}
 
 	const providerName = name as KnownProvider;
-	const cfg = await loadConfig();
 
 	switch (action as ProviderAction) {
 		case 'enable':
-			await setProviderEnabled(providerName, true, cfg);
+			await setProviderEnabled(providerName, true);
 			console.log(`${providerName}: enabled.`);
 			break;
 
 		case 'disable':
-			await setProviderEnabled(providerName, false, cfg);
+			await setProviderEnabled(providerName, false);
 			console.log(`${providerName}: disabled.`);
 			break;
 
@@ -60,52 +59,41 @@ export async function runProvider(args: string[]): Promise<void> {
 				// collectProviderSecret already printed a cancel message via clack
 				process.exit(0);
 			}
-			const updated = { ...cfg };
-			if (providerName === 'cursor') {
-				updated.providers = {
-					...cfg.providers,
-					cursor: {
-						...cfg.providers.cursor,
-						enabled: true,
-						// Only write the token to config if it came from the prompt (not env).
-						adminApiToken:
-							secret !== null && !secret.fromEnv
-								? secret.value
-								: cfg.providers.cursor.adminApiToken
-					}
-				};
-			} else {
-				updated.providers = {
-					...cfg.providers,
-					[providerName]: {
-						...cfg.providers[providerName],
-						enabled: true
-					}
-				};
-			}
-			clearConfigCache();
-			await saveConfig(updated);
+			await updateConfig(cfg => {
+				const updated = { ...cfg };
+				if (providerName === 'cursor') {
+					updated.providers = {
+						...cfg.providers,
+						cursor: {
+							...cfg.providers.cursor,
+							enabled: true,
+							// Only write the token to config if it came from the prompt (not env).
+							adminApiToken:
+								secret !== null && !secret.fromEnv
+									? secret.value
+									: cfg.providers.cursor.adminApiToken
+						}
+					};
+				} else {
+					updated.providers = {
+						...cfg.providers,
+						[providerName]: {
+							...cfg.providers[providerName],
+							enabled: true
+						}
+					};
+				}
+				return updated;
+			});
 			console.log(`${providerName}: added and enabled.`);
 			break;
 		}
 	}
 }
 
-async function setProviderEnabled(
-	providerName: KnownProvider,
-	enabled: boolean,
-	cfg: Awaited<ReturnType<typeof loadConfig>>
-): Promise<void> {
-	const updated = {
+async function setProviderEnabled(providerName: KnownProvider, enabled: boolean): Promise<void> {
+	await updateConfig(cfg => ({
 		...cfg,
-		providers: {
-			...cfg.providers,
-			[providerName]: {
-				...cfg.providers[providerName],
-				enabled
-			}
-		}
-	};
-	clearConfigCache();
-	await saveConfig(updated);
+		providers: { ...cfg.providers, [providerName]: { ...cfg.providers[providerName], enabled } }
+	}));
 }

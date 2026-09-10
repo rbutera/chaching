@@ -116,24 +116,22 @@ trade-off, dashboard filters, and the threat model.
 ```json
 "claude": {
 	"enabled": true,
-	"roots": ["~/.claude", "~/.config/claude"],
-	"subscription": { "tier": "corporate", "monthlyUsd": 99 }
+	"roots": ["~/.claude", "~/.config/claude"]
 }
 ```
 
-chaching scans `projects/**/*.jsonl` under each root. Claude Code logs are read-only and de-duplicated by message/request id. The optional `subscription` block drives the subsidisation card and receipt footer (see [Subscription subsidisation](#subscription-subsidisation) below).
+chaching scans `projects/**/*.jsonl` under each root. Claude Code logs are read-only and de-duplicated by message/request id. Account fees drive the subsidisation card and receipt footer (see [Account fees](#account-fees) below).
 
 ### Codex
 
 ```json
 "codex": {
 	"enabled": true,
-	"root": "~/.codex/sessions",
-	"subscription": { "tier": "corporate", "monthlyUsd": 99 }
+	"root": "~/.codex/sessions"
 }
 ```
 
-Codex usage is read from local JSONL session files. chaching uses `last_token_usage`, not cumulative totals, so repeated turn snapshots do not inflate spend. The optional `subscription` block drives the subsidisation card and receipt footer (see [Subscription subsidisation](#subscription-subsidisation) below).
+Codex usage is read from local JSONL session files. chaching uses `last_token_usage`, not cumulative totals, so repeated turn snapshots do not inflate spend. Account fees drive the subsidisation card and receipt footer (see [Account fees](#account-fees) below).
 
 ### OpenCode
 
@@ -185,30 +183,35 @@ chaching has **two** Cursor sources:
 
 > **Use one Cursor source, not both.** The bridge-local records (key `opencode:<id>`) and Admin-API records (key `cursor:<ts>:<owner>:<model>`) have non-colliding keys, so they do **not** dedup against each other — enabling both will double-count the same Cursor usage. If you use the opencode-cursor bridge, leave the Admin API disabled.
 
-## Subscription subsidisation
+## Account fees
 
-The **Claude** and **Codex** providers each take an optional `subscription` block. It is purely a presentation input for the subsidisation card and receipt footer (the "how much API value did my flat fee buy me this month" framing). It never changes any cost computation.
+Config version 1 stores fees once in `accounts`; `providerAccounts` links this install's providers to their Account IDs. Settings edits these records. Account fees never change API-equivalent usage costs.
 
 ```json
-"subscription": {
-	"tier": "corporate",
-	"monthlyUsd": 99
+{
+  "version": 1,
+  "accounts": [{
+    "id": "claude-work",
+    "provider": "claude",
+    "name": "Work Claude",
+    "tier": "max-20x",
+    "monthlyUsd": 200,
+    "feeSource": "explicit",
+    "identity": null,
+    "registrations": [],
+    "legacy": false
+  }],
+  "providerAccounts": { "claude": ["claude-work"] }
 }
 ```
 
-- `tier` — a preset id (or `"custom"`). It is a free string; the dashboard switcher writes the preset id it selected.
-- `monthlyUsd` — the flat monthly fee, in USD, that the API-equivalent burn is subsidised against. A non-negative finite number; `0` is allowed (Free tier → the subsidy multiple shows as "∞ — all of it" rather than dividing by zero).
+`monthlyUsd` is a nonnegative fee in USD, or `null` when unknown. `feeSource` is `explicit` for a configured fee and `inferred` for a discovered preset or unknown fee. Private identity and registration metadata remain in the owner-only config and are omitted from public config responses. Do not edit discovered identity or retired registration aliases by hand.
 
-**Defaults and backward compatibility.** The block is optional and additive. A config written before this feature (no `subscription`) loads unchanged and defaults each of Claude and Codex to **Corporate $99**. An invalid `monthlyUsd` (a string, negative, `NaN`) is clamped back to the default fee without error. `cursor` and `opencode` do **not** take a subscription block (they report real cost, so subsidisation does not apply).
+Existing provider subscription settings migrate on first load. Migration preserves explicitly configured fees and mapped pooled IDs, allocates other IDs once, and keeps the original file at `config.json.pre-accounts`. Both files use mode `0600`; writes are atomic and migration rereads under a cross-process lock. If a writer is killed, stop all chaching processes before removing the reported `config.json.lock` directory and retrying. Missing fees do not become Corporate $99. A supported known tier may infer a fee; an unknown tier remains unknown. Existing usage history is unchanged, including when history storage is disabled.
 
-**Presets** (the dashboard switcher offers these; the stored value is the resolved `{ tier, monthlyUsd }`, so a future preset price change never rewrites your saved fee):
+Old binaries cannot safely edit this config: upgrade all machines together. New readers reject unsupported config versions and malformed Account records instead of replacing them with defaults.
 
-| Provider | Presets |
-|----------|---------|
-| Claude | Free `$0` · Pro `$20` · Max 5× `$100` · Max 20× `$200` · Team Premium `$100` · Corporate `$99` · Custom |
-| Codex | Free `$0` · Go `$8` · Plus `$20` · Pro 5× `$100` · Pro 20× `$200` · Corporate `$99` · Custom |
-
-The dashboard tier switcher writes through to this file atomically at mode `0600`. You can also edit it by hand; chaching picks up the change on its next run.
+The dashboard and receipt prorate each relevant Account fee over the selected inclusive dates at `monthlyUsd / 30` per day. An unknown fee makes the combined fee and multiple unavailable. With a known zero fee, positive usage displays `∞ — all of it`; zero usage displays `—`.
 
 ## Publish Checklist
 

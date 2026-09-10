@@ -3,9 +3,8 @@ import { hostname } from 'node:os';
 import { expandPath } from '../fs-utils';
 import { readTokenmaxxQuota } from '../providers/tokenmaxx/sqlite';
 import {
-	clearConfigCache,
 	loadConfig,
-	saveConfig,
+	updateConfig,
 	type chachingConfig,
 	type SyncConfig
 } from '../config';
@@ -89,18 +88,16 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 	let cfg = await loadConfig();
 
 	if (action.action === 'leave') {
-		const next = {
-			...cfg,
+		await updateConfig(current => ({
+			...current,
 			sync: {
-				...cfg.sync,
+				...current.sync,
 				enabled: false,
 				databaseUrl: '',
 				poolId: null,
 				providerSubscriptions: {}
 			}
-		};
-		clearConfigCache();
-		await saveConfig(next);
+		}));
 		return localSyncStatus();
 	}
 
@@ -110,9 +107,9 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 		const databaseUrl = required(action.databaseUrl, 'Database URL');
 		const poolName = required(action.poolName, 'Pool name');
 		const machineName = required(action.machineName, 'Machine name');
-		const identity = await ensureMachineIdentity(cfg);
+		const identity = await ensureMachineIdentity();
 		cfg = identity.config;
-		const pendingPool = await ensurePendingPoolIdentity(cfg);
+		const pendingPool = await ensurePendingPoolIdentity();
 		cfg = pendingPool.config;
 		const poolId = pendingPool.poolId;
 		const machineId = identity.machineId;
@@ -127,17 +124,15 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 			});
 			// No history import: a machine simply publishes all its local days on the next engine
 			// burst (its rollup already merges frozen history + live), so joining loses nothing.
-			const next = withSync(cfg, {
+			await updateConfig(current => withSync(current, {
 				enabled: true,
 				databaseUrl,
 				poolId,
 				machineId,
 				machineName,
 				providerSubscriptions: {},
-				intervalMinutes: cfg.sync.intervalMinutes
-			});
-			clearConfigCache();
-			await saveConfig(next);
+				intervalMinutes: current.sync.intervalMinutes
+			}));
 			return await store.status();
 		} catch (cause) {
 			throw describeSyncFailure(cause);
@@ -152,7 +147,7 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 		const databaseUrl = required(action.databaseUrl, 'Database URL');
 		const poolId = required(action.poolId, 'Pool ID');
 		const machineName = required(action.machineName, 'Machine name');
-		const identity = await ensureMachineIdentity(cfg);
+		const identity = await ensureMachineIdentity();
 		cfg = identity.config;
 		const machineId = identity.machineId;
 		const store = new PostgresSyncStore(databaseUrl);
@@ -165,17 +160,15 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 			});
 			// No history import (see create): the engine publishes this machine's local days on
 			// its next burst, so there is nothing to migrate at join time.
-			const next = withSync(cfg, {
+			await updateConfig(current => withSync(current, {
 				enabled: true,
 				databaseUrl,
 				poolId,
 				machineId,
 				machineName,
 				providerSubscriptions: {},
-				intervalMinutes: cfg.sync.intervalMinutes
-			});
-			clearConfigCache();
-			await saveConfig(next);
+				intervalMinutes: current.sync.intervalMinutes
+			}));
 			return await store.status();
 		} catch (cause) {
 			throw describeSyncFailure(cause);
@@ -212,18 +205,16 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 				action.subscriptionId
 			);
 			if (action.machineId === cfg.sync.machineId) {
-				const next = {
-					...cfg,
+				await updateConfig(current => ({
+					...current,
 					sync: {
-						...cfg.sync,
+						...current.sync,
 						providerSubscriptions: {
-							...cfg.sync.providerSubscriptions,
+							...current.sync.providerSubscriptions,
 							[action.provider]: action.subscriptionId
 						}
 					}
-				};
-				clearConfigCache();
-				await saveConfig(next);
+				}));
 			}
 		}
 		await store.heartbeat(cfg.sync.machineName, hostname());
@@ -247,9 +238,7 @@ export function parseIntervalMinutes(raw: string | number): number {
 /** Persist the sync publish cadence (minutes). Validates via parseIntervalMinutes. */
 export async function setSyncInterval(minutes: number): Promise<number> {
 	const intervalMinutes = parseIntervalMinutes(minutes);
-	const cfg = await loadConfig();
-	clearConfigCache();
-	await saveConfig({ ...cfg, sync: { ...cfg.sync, intervalMinutes } });
+	await updateConfig(cfg => ({ ...cfg, sync: { ...cfg.sync, intervalMinutes } }));
 	return intervalMinutes;
 }
 
@@ -322,25 +311,21 @@ function describeSyncFailure(cause: unknown): Error {
 	);
 }
 
-async function ensureMachineIdentity(
-	cfg: chachingConfig
-): Promise<{ config: chachingConfig; machineId: string }> {
-	if (cfg.sync.machineId) return { config: cfg, machineId: cfg.sync.machineId };
-	const machineId = randomUUID();
-	const config = { ...cfg, sync: { ...cfg.sync, machineId } };
-	// Persist before any PostgreSQL side effect. A retry after a crash or config
-	// write failure then reuses one identity and one idempotent history import.
-	await saveConfig(config);
+async function ensureMachineIdentity(): Promise<{ config: chachingConfig; machineId: string }> {
+	let machineId = '';
+	const config = await updateConfig(current => {
+		machineId = current.sync.machineId ?? randomUUID();
+		return { ...current, sync: { ...current.sync, machineId } };
+	});
 	return { config, machineId };
 }
 
-async function ensurePendingPoolIdentity(
-	cfg: chachingConfig
-): Promise<{ config: chachingConfig; poolId: string }> {
-	if (cfg.sync.poolId) return { config: cfg, poolId: cfg.sync.poolId };
-	const poolId = randomUUID();
-	const config = { ...cfg, sync: { ...cfg.sync, poolId } };
-	await saveConfig(config);
+async function ensurePendingPoolIdentity(): Promise<{ config: chachingConfig; poolId: string }> {
+	let poolId = '';
+	const config = await updateConfig(current => {
+		poolId = current.sync.poolId ?? randomUUID();
+		return { ...current, sync: { ...current.sync, poolId } };
+	});
 	return { config, poolId };
 }
 

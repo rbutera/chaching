@@ -121,10 +121,12 @@ beforeEach(() => {
 			if (String(url).startsWith('/api/config'))
 				return new Response(
 					JSON.stringify({
-						providers: {
-							claude: { enabled: true, subscription: { tier: 'max20', monthlyUsd: 200 } },
-							codex: { enabled: true, subscription: { tier: 'plus', monthlyUsd: 20 } }
-						}
+						accounts: [
+							{ id: 'claude', provider: 'claude', name: 'Claude Code', tier: 'max20', monthlyUsd: 200, feeSource: 'explicit' },
+							{ id: 'codex', provider: 'codex', name: 'Codex', tier: 'plus', monthlyUsd: 20, feeSource: 'explicit' }
+						],
+						providerAccounts: { claude: ['claude'], codex: ['codex'] },
+						providers: { claude: { enabled: true }, codex: { enabled: true } }
 					}),
 					{ status: 200, headers: { 'content-type': 'application/json' } }
 				);
@@ -483,13 +485,13 @@ describe('dashboard route — motion (reduced-motion contract)', () => {
 	});
 
 	it('saves plan settings through the endpoint, reports failures, and retains the saved fee on reload', async () => {
-		const saved = { providers: { claude: { enabled: true, subscription: { tier: 'corporate', monthlyUsd: 99 } }, codex: { enabled: false, subscription: { tier: 'free', monthlyUsd: 0 } } } };
+		const saved = { accounts: [{ id: 'claude', provider: 'claude', name: 'Claude', tier: 'corporate', monthlyUsd: 99, feeSource: 'explicit' }], providerAccounts: { claude: ['claude'] }, providers: { claude: { enabled: true }, codex: { enabled: false } } };
 		let fail = true;
 		vi.mocked(fetch).mockImplementation(async (input, init) => {
 			if (String(input).startsWith('/api/config')) {
 				if (init?.method === 'POST') {
 					if (fail) return new Response('unavailable', { status: 503 });
-					saved.providers.claude.subscription = { tier: 'custom', monthlyUsd: 275.50 };
+					saved.accounts[0] = { ...saved.accounts[0], tier: 'custom', monthlyUsd: 275.50 };
 				}
 				return Response.json(saved);
 			}
@@ -507,13 +509,13 @@ describe('dashboard route — motion (reduced-motion contract)', () => {
 		await flush();
 		expect(view.getByRole('alert').textContent).toContain('503');
 		expect(view.queryByRole('status')).toBeNull();
-		expect(saved.providers.claude.subscription.monthlyUsd).toBe(99);
+		expect(saved.accounts[0].monthlyUsd).toBe(99);
 		expect(view.getByRole('spinbutton')).toHaveProperty('value', '275.50');
 		fail = false;
 		await fireEvent.click(view.getByRole('button', { name: 'Save' }));
 		await flush();
 		expect(view.getByRole('status').textContent).toBe('Saved');
-		expect(fetch).toHaveBeenCalledWith('/api/config', expect.objectContaining({ body: JSON.stringify({ provider: 'claude', subscription: { tier: 'custom', monthlyUsd: 275.5 } }) }));
+		expect(fetch).toHaveBeenCalledWith('/api/config', expect.objectContaining({ body: JSON.stringify({ account: { id: 'claude', name: 'Claude', tier: 'custom', monthlyUsd: 275.5 } }) }));
 		view.unmount();
 		view = render(Page);
 		await flush();

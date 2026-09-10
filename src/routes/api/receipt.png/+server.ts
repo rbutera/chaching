@@ -1,3 +1,4 @@
+import { accountFeesByProvider } from '$lib/core/accounts';
 // GET /api/receipt.png — stream a branded thermal-receipt PNG of the CURRENT
 // dashboard view. SERVER-ONLY (Node): reuses the exact CLI receipt pipeline
 // (buildReceipt → redactReceipt → renderReceiptPng, satori + resvg). It lives in
@@ -78,18 +79,7 @@ export const GET: RequestHandler = async ({ url }) => {
 	// Per-provider subscription config for the subsidisation footer — built from the
 	// persisted config, exactly like the CLI receipt command.
 	const cfg = await loadConfig();
-	const subscription = {
-		claude: {
-			enabled: cfg.providers.claude.enabled,
-			tier: cfg.providers.claude.subscription.tier,
-			monthlyUsd: cfg.providers.claude.subscription.monthlyUsd
-		},
-		codex: {
-			enabled: cfg.providers.codex.enabled,
-			tier: cfg.providers.codex.subscription.tier,
-			monthlyUsd: cfg.providers.codex.subscription.monthlyUsd
-		}
-	};
+	const subscription = accountFeesByProvider(cfg);
 
 	const model = buildReceipt(snapshot, {
 		period,
