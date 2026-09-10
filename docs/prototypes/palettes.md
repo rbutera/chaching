@@ -2,7 +2,7 @@
 
 Question: which concrete colours should fill the seven Themes' semantic slots?
 
-Run `pnpm prototype` in this worktree, then open http://127.0.0.1:5196/?palette=register-light. The bottom picker and left/right keys change palette. Account view changes the accepted quota layouts; Preview state opens cold scan or session detail. Palette mapping below the dashboard exposes every semantic role, hex value and surface. Explore and Settings retain the accepted fixture prototype's interactions.
+Run `pnpm prototype` in this worktree, then open http://127.0.0.1:5197/?palette=register-light. The bottom picker and left/right keys change palette. Account view changes the accepted quota layouts; Preview state opens cold scan or session detail. Palette mapping below the dashboard exposes every semantic role, hex value and surface. Explore and Settings retain the accepted fixture prototype's interactions.
 
 This throwaway branch extends dashboard prototype `4c25bdf`, including the typography and motion refinements after the original layout acceptance. All data remains fictional. No production theme preference, storage bootstrap, TUI change or receipt export change is implemented here. The URL carries the prototype palette and reloads it; OS-driven Auto and flash-free startup belong to the implementation spec.
 
@@ -43,3 +43,7 @@ Small labels share categorical colours, so all proposed readable roles are held 
 Browser checked all seven palettes at 1440×1000 and 390×700, plus 560×560, without horizontal overflow. Checked palette select, keyboard cycling, URL reload, three Account views, cold scan, session detail, Explore search and return to dashboard. Screenshots include the neutral Light desktop and Latte phone. These checks establish a runnable comparison, not production acceptance.
 
 Two inherited Svelte warnings reproduce on the unmodified dashboard prototype at port 5192 as well: NumberFlow hydration mismatch and TanStack proxy equality in the Explore journey. No runtime errors were observed. Mechanical design scan reported existing thick-border and chart size-transition warnings; palette-only work leaves those layout decisions intact.
+
+## Mobile review over Tailscale
+
+Open https://latios.piranha-wyvern.ts.net:5196/?palette=register-light from the tailnet. The HTTPS proxy on port 5196 targets the loopback preview on 5197. Restart with `pnpm prototype`; the separate backend port avoids Vite port probing conflicting with the Tailscale listener. Only the exact Tailscale hostname is added to the dev allowlist. Mobile palette and preview selectors have 44px touch targets, 16px text, and safe-area spacing. Verified via the HTTPS URL at 320px, 390px and 430px without horizontal overflow.

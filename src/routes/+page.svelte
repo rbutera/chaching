@@ -213,4 +213,5 @@
 	:global(input::placeholder){color:var(--text-muted);opacity:1}:global(::selection){color:var(--text-on-gold);background:var(--accent)}:global(html){scrollbar-color:var(--text-dim) var(--surface-1);caret-color:var(--accent)}
 	.prototype :global(.currency){opacity:1;color:var(--text-muted)}
 	.receipt{background:var(--surface-2);color:var(--text)}.receipt h2,.receipt small,.receipt .section-heading>span{color:var(--text)}
+	@media(max-width:650px){.preview-controls{gap:8px}.preview-controls label{flex:1;min-width:0;display:grid;gap:4px}.preview-controls select{width:100%;max-width:none;min-height:44px;font-size:16px}}
 </style>

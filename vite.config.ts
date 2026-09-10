@@ -16,6 +16,7 @@ export default defineConfig({
 		noExternal: ['@number-flow/svelte']
 	},
 	server: {
+		allowedHosts: ['latios.piranha-wyvern.ts.net'],
 		// Bind on all interfaces so `tailscale serve` / phone access works in dev.
 		host: true,
 		port: 5178
