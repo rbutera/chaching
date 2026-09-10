@@ -21,3 +21,5 @@ Prominent totals run in ascending order: local five-hour block, today, seven day
 Explore uses searchable, sortable, paginated tables with 12 models and 140 projects. Selecting a model or project filters sessions; session rows open details. Day/7d/30d/90d/all controls, previous/next windows, date selection and chart-day drilldown share the selected range. Historical navigation leaves current headline totals and quotas current.
 
 Spend comparisons show today versus yesterday, seven days versus the previous seven, and thirty days versus the previous thirty. Selected historical windows compare with the immediately preceding equal-length window under the same filters. Zero prior spend and unavailable history get explicit labels; all-time and the local five-hour fixture have no invented baseline. Today is partial and compares with the full prior day.
+
+Comparison display: signed percentage only, green for lower spend and red for higher spend using existing good/bad tokens. Baseline context is in title/accessibility text. Today compares with all of yesterday, confirmed by Rai.

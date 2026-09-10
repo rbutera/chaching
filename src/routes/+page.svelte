@@ -57,6 +57,10 @@
 </script>
 
 
+{#snippet comparison(text: string, range = false)}
+	<span class:range-comparison={range} class:comparison={!range} class:up={text.startsWith('+')} class:down={text.startsWith('-')} title={text} aria-label={text}>{text.includes('%') ? text.split(' vs ')[0] : '—'}</span>
+{/snippet}
+
 {#snippet scopeControls()}
 			<div class="filters" aria-label="Usage filters">
 				<label><span>Provider</span><select aria-label="Provider" bind:value={provider}><option value="all">All providers</option><option>Claude</option><option>Codex</option></select></label>
@@ -67,7 +71,7 @@
 	<div class="range-controls" aria-label="Date range navigation">
 		<div class="period-options" aria-label="Time window">{#each [{days:1,label:'Day'},{days:7,label:'7d'},{days:30,label:'30d'},{days:90,label:'90d'},{days:120,label:'All'}] as option}<button class:chosen={windowDays===option.days} aria-pressed={windowDays===option.days} onclick={() => setWindow(option.days)}>{option.label}</button>{/each}</div>
 		<div class="date-controls"><button aria-label="Previous window" disabled={endDay >= 120-windowDays} onclick={() => stepWindow(1)}>‹</button><label class="date-picker"><span>{windowDays===1 ? dayLabel(0) : `${dayLabel(0)} – ${dayLabel(windowDays-1)}`}</span><input aria-label="Window ending date" type="date" value={dateISO(endDay)} min={dateISO(120-windowDays)} max="2026-09-10" onchange={e => jumpDate(e.currentTarget.value)}/></label><button aria-label="Next window" disabled={endDay===0} onclick={() => stepWindow(-1)}>›</button>{#if endDay>0}<button onclick={() => {endDay=0;hoveredDay=null}}>Latest</button>{/if}</div>
-		<span class="range-total">{money(usage.periodCost)}</span>{#if windowDays < 120}<small class="range-comparison">{spendChange(usage.periodCost, usage.previousPeriodCost)}{#if usage.previousPeriodCost !== null}{' '}vs previous {windowDays === 1 ? 'day' : `${windowDays}d`}{/if}</small>{/if}
+		<span class="range-total">{money(usage.periodCost)}</span>{#if windowDays < 120}{@render comparison(`${spendChange(usage.periodCost, usage.previousPeriodCost)} vs previous ${windowDays === 1 ? 'day' : `${windowDays}d`}`, true)}{/if}
 	</div>
 {/snippet}
 
@@ -107,7 +111,7 @@
 		{:else}
 			<h1 class="sr-only">Dashboard</h1>
 
-			<section class="spend" aria-label="Spend overview">{#each windows as stat}<div><button class="stat-select" disabled={stat.days===0} onclick={() => {endDay=0;setWindow(stat.days)}}><span class="eyebrow">{stat.label}{#if stat.days===0}<span class="local-label"> · local</span>{/if}</span><MoneyFigure amount={stat.value} size="hero" animate={false}/></button>{#if stat.comparison}<small class="comparison">{stat.comparison}</small>{/if}<small class="flavour">{stat.remark || '\u00a0'}</small></div>{/each}</section>
+			<section class="spend" aria-label="Spend overview">{#each windows as stat}<div><button class="stat-select" disabled={stat.days===0} onclick={() => {endDay=0;setWindow(stat.days)}}><span class="eyebrow">{stat.label}{#if stat.days===0}<span class="local-label"> · local</span>{/if}</span><MoneyFigure amount={stat.value} size="hero" animate={false}/></button>{#if stat.comparison}{@render comparison(stat.comparison)}{/if}<small class="flavour">{stat.remark || '\u00a0'}</small></div>{/each}</section>
 			{@render scopeControls()}
 			<div class="charts">
 				<section class="daily-chart"><div class="section-heading"><h2>Daily spend</h2><span>{hoveredDay === null ? (windowDays===1 ? dayLabel(0) : `${windowDays} days`) : `${dayLabel(hoveredDay)} · ${money(usage.dailyCosts[hoveredDay])}`}</span></div>
@@ -188,5 +192,5 @@
 	@media(max-width:760px),(max-height:650px){.spend,.ledger .spend,.lanes .spend{grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-bottom:10px}.spend :global(.money){font-size:clamp(18px,3.7vw,28px)}.spend>div{padding-left:8px}.spend .eyebrow{font-size:9px}.spend .flavour{font-size:8px;line-height:1.3}.local-label{display:block;font-size:8px}.range-controls{gap:6px;margin-bottom:10px;padding-bottom:8px}.range-total{display:none}.period-options button,.date-controls button{font-size:10px;padding:4px 6px;min-width:25px}.date-picker{font-size:10px;padding:4px}.charts{margin-bottom:12px;padding-bottom:10px}.quota-section{margin-bottom:18px}.current-focus article,.current-focus article.attention,.ledger-row,.provider-lane article,.other-account{grid-template-columns:120px 1fr;gap:10px;padding:8px 6px}.current-focus article.attention{padding-left:4px}.current-focus .account-top,.provider-lane .account-top{display:block}.account-name strong{font-size:12px}.account-name span,.active{font-size:8px}.current-focus .quota-pair,.ledger-row .quota-pair,.provider-lane .quota-pair{gap:16px}.current-focus .window-label,.ledger-row .window-label,.provider-lane .window-label{font-size:10px}.current-focus .remaining,.ledger-row .remaining,.provider-lane .remaining{font-size:0}.current-focus .remaining b,.ledger-row .remaining b,.provider-lane .remaining b{font-size:19px}.quota-window small{font-size:8px}.provider-lanes{grid-template-columns:1fr}}
 	@media(max-width:500px){.spend,.ledger .spend,.lanes .spend{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.spend>div:last-child{grid-column:1/-1;border:0;padding-left:0}.spend>div:last-child .stat-select{display:flex;align-items:center;gap:16px}.spend>div:last-child .eyebrow{margin:0}.spend :global(.money){font-size:30px}.spend>div:last-child :global(.money){font-size:30px}.local-label{display:inline}.spend .flavour{font-size:9px;margin-top:4px}.date-controls{margin-left:auto}.current-focus article,.current-focus article.attention,.ledger-row,.provider-lane article,.other-account{grid-template-columns:90px 1fr;gap:8px}.current-focus .quota-pair,.ledger-row .quota-pair,.provider-lane .quota-pair{gap:10px}.current-focus .remaining b,.ledger-row .remaining b,.provider-lane .remaining b{font-size:17px}.window-label{font-size:9px}.range-controls{flex-wrap:wrap}.period-options{flex:1}.date-picker{font-size:9px}}
 
-	.comparison,.range-comparison{font:11px var(--font-mono);color:var(--text-muted)}.comparison{display:block;margin-top:8px;line-height:1.4}.range-comparison{white-space:nowrap}@media(max-width:760px),(max-height:650px){.comparison{font-size:9px;margin-top:5px}.range-comparison{font-size:9px}}
+	.comparison,.range-comparison{font:600 13px var(--font-mono);color:var(--text-muted)}.up{color:var(--bad)}.down{color:var(--good)}.comparison{display:block;margin-top:8px;line-height:1.4}.range-comparison{white-space:nowrap}@media(max-width:760px),(max-height:650px){.comparison{font-size:12px;margin-top:5px}.range-comparison{font-size:12px}}
 </style>
