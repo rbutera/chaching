@@ -125,6 +125,7 @@ export function createCliFixture(opts: { days?: number } = {}): Fixture {
 		JSON.stringify(
 			{
 				history: { enabled: false, dbPath: join(dir, 'history.db') },
+				tokenmaxx: { enabled: false, dbPath: join(dir, 'no-tokenmaxx.db') },
 				sync: { enabled: false, databaseUrl: '' },
 				providers: {
 					claude: { enabled: true, roots: [claudeRoot] },
