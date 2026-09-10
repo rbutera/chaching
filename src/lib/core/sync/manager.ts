@@ -3,6 +3,7 @@ import { hostname } from 'node:os';
 import { expandPath } from '../fs-utils';
 import { accountIdentityKey, readTokenmaxxAccounts, type TokenmaxxQuotaSnapshot } from '../providers/tokenmaxx/sqlite';
 import { accountQuotaSnapshot, refreshAccountDiscovery } from '../account-discovery';
+import type { PrivateAccount } from '../accounts';
 import {
 	loadConfig,
 	updateConfig,
@@ -30,7 +31,7 @@ export async function publishDiscoveredAccounts(store: PostgresSyncStore, cfg: c
 	if (!cfg.sync.poolId) return;
 	const linked = new Set(Object.values(cfg.providerAccounts).flat());
 	for (const account of cfg.accounts) {
-		if (!linked.has(account.id) || !account.identity || account.pendingLegacyIds?.length) continue;
+		if (!linked.has(account.id) || account.pendingLegacyIds?.length) continue;
 		await store.discoverAccount({
 			id: account.id,
 			provider: account.provider,
@@ -39,9 +40,40 @@ export async function publishDiscoveredAccounts(store: PostgresSyncStore, cfg: c
 			monthlyUsd: account.monthlyUsd,
 			feeSource: account.feeSource,
 			account: '',
-			identityKey: accountIdentityKey(account.provider, account.identity, cfg.sync.poolId)
+			identityKey: account.identity ? accountIdentityKey(account.provider, account.identity, cfg.sync.poolId) : null
 		});
 	}
+}
+
+export async function writePoolAccount(cfg: chachingConfig, account: PrivateAccount,
+	fields: Partial<Pick<PrivateAccount, 'name' | 'tier' | 'monthlyUsd' | 'feeSource'>> = account): Promise<PrivateAccount> {
+	if (!isConfigured(cfg.sync) || account.pendingLegacyIds?.length) return account;
+	const store = new PostgresSyncStore(cfg.sync.databaseUrl, cfg.sync.poolId, cfg.sync.machineId);
+	try {
+		await store.open();
+		const id = await store.discoverAccount({
+			id: account.id, provider: account.provider, name: account.name, account: '',
+			tier: account.tier, monthlyUsd: account.monthlyUsd, feeSource: account.feeSource,
+			identityKey: account.identity ? accountIdentityKey(account.provider, account.identity, cfg.sync.poolId) : null
+		});
+		await store.updateAccountDetails({ ...fields, id, provider: account.provider });
+		const status = await store.status();
+		const remote = status.subscriptions.find(row => row.id === id);
+		if (!remote) throw new Error('Account disappeared from the pool after saving');
+		return { ...account, name: remote.name, tier: remote.tier, monthlyUsd: remote.monthlyUsd, feeSource: remote.feeSource ?? 'explicit' };
+	} finally { await store.close(); }
+}
+
+export function applyPoolAccountDetails(cfg: chachingConfig, status: SyncStatus): chachingConfig {
+	const poolId = cfg.sync.poolId;
+	if (!poolId || status.pool?.id !== poolId) return cfg;
+	return { ...cfg, accounts: cfg.accounts.map(account => {
+		if (account.pendingLegacyIds?.length) return account;
+		const key = account.identity ? accountIdentityKey(account.provider, account.identity, poolId) : null;
+		const remote = status.subscriptions.find(row => row.provider === account.provider &&
+			(key && row.identityKey ? row.identityKey === key : row.id === account.id));
+		return remote ? { ...account, name: remote.name, tier: remote.tier, monthlyUsd: remote.monthlyUsd, feeSource: remote.feeSource ?? 'explicit' } : account;
+	}) };
 }
 
 export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus> {
@@ -79,6 +111,15 @@ export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus
 		await store.heartbeat(cfg.sync.machineName, hostname());
 		await publishDiscoveredAccounts(store, cfg);
 		const status = await store.status();
+		if (!config) await updateConfig(current => {
+			if (current.sync.poolId !== cfg.sync.poolId || current.sync.databaseUrl !== cfg.sync.databaseUrl) return current;
+			const hydrated = applyPoolAccountDetails(current, status);
+			return { ...current, accounts: hydrated.accounts.map(account => {
+				const before = cfg.accounts.find(row => row.id === account.id);
+				const now = current.accounts.find(row => row.id === account.id);
+				return now && JSON.stringify(now) !== JSON.stringify(before) ? now : account;
+			}) };
+		});
 		const remoteQuotas = (status.providerQuotas ?? []).filter((quota) =>
 			!localProviderQuotas.some((local) => local.machineId === quota.machineId && local.source === quota.source)
 		);

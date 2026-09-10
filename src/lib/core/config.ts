@@ -326,7 +326,7 @@ async function readConfig(): Promise<chachingConfig> {
 	return cache = normalizeConfig(parsed);
 }
 
-export async function updateConfig(change: (config: chachingConfig) => chachingConfig): Promise<chachingConfig> {
+export async function updateConfig(change: (config: chachingConfig) => chachingConfig | Promise<chachingConfig>): Promise<chachingConfig> {
 	return withConfigLock(async () => {
 		let raw: string | null = null;
 		try { raw = await readFile(configFilePath(), 'utf8'); }
@@ -335,7 +335,7 @@ export async function updateConfig(change: (config: chachingConfig) => chachingC
 		}
 		const parsed: unknown = raw === null ? null : JSON.parse(raw);
 		const current = raw === null ? defaultConfig() : normalizeConfig(parsed);
-		const normalized = normalizeConfig(change(current));
+		const normalized = normalizeConfig(await change(current));
 		if (raw !== null && objectRecord(parsed).version === CONFIG_VERSION && JSON.stringify(normalized) === JSON.stringify(current)) return cache = normalized;
 		if (raw !== null && objectRecord(parsed).version === undefined) await writeConfigFile(`${configFilePath()}.pre-accounts`, raw, true);
 		await writeConfigFile(configFilePath(), JSON.stringify(normalized, null, 2));

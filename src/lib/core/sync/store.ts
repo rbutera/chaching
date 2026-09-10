@@ -336,7 +336,7 @@ export class PostgresSyncStore {
 		};
 	}
 
-	async discoverAccount(account: SyncSubscription & { identityKey: string }): Promise<string> {
+	async discoverAccount(account: SyncSubscription & { identityKey: string | null }): Promise<string> {
 		const { poolId, machineId } = this.identity();
 		const client = await this.pool.connect();
 		try {
@@ -352,13 +352,13 @@ export class PostgresSyncStore {
 			);
 			if (existing.rows.length > 1) throw new Error('Discovered identity matches two Account bills; resolve the Account match before syncing');
 			const row = existing.rows[0];
-			if (row && (row.provider !== account.provider || (row.identity_key && row.identity_key !== account.identityKey)))
+			if (row && (row.provider !== account.provider || (account.identityKey && row.identity_key && row.identity_key !== account.identityKey)))
 				throw new Error('Account ID is already bound to a different provider identity');
 			const id = row ? String(row.id) : account.id;
 			await client.query(
 				`INSERT INTO ${SCHEMA}.account AS saved (pool_id, id, provider, name, account, tier, monthly_usd, identity_key, fee_source)
 				 VALUES ($1,$2,$3,$4,'',$5,$6,$7,$8)
-				 ON CONFLICT (pool_id, id) DO UPDATE SET identity_key = EXCLUDED.identity_key,
+				 ON CONFLICT (pool_id, id) DO UPDATE SET identity_key = COALESCE(EXCLUDED.identity_key, saved.identity_key),
 				 tier = CASE WHEN saved.fee_source = 'explicit' THEN saved.tier ELSE EXCLUDED.tier END,
 				 monthly_usd = CASE WHEN saved.fee_source = 'explicit' THEN saved.monthly_usd ELSE EXCLUDED.monthly_usd END,
 				 fee_source = CASE WHEN saved.fee_source = 'explicit' THEN saved.fee_source ELSE EXCLUDED.fee_source END`,
@@ -374,6 +374,18 @@ export class PostgresSyncStore {
 			await client.query('ROLLBACK');
 			throw error;
 		} finally { client.release(); }
+	}
+
+	async updateAccountDetails(account: Pick<SyncSubscription, 'id' | 'provider'> & Partial<Pick<SyncSubscription, 'name' | 'tier' | 'monthlyUsd' | 'feeSource'>>): Promise<void> {
+		const { poolId } = this.identity();
+		const result = await this.pool.query(
+			`UPDATE ${SCHEMA}.account SET name=COALESCE($3,name), tier=COALESCE($4,tier),
+			 monthly_usd=CASE WHEN $8 THEN $5 ELSE monthly_usd END,
+			 fee_source=CASE WHEN $8 THEN $6 ELSE fee_source END
+			 WHERE pool_id=$1 AND id=$2 AND provider=$7`,
+			[poolId, account.id, account.name, account.tier, account.monthlyUsd, account.feeSource ?? 'explicit', account.provider, account.monthlyUsd !== undefined]
+		);
+		if (result.rowCount !== 1) throw new Error('Account does not exist in this pool for that provider');
 	}
 
 	async addSubscription(subscription: SyncSubscription): Promise<void> {

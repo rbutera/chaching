@@ -787,7 +787,10 @@ class Ingestion {
 				if (!this.disposed) this.emitSyncSnapshot();
 				return;
 			}
-			await publishDiscoveredAccounts(this.syncStore, await loadConfig());
+			const current = this.config ? cfg : await loadConfig();
+			if (!isConfigured(current.sync) || current.sync.poolId !== cfg.sync.poolId ||
+				current.sync.databaseUrl !== cfg.sync.databaseUrl || current.sync.machineId !== cfg.sync.machineId) return;
+			await publishDiscoveredAccounts(this.syncStore, current);
 			const published = await this.publishLocal(false);
 			// Clear only what was published; keys dirtied during the awaits survive to next burst (C3).
 			this.rollup.clearPublishDirty(published ?? undefined);

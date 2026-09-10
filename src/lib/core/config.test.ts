@@ -250,6 +250,14 @@ describe('config', () => {
 		try {
 			await updateConfig(() => defaultConfig());
 			expect(await configFileMode()).toBe(0o600);
+			const before = await readFile(configFilePath(), 'utf8');
+			await expect(updateConfig(async cfg => {
+				cfg.cutoverTs = 123;
+				throw new Error('Pool write failed');
+			})).rejects.toThrow('Pool write failed');
+			expect(await readFile(configFilePath(), 'utf8')).toBe(before);
+			await updateConfig(async cfg => ({ ...cfg, cutoverTs: 456 }));
+			expect((await loadConfig()).cutoverTs).toBe(456);
 		} finally {
 			if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
 			else process.env.XDG_CONFIG_HOME = previous;

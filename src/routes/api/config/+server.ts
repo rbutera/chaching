@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { publicConfig, updateConfig, type chachingConfig } from '$lib/core/config';
-import { refreshAccountDiscovery, matchLegacyAccount } from '$lib/core/account-discovery';
+import { loadConfig, publicConfig, updateConfig, type chachingConfig } from '$lib/core/config';
+import { getSyncStatus, writePoolAccount } from '$lib/core/sync/manager';
+import { matchLegacyAccount } from '$lib/core/account-discovery';
 import { getService } from '$lib/server/service';
+import { isLocalManagementRequest } from '$lib/server/local-management';
 
 export const GET: RequestHandler = async () => {
-	return json(publicConfig(await refreshAccountDiscovery()));
+	await getSyncStatus();
+	return json(publicConfig(await loadConfig()));
 };
 
 interface ConfigPatch {
@@ -17,11 +20,13 @@ interface ConfigPatch {
 	account?: { id?: unknown; provider?: unknown; name?: unknown; tier?: unknown; monthlyUsd?: unknown };
 }
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, getClientAddress }) => {
 	const parsed: unknown = await request.json().catch(() => null);
 	if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return json({ error: 'Expected a config patch.' }, { status: 400 });
 	const body = parsed as ConfigPatch;
-	const next = await updateConfig(cfg => {
+	if ((body.account || body.match) && !isLocalManagementRequest(request, getClientAddress))
+		return json({ error: 'Account settings are local-only. Open Chaching on its host to edit them.' }, { status: 403 });
+	const next = await updateConfig(async cfg => {
 		let next: chachingConfig = cfg;
 		if (body.match) {
 			if (typeof body.match.discoveredId !== 'string' || (body.match.legacyId !== null && typeof body.match.legacyId !== 'string')) error(400, 'Choose an Account to match.');
@@ -48,12 +53,17 @@ export const POST: RequestHandler = async ({ request }) => {
 				(monthlyUsd !== null && (typeof monthlyUsd !== 'number' || !Number.isFinite(monthlyUsd) || monthlyUsd < 0))) {
 				error(400, 'Enter an Account name, plan and nonnegative fee.');
 			}
-			const account = {
+			let account = {
 				id: existing?.id ?? randomUUID(), provider, name: name.trim(), tier, monthlyUsd,
 				feeSource: patch.monthlyUsd === undefined && existing ? existing.feeSource : monthlyUsd === null ? 'inferred' as const : 'explicit' as const,
 				identity: existing?.identity ?? null, registrations: existing?.registrations ?? [], legacy: existing?.legacy ?? false,
 				...(existing?.pendingLegacyIds?.length ? { pendingLegacyIds: existing.pendingLegacyIds } : {})
 			};
+			if (existing) account = await writePoolAccount(next, account, {
+				...(patch.name !== undefined ? { name: account.name } : {}),
+				...(patch.tier !== undefined ? { tier: account.tier } : {}),
+				...(patch.monthlyUsd !== undefined ? { monthlyUsd: account.monthlyUsd, feeSource: account.feeSource } : {})
+			});
 			next = {
 				...next,
 				accounts: existing ? next.accounts.map(item => item.id === account.id ? account : item) : [...next.accounts, account],

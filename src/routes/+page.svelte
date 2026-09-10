@@ -393,9 +393,10 @@
 					<section class="plan-settings" aria-label="Plans and fees">
 						<h3>Plans and fees</h3>
 						{#each config.accounts as account (account.id)}
-							<PlanSettings {account} matches={config.accounts.filter(item => account.pendingLegacyIds?.includes(item.id))} busy={feeSaving} onSave={onTierChange} onMatch={onMatchAccount}/>
+							<PlanSettings {account} matches={config.accounts.filter(item => account.pendingLegacyIds?.includes(item.id))} busy={feeSaving || syncStatus?.managementAllowed === false} onSave={onTierChange} onMatch={onMatchAccount}/>
 						{/each}
-						<div><Button variant="secondary" disabled={feeSaving} onclick={() => addAccount('claude')}>Add Claude Account</Button> <Button variant="secondary" disabled={feeSaving} onclick={() => addAccount('codex')}>Add Codex Account</Button></div>
+						{#if syncStatus?.managementAllowed === false}<p class="hint">Open Chaching on its host to edit Accounts.</p>{/if}
+						<div><Button variant="secondary" disabled={feeSaving || syncStatus?.managementAllowed === false} onclick={() => addAccount('claude')}>Add Claude Account</Button> <Button variant="secondary" disabled={feeSaving || syncStatus?.managementAllowed === false} onclick={() => addAccount('codex')}>Add Codex Account</Button></div>
 						{#if accountError}<p role="alert">{accountError}</p>{/if}
 					</section>
 				{/if}

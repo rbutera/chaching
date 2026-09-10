@@ -3,6 +3,9 @@ import { readFile } from 'node:fs/promises';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PostgresSyncStore } from './store';
+import { applyPoolAccountDetails, writePoolAccount } from './manager';
+import { defaultConfig } from '../config';
+import { accountIdentityKey } from '../providers/tokenmaxx/sqlite';
 
 const databaseUrl = process.env.CHACHING_TEST_DATABASE_URL;
 const suite = databaseUrl ? describe : describe.skip;
@@ -101,6 +104,30 @@ suite('Account schema migration', () => {
 			await expect(one.discoverAccount({ ...account, identityKey: 'v1:wrong' })).rejects.toThrow('different provider identity');
 			expect((await one.status()).subscriptions.filter(a => a.identityKey === 'v1:new')).toHaveLength(1);
 		} finally { await Promise.all([one.close(), two.close()]); }
+	});
+
+	it('writes the shared bill and hydrates a peer without publishing private identity', async () => {
+		const store = new PostgresSyncStore(url, 'pool', 'one');
+		const cfg = defaultConfig();
+		cfg.sync = { ...cfg.sync, enabled: true, databaseUrl: url, poolId: 'pool', machineId: 'one' };
+		const identity = { accountId: 'private-login', userId: null };
+		cfg.accounts = [{ id: 'paid', provider: 'claude', name: 'Edited work', tier: 'custom', monthlyUsd: 145, feeSource: 'explicit', identity, registrations: ['private-alias'], legacy: false }];
+		cfg.providerAccounts = { claude: ['paid'] };
+		try {
+			await writePoolAccount(cfg, cfg.accounts[0]);
+			await store.open();
+			const status = await store.status();
+			expect(status.subscriptions.find(row => row.id === 'paid')).toMatchObject({ name: 'Edited work', monthlyUsd: 145, identityKey: accountIdentityKey('claude', identity, 'pool') });
+			expect(JSON.stringify(status)).not.toMatch(/private-login|private-alias/);
+			const peer = { ...cfg, accounts: [{ ...cfg.accounts[0], id: 'peer-local', name: 'Old name', monthlyUsd: 200 }], providerAccounts: { claude: ['peer-local'] } };
+			expect(applyPoolAccountDetails(peer, status).accounts[0]).toMatchObject({ id: 'peer-local', name: 'Edited work', monthlyUsd: 145, identity, registrations: ['private-alias'] });
+			await writePoolAccount(cfg, { ...cfg.accounts[0], monthlyUsd: 0 });
+			expect((await store.status()).subscriptions.find(row => row.id === 'paid')?.monthlyUsd).toBe(0);
+			const renamed = await writePoolAccount(cfg, cfg.accounts[0], { name: 'Renamed only' });
+			expect(renamed).toMatchObject({ name: 'Renamed only', monthlyUsd: 0 });
+			await expect(store.updateAccountDetails({ ...cfg.accounts[0], monthlyUsd: -1 })).rejects.toThrow();
+			expect((await store.status()).subscriptions.find(row => row.id === 'paid')?.monthlyUsd).toBe(0);
+		} finally { await store.close(); }
 	});
 
 	it('rejects obsolete writes from an open connection and rolls back a fresh v3 migration', async () => {
