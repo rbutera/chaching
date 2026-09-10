@@ -2,7 +2,7 @@ import type { ProviderQuotaAccount, ProviderQuotaStatus } from '$lib/core/sync/t
 
 export interface QuotaRow extends ProviderQuotaAccount {
 	key: string;
-	observedAt: string;
+	observedAt: string | null;
 	machines: string[];
 	currentMachines: string[];
 }
@@ -16,9 +16,9 @@ export function quotaRows(statuses: ProviderQuotaStatus[], providers: ReadonlySe
 			const key = account.identityKey
 				? `${account.provider}:${account.identityKey}`
 				: `${status.machineId}:${status.source}:${index}`;
-			const observedAt = account.observedAt ?? status.observedAt;
+			const observedAt = account.observedAt === undefined ? status.observedAt : account.observedAt;
 			const prior = rows.get(key);
-			const newer = !prior || Date.parse(observedAt) > Date.parse(prior.observedAt);
+			const newer = !prior || (observedAt === null ? -Infinity : Date.parse(observedAt)) > (prior.observedAt === null ? -Infinity : Date.parse(prior.observedAt));
 			rows.set(key, {
 				...(newer ? account : prior), key,
 				observedAt: newer ? observedAt : prior.observedAt,

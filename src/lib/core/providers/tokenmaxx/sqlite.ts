@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
+import type { PrivateAccount } from '../../accounts';
 import type { TokenCounts } from '../../../types';
 import type { ProviderQuotaAccount } from '../../sync/types';
 
@@ -47,8 +48,8 @@ const quotaRowSchema = z.object({
 	id: z.string(),
 	provider: z.enum(['anthropic', 'openai']),
 	account_payload: z.string(),
-	observed_at: z.string().datetime({ offset: true }),
-	usage_payload: z.string()
+	observed_at: z.string().nullable(),
+	usage_payload: z.string().nullable()
 });
 
 function parseJson(value: string): unknown {
@@ -56,7 +57,7 @@ function parseJson(value: string): unknown {
 }
 
 export interface TokenmaxxQuotaSnapshot {
-	observedAt: string;
+	observedAt: string | null;
 	accounts: ProviderQuotaAccount[];
 }
 
@@ -104,69 +105,80 @@ export function readTokenmaxxAggregates(dbPath: string): TokenmaxxAggregate[] {
 	}
 }
 
-export function readTokenmaxxQuota(dbPath: string, identityScope?: string): TokenmaxxQuotaSnapshot | null {
-	if (!existsSync(dbPath)) return null;
+export interface DiscoveredAccount {
+	registrationId: string;
+	provider: 'claude' | 'codex';
+	identity: PrivateAccount['identity'];
+	plan: string | null;
+	quota: ProviderQuotaAccount;
+}
 
+export function accountIdentityKey(provider: string, identity: NonNullable<PrivateAccount['identity']>, scope: string): string {
+	return `v1:${createHash('sha256').update(JSON.stringify([
+		'chaching-account-v1', scope, provider, identity.accountId, provider === 'codex' ? identity.userId : null
+	])).digest('hex')}`;
+}
+
+export function readTokenmaxxAccounts(dbPath: string, identityScope?: string): DiscoveredAccount[] {
+	if (!existsSync(dbPath)) return [];
 	const db = new DatabaseSync(dbPath, { readOnly: true });
 	try {
-		const tables = db.prepare(`
-			SELECT COUNT(*) AS count FROM sqlite_master
-			WHERE type = 'table' AND name IN ('accounts', 'usage_snapshots')
-		`).get() as { count: number } | undefined;
-		if (Number(tables?.count) !== 2) return null;
-		const rows = db.prepare(`
-			SELECT a.id, a.provider, a.payload AS account_payload,
-				u.observed_at, u.payload AS usage_payload
-			FROM accounts a
-			JOIN usage_snapshots u ON u.account_id = a.id
-			WHERE a.provider IN ('anthropic', 'openai')
-			ORDER BY a.id
+		const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map(row => row.name));
+		if (!tables.has('accounts')) return [];
+		const rows = db.prepare(tables.has('usage_snapshots') ? `
+			SELECT a.id, a.provider, a.payload AS account_payload, u.observed_at, u.payload AS usage_payload
+			FROM accounts a LEFT JOIN usage_snapshots u ON u.account_id = a.id
+			WHERE a.provider IN ('anthropic', 'openai') ORDER BY a.id
+		` : `
+			SELECT id, provider, payload AS account_payload, NULL AS observed_at, NULL AS usage_payload
+			FROM accounts WHERE provider IN ('anthropic', 'openai') ORDER BY id
 		`).all().flatMap(row => {
 			const parsed = quotaRowSchema.safeParse(row);
 			return parsed.success ? [parsed.data] : [];
 		});
-		if (rows.length === 0) return null;
-
 		const active = new Map<string, string | null>();
-		if (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'provider_states'").get()) {
+		if (tables.has('provider_states')) {
 			for (const row of db.prepare('SELECT payload FROM provider_states').all()) {
 				if (typeof row.payload !== 'string') continue;
 				const parsed = z.object({ provider: z.string(), activeAccountId: z.string().nullable() }).safeParse(parseJson(row.payload));
 				if (parsed.success) active.set(parsed.data.provider, parsed.data.activeAccountId);
 			}
 		}
-		const accounts = rows.flatMap((row, index): (ProviderQuotaAccount & { observedAt: string })[] => {
-			const account = accountSchema.safeParse(parseJson(row.account_payload));
-			const usage = usageSchema.safeParse(parseJson(row.usage_payload));
-			if (!account.success || !usage.success) return [];
+		return rows.flatMap((row, index): DiscoveredAccount[] => {
+			const parsed = accountSchema.safeParse(parseJson(row.account_payload));
+			if (!parsed.success) return [];
+			const account = parsed.data;
 			const provider = row.provider === 'anthropic' ? 'claude' : 'codex';
-			const identity = account.data;
-			const canIdentify = identity.externalAccountId && (provider === 'claude' || identity.externalUserId);
+			const identity = account.externalAccountId && (provider === 'claude' || account.externalUserId)
+				? { accountId: account.externalAccountId, userId: provider === 'codex' ? account.externalUserId ?? null : null }
+				: null;
+			const usage = usageSchema.safeParse(row.usage_payload === null ? null : parseJson(row.usage_payload));
+			const date = z.string().datetime({ offset: true }).safeParse(row.observed_at);
+			const observedAt = usage.success && date.success ? date.data : null;
 			return [{
-				label: `${provider === 'claude' ? 'Claude' : 'Codex'} account ${index + 1}`,
-				provider,
-				plan: identity.plan ?? null,
-				observedAt: row.observed_at,
-				...(active.has(row.provider) ? { current: active.get(row.provider) === row.id } : {}),
-				...(identityScope && canIdentify ? {
-					identityKey: `v1:${createHash('sha256').update(JSON.stringify([
-						'chaching-account-v1', identityScope, provider, identity.externalAccountId,
-						provider === 'codex' ? identity.externalUserId : null
-					])).digest('hex')}`
-				} : {}),
-				hardLimitReached: usage.data.hardLimitReached,
-				windows: usage.data.windows.flatMap(window => {
-					const parsed = quotaWindowSchema.safeParse(window);
-					return parsed.success ? [parsed.data] : [];
-				})
+				registrationId: row.id, provider, identity, plan: account.plan ?? null,
+				quota: {
+					label: `${provider === 'claude' ? 'Claude' : 'Codex'} account ${index + 1}`,
+					provider, plan: account.plan ?? null, observedAt,
+					...(active.has(row.provider) ? { current: active.get(row.provider) === row.id } : {}),
+					...(identityScope && identity ? { identityKey: accountIdentityKey(provider, identity, identityScope) } : {}),
+					hardLimitReached: observedAt !== null && usage.success && usage.data.hardLimitReached,
+					windows: observedAt !== null && usage.success ? usage.data.windows.flatMap(window => {
+						const result = quotaWindowSchema.safeParse(window);
+						return result.success ? [result.data] : [];
+					}) : []
+				}
 			}];
 		});
-		if (accounts.length === 0) return null;
-		return {
-			observedAt: accounts.reduce((latest, account) => Date.parse(account.observedAt) > Date.parse(latest) ? account.observedAt : latest, accounts[0].observedAt),
-			accounts
-		};
-	} finally {
-		db.close();
-	}
+	} finally { db.close(); }
+}
+
+export function readTokenmaxxQuota(dbPath: string, identityScope?: string): TokenmaxxQuotaSnapshot | null {
+	const accounts = readTokenmaxxAccounts(dbPath, identityScope).map(account => account.quota);
+	if (!accounts.length) return null;
+	const observations = accounts.flatMap(account => account.observedAt ? [account.observedAt] : []);
+	return {
+		observedAt: observations.sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null,
+		accounts
+	};
 }

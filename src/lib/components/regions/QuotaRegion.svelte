@@ -29,7 +29,7 @@
 		{#if group.label}<h3>{group.label}</h3>{/if}
 		{#each group.rows as row (row.key)}
 			<div class="account">
-				<div class="identity"><strong>{row.label}</strong><small title={'Observed ' + dateLabel(row.observedAt)}>{(dash.quotaView === 'current' ? row.currentMachines : row.machines).map(machineName).join(', ')} · {dateLabel(row.observedAt)}</small>{#if row.hardLimitReached}<small class="limit">Limit reached</small>{/if}</div>
+				<div class="identity"><strong>{row.label}</strong><small title={row.observedAt ? 'Observed ' + dateLabel(row.observedAt) : 'No quota observation'}>{(dash.quotaView === 'current' ? row.currentMachines : row.machines).map(machineName).join(', ')}{#if row.observedAt} · {dateLabel(row.observedAt)}{/if}</small>{#if row.hardLimitReached}<small class="limit">Limit reached</small>{/if}</div>
 				<div class="windows">
 					{#each row.windows as window (window.id)}
 						{@const remaining = Math.max(0, 100 - window.usedPercent)}

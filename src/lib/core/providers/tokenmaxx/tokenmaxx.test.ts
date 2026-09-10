@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { readTokenmaxxAggregates, readTokenmaxxQuota } from './sqlite';
+import { readTokenmaxxAccounts, readTokenmaxxAggregates, readTokenmaxxQuota } from './sqlite';
 
 const roots: string[] = [];
 
@@ -58,6 +58,32 @@ describe('readTokenmaxxAggregates', () => {
 			expect(JSON.stringify(quota)).not.toContain(privateValue);
 		}
 		expect(readTokenmaxxQuota(dbPath)?.accounts[0].identityKey).toBeUndefined();
+	});
+
+	it('discovers stable identity without a quota snapshot and never invents observation freshness', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'chaching-tokenmaxx-empty-quota-'));
+		roots.push(root);
+		const dbPath = join(root, 'state.sqlite');
+		const db = new DatabaseSync(dbPath);
+		db.exec('CREATE TABLE accounts (id TEXT PRIMARY KEY, provider TEXT NOT NULL, payload TEXT NOT NULL)');
+		db.prepare('INSERT INTO accounts VALUES (?, ?, ?)').run('registration', 'openai', JSON.stringify({
+			externalAccountId: 'private-organization', externalUserId: 'private-user', plan: 'plus'
+		}));
+		const discovered = readTokenmaxxAccounts(dbPath, 'pool');
+		expect(discovered).toHaveLength(1);
+		expect(discovered[0]).toMatchObject({
+			registrationId: 'registration', identity: { accountId: 'private-organization', userId: 'private-user' },
+			quota: { observedAt: null, windows: [], hardLimitReached: false }
+		});
+		db.exec('CREATE TABLE usage_snapshots (account_id TEXT PRIMARY KEY, observed_at TEXT NOT NULL, payload TEXT NOT NULL)');
+		db.prepare('INSERT INTO usage_snapshots VALUES (?, ?, ?)').run('registration', 'bad-date', '{}');
+		expect(readTokenmaxxQuota(dbPath, 'pool')?.accounts[0]).toEqual(discovered[0].quota);
+		expect(readTokenmaxxQuota(dbPath, 'pool')?.observedAt).toBeNull();
+		const serialized = JSON.stringify(readTokenmaxxQuota(dbPath, 'pool'));
+		expect(serialized).not.toContain('private-organization');
+		expect(serialized).not.toContain('private-user');
+		expect(serialized).not.toContain('registration');
+		db.close();
 	});
 
 	it('returns no rows when Tokenmaxx is not installed', () => {

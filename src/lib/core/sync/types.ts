@@ -37,7 +37,7 @@ export interface ProviderQuotaAccount {
 	identityKey?: string;
 	/** Absent on older peers or when Tokenmaxx cannot establish the current selection. */
 	current?: boolean;
-	observedAt?: string;
+	observedAt?: string | null;
 	label: string;
 	provider: string;
 	plan: string | null;
@@ -48,7 +48,7 @@ export interface ProviderQuotaAccount {
 export interface ProviderQuotaStatus {
 	machineId: string;
 	source: string;
-	observedAt: string;
+	observedAt: string | null;
 	accounts: ProviderQuotaAccount[];
 }
 

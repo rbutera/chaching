@@ -337,7 +337,7 @@ class Ingestion {
 		await this.syncStore.publishDayAggregates(scope, days);
 		await this.syncStore.publishHourAggregates(scope, hours);
 		await this.syncStore.publishSessions(scope, sessions);
-		if (this.tokenmaxxQuota) {
+		if (this.tokenmaxxQuota?.observedAt) {
 			await this.syncStore.publishProviderQuota(
 				'tokenmaxx',
 				this.tokenmaxxQuota.observedAt,
