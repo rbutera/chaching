@@ -5,6 +5,11 @@ export const accounts = [
 ] satisfies Array<{ id: string; name: string; provider: 'Claude' | 'Codex'; plan: string; short: number; week: number; reset: string; weeklyReset: string; monthlyUsd: number; machines: string[]; activeMachines: string[] }>;
 
 const sessionNames = ['Untangle the auth flow', 'Account reconciliation', 'Make the diff readable', 'Trace the sync worker', 'The one-line fix'];
+const models = {
+	Claude: ['Fable 5.1', 'Fable 5', 'Fable 4.8', 'Sonnet 4.6', 'Sonnet 4.5', 'Haiku 4.5'],
+	Codex: ['GPT-6 Astra', 'GPT-6 Sol', 'GPT-6 Terra', 'GPT-5.6', 'GPT-5.5', 'GPT-5.4 Mini']
+};
+const projects = ['rennet', 'chaching', ...Array.from({ length: 138 }, (_, index) => `project-${String(index + 3).padStart(3, '0')}`)];
 
 export const entries = Array.from({ length: 120 }, (_, day) =>
 	accounts.flatMap((account, accountIndex) => account.machines.map((machine, machineIndex) => {
@@ -15,15 +20,15 @@ export const entries = Array.from({ length: 120 }, (_, day) =>
 			day,
 			cost,
 			name: sessionNames[(day + accountIndex + machineIndex) % sessionNames.length],
-			project: (day + accountIndex) % 2 ? 'chaching' : 'rennet',
-			model: account.provider === 'Claude' ? 'Fable 5.1' : 'GPT-6 Astra',
+			project: projects[(day * 5 + accountIndex * 2 + machineIndex) % projects.length],
+			model: models[account.provider][(day + accountIndex + machineIndex) % models[account.provider].length],
 			tokens: `${(cost / 50).toFixed(2)}M`,
 			time: `${day === 0 ? 'Today' : day === 1 ? 'Yesterday' : `${day} days ago`} · ${machineIndex ? '10:41' : '14:32'}`
 		};
 	}))
 ).flat();
 
-export function selectUsage(provider: string, machine: string, accountId: string) {
+export function selectUsage(provider: string, machine: string, accountId: string, endDay = 0, windowDays = 30) {
 	const selectedAccounts = accounts.filter(account =>
 		(provider === 'all' || account.provider === provider) &&
 		(machine === 'all' || account.machines.includes(machine)) &&
@@ -32,9 +37,16 @@ export function selectUsage(provider: string, machine: string, accountId: string
 	const accountIds = new Set(selectedAccounts.map(account => account.id));
 	const selectedEntries = entries.filter(entry => accountIds.has(entry.accountId) && (machine === 'all' || entry.machine === machine));
 	const sum = (days: number) => selectedEntries.reduce((total, entry) => total + (entry.day < days ? Math.round(entry.cost * 100) : 0), 0) / 100;
+	const windowEntries = selectedEntries.filter(entry => entry.day >= endDay && entry.day < endDay + windowDays);
+	const dailyCosts = Array.from({ length: windowDays }, (_, index) => windowEntries.reduce((total, entry) => total + (entry.day === endDay + windowDays - 1 - index ? Math.round(entry.cost * 100) : 0), 0) / 100);
 	return {
 		accounts: selectedAccounts,
 		entries: selectedEntries,
+		windowEntries,
+		dailyCosts,
+		periodCost: windowEntries.reduce((total, entry) => total + Math.round(entry.cost * 100), 0) / 100,
+		endDay,
+		windowDays,
 		totals: { all: sum(Infinity), today: sum(1), week: sum(7), month: sum(30) },
 		days30: Array.from({ length: 30 }, (_, index) => selectedEntries.reduce((total, entry) => total + (entry.day === 29 - index ? Math.round(entry.cost * 100) : 0), 0) / 100)
 	};

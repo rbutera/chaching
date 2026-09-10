@@ -28,3 +28,26 @@ test('filter intersections preserve usage totals and count shared Accounts once'
 	expect(selectUsage('Claude', 'all', 'o1').totals.all).toBe(0);
 	expect(selectUsage('all', 'all', 'missing').totals.all).toBe(0);
 });
+
+test('day and month navigation changes the window without moving headline totals', () => {
+	const current = selectUsage('all', 'all', 'all');
+	expect(new Set(current.windowEntries.map(entry => entry.project)).size).toBeGreaterThan(100);
+	expect(new Set(current.windowEntries.map(entry => entry.model)).size).toBeGreaterThanOrEqual(10);
+	for (const windowDays of [1, 30]) {
+		for (const endDay of [0, 1, 30, 90, 119, 120]) {
+			const result = selectUsage('all', 'all', 'all', endDay, windowDays);
+			expect(result.totals).toEqual(current.totals);
+			expect(result.entries).toEqual(current.entries);
+			expect(result.endDay).toBe(endDay);
+			expect(result.windowDays).toBe(windowDays);
+			expect(result.windowEntries).toEqual(entries.filter(entry => entry.day >= endDay && entry.day < endDay + windowDays));
+			expect(result.dailyCosts).toHaveLength(windowDays);
+			expect(result.dailyCosts.reduce((sum, cost) => sum + cost, 0)).toBeCloseTo(result.periodCost);
+			expect(result.dailyCosts[0]).toBeCloseTo(result.windowEntries.filter(entry => entry.day === endDay + windowDays - 1).reduce((sum, entry) => sum + entry.cost, 0));
+			expect(result.dailyCosts[windowDays - 1]).toBeCloseTo(result.windowEntries.filter(entry => entry.day === endDay).reduce((sum, entry) => sum + entry.cost, 0));
+		}
+	}
+	const filtered = selectUsage('Claude', 'Mac mini', 'c2', 30, 30);
+	expect(filtered.windowEntries).toHaveLength(30);
+	expect(filtered.windowEntries.every(entry => entry.accountId === 'c2' && entry.machine === 'Mac mini')).toBe(true);
+});
