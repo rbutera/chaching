@@ -15,7 +15,7 @@ import {
 import { resolvePrice } from '../../lib/core/pricing/cost.js';
 import { cacheCostBreakdown } from '../../lib/core/pricing/cache-breakdown.js';
 import {
-	buildSubsidisation,
+	buildWindowSubsidisation,
 	type ProviderSubsidisationConfig,
 	type SubsidisedProvider
 } from '../../lib/core/subsidisation.js';
@@ -39,19 +39,13 @@ export interface BuildReceiptOptions {
 	now?: number;
 	/** optional footer copy (already resolved by the caller); empty under noArt */
 	footer?: string;
-	/**
-	 * Optional per-provider subscription config. When present, the receipt gains a
-	 * subsidisation footer. The multiple-vs-monthly-fee is shown only when the
-	 * receipt's period is month (or all-time/default → current-month headline); a
-	 * `--period week`/`day` receipt honestly says "this week/today" and omits the
-	 * monthly multiple to avoid comparing a partial period of burn to a month of fee.
-	 */
+	/** Plan fees are prorated to the same date range as usage. */
 	subscription?: Record<SubsidisedProvider, ProviderSubsidisationConfig>;
 	/**
 	 * Explicit day range override (inclusive `YYYY-MM-DD` bounds). When present it
 	 * WINS over `period`'s computed range — used by the web "Receipt" button to pin
 	 * a single focused day (the dashboard's drill-in). `period` still drives the
-	 * label + subsidisation basis; only the scoped grain comes from this range.
+	 * label; usage and fees both follow this range.
 	 */
 	range?: { from: string; to: string };
 	/**
@@ -167,6 +161,22 @@ export function buildReceipt(snapshot: RollupSnapshot, opts: BuildReceiptOptions
 	}
 
 	const periodLabel = periodLabelOf(opts.period);
+	let subsidisation: ReceiptSubsidisation | null = null;
+	if (opts.subscription && from && to) {
+		const config = {
+			claude: { ...opts.subscription.claude, enabled: opts.subscription.claude.enabled && (!providerFilter || providerFilter.has('claude')) },
+			codex: { ...opts.subscription.codex, enabled: opts.subscription.codex.enabled && (!providerFilter || providerFilter.has('codex')) }
+		};
+		const rollup = buildWindowSubsidisation(grain, config, { from, to });
+		subsidisation = {
+			periodLabel, from, to,
+			feeUsd: rollup.combined.windowFeeUsd,
+			apiEquivalentUsd: rollup.combined.sub.apiEquivalentUsd,
+			netSubsidyUsd: rollup.combined.sub.netSubsidyUsd,
+			multiple: rollup.combined.sub.multiple
+		};
+	}
+
 	const wordmark = WORDMARK;
 	const empty = grain.length === 0;
 
@@ -201,7 +211,7 @@ export function buildReceipt(snapshot: RollupSnapshot, opts: BuildReceiptOptions
 				cacheWriteCost: 0,
 				savedVsUncached: 0
 			},
-			subsidisation: null,
+			subsidisation,
 			subtotals: [],
 			totalBurn: 0,
 			totalTokens: 0,
@@ -321,44 +331,6 @@ export function buildReceipt(snapshot: RollupSnapshot, opts: BuildReceiptOptions
 		savedVsUncached: cacheBreakdown.savedVsUncached
 	};
 
-	// Optional subsidisation footer. The basis is the receipt's own period scope:
-	// month / all-time(default) → current-month headline (multiple is meaningful);
-	// week / day → that period's burn, monthly multiple omitted (period mismatch).
-	let subsidisation: ReceiptSubsidisation | null = null;
-	if (opts.subscription) {
-		const monthBasis = opts.period === 'month' || opts.period === undefined;
-		if (monthBasis) {
-			// Month-to-date burn vs full monthly fee, combined across enabled providers.
-			const rollup = buildSubsidisation(snapshot.dayModel, opts.subscription, now);
-			subsidisation = {
-				periodLabel: 'this month',
-				monthBasis: true,
-				monthlyUsd: rollup.combined.monthlyUsd,
-				apiEquivalentUsd: rollup.combined.mtd.apiEquivalentUsd,
-				netSubsidyUsd: rollup.combined.mtd.netSubsidyUsd,
-				multiple: rollup.combined.mtd.multiple
-			};
-		} else {
-			// Period-scoped burn for the enabled subsidised providers; no monthly multiple.
-			const subsidisedSet = new Set<string>(
-				(['claude', 'codex'] as SubsidisedProvider[]).filter(
-					(p) => opts.subscription?.[p].enabled
-				)
-			);
-			const monthlyUsd = (['claude', 'codex'] as SubsidisedProvider[])
-				.filter((p) => opts.subscription?.[p].enabled)
-				.reduce((sum, p) => sum + (opts.subscription?.[p].monthlyUsd ?? 0), 0);
-			const periodBurn = sumGrain(grain, { providers: subsidisedSet }).cost;
-			subsidisation = {
-				periodLabel,
-				monthBasis: false,
-				monthlyUsd,
-				apiEquivalentUsd: periodBurn,
-				netSubsidyUsd: periodBurn - monthlyUsd,
-				multiple: null
-			};
-		}
-	}
 
 	// Deterministic seed: total + covered range + provider/period scope. NOT
 	// time-of-render, so the same data renders the same barcode.

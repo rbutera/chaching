@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { money } from '$lib/format';
+	import { sumFees, computeSubsidisation, subsidyMultipleText } from '$lib/core/subsidisation';
 
 	export interface PoolSubsidyRow {
 		id: string;
@@ -19,8 +20,8 @@
 
 	let { rows, windowLabel, wholePlanFee = false }: Props = $props();
 	let totalValue = $derived(rows.reduce((sum, row) => sum + row.valueUsd, 0));
-	let totalFee = $derived(rows.some(row => row.feeUsd === null) ? null : rows.reduce((sum, row) => sum + (row.feeUsd ?? 0), 0));
-	let multiple = $derived(totalFee !== null && totalFee > 0 ? totalValue / totalFee : null);
+	let totalFee = $derived(sumFees(rows.map(row => row.feeUsd)));
+	let multiple = $derived(subsidyMultipleText(computeSubsidisation({ apiEquivalentUsd: totalValue, monthlyUsd: totalFee })));
 </script>
 
 <section class="pool-subsidy" aria-labelledby="pool-subsidy-heading">
@@ -29,7 +30,7 @@
 			<p class="eyebrow">pool subscriptions</p>
 			<h2 id="pool-subsidy-heading">{windowLabel}</h2>
 		</div>
-		<strong class="multiple">{multiple == null ? '—' : `${multiple.toFixed(1)}×`}</strong>
+		<strong class="multiple">{multiple}</strong>
 	</div>
 
 	<ul>

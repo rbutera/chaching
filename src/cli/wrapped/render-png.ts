@@ -1,3 +1,4 @@
+import { subsidyMultipleText } from '../../lib/core/subsidisation';
 // renderWrappedPng — the runtime PNG template for `chaching wrapped`.
 //
 // The receipt's fun cousin, on the same cream thermal tape: a Spotify-Wrapped
@@ -301,13 +302,13 @@ function wrappedElement(model: WrappedModel, markDataUri: string): RenderNode {
 		const s = model.subsidy;
 		children.push(dashedRule());
 		children.push(sectionLabel('subscription subsidy'));
-		const mult = s.multiple == null ? 'all of it' : `${s.multiple >= 100 ? Math.round(s.multiple) : s.multiple.toFixed(1)}×`;
+		const mult = subsidyMultipleText(s).replace('∞ — ', '');
 		children.push(lineItem('this month multiple', mult, { weight: 700, amountWeight: 700, color: PAPER.ink }));
-		children.push(lineItem(`${money(s.apiEquivalentUsd)} value`, `for ${money(s.monthlyUsd)} fee`, { color: PAPER.muted }));
+		children.push(lineItem(`${money(s.apiEquivalentUsd)} value`, `for ${(s.monthlyUsd === null ? 'unknown' : money(s.monthlyUsd))} fee`, { color: PAPER.muted }));
 		children.push(
-			s.netSubsidyUsd >= 0
-				? lineItem('net subsidy', `+${money(s.netSubsidyUsd)}`, { color: PAPER.green })
-				: lineItem('under-using your plan', money(s.netSubsidyUsd), { color: PAPER.muted })
+			s.netSubsidyUsd !== null && s.netSubsidyUsd >= 0
+				? lineItem('net subsidy', `+${(s.netSubsidyUsd === null ? '—' : money(s.netSubsidyUsd))}`, { color: PAPER.green })
+				: lineItem('difference', (s.netSubsidyUsd === null ? '—' : money(s.netSubsidyUsd)), { color: PAPER.muted })
 		);
 	}
 

@@ -56,15 +56,15 @@ export interface ReceiptCacheCost {
 export interface ReceiptSubsidisation {
 	/** the period label this subsidisation line is computed over (e.g. "this month") */
 	periodLabel: string;
-	/** true when the basis is a full calendar month (so the multiple-vs-fee is meaningful) */
-	monthBasis: boolean;
-	/** combined flat monthly fee across enabled subsidised providers */
-	monthlyUsd: number;
-	/** API-equivalent burn compared against the fee (month-to-date when monthBasis) */
+	/** Fee for the selected inclusive UTC date range. */
+	feeUsd: number | null;
+	from: string;
+	to: string;
+	/** API-equivalent burn compared against the fee (over the selected date range) */
 	apiEquivalentUsd: number;
-	/** apiEquivalentUsd − monthlyUsd */
-	netSubsidyUsd: number;
-	/** apiEquivalentUsd / monthlyUsd, or null for a $0 (Free) fee → "∞ — all of it" */
+	/** apiEquivalentUsd − feeUsd; null when the fee is unknown. */
+	netSubsidyUsd: number | null;
+	/** Null for unknown or zero fees; renderers distinguish them using feeUsd. */
 	multiple: number | null;
 }
 

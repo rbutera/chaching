@@ -17,7 +17,7 @@
 	let saving = $state(false);
 	let savedTier = $derived(subscription.tier);
 	let savedFee = $derived(subscription.monthlyUsd);
-	$effect(() => { tier = savedTier; fee = savedFee; });
+	$effect(() => { tier = savedTier; fee = savedFee ?? undefined; });
 
 	function selectTier() {
 		const preset = SUBSCRIPTION_PRESETS[provider].find(preset => preset.id === tier);

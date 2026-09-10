@@ -103,11 +103,11 @@ export interface WrappedMomDelta {
 /** The optional subscription-subsidy multiple for the month. */
 export interface WrappedSubsidy {
 	/** combined flat monthly fee across enabled subsidised providers */
-	monthlyUsd: number;
+	monthlyUsd: number | null;
 	/** API-equivalent burn for the month (month-to-date when the month is current) */
 	apiEquivalentUsd: number;
 	/** apiEquivalentUsd − monthlyUsd */
-	netSubsidyUsd: number;
+	netSubsidyUsd: number | null;
 	/** apiEquivalentUsd / monthlyUsd, or null for a $0 (Free) fee → "∞ — all of it" */
 	multiple: number | null;
 }

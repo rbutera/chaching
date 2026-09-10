@@ -25,7 +25,7 @@ export interface SubscriptionPreset {
  */
 export interface SubscriptionConfig {
 	tier: string;
-	monthlyUsd: number;
+	monthlyUsd: number | null;
 }
 
 /** The Corporate $99 default both subsidised providers fall back to. */

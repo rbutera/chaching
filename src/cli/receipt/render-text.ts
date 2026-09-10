@@ -1,3 +1,4 @@
+import { subsidyMultipleText } from '../../lib/core/subsidisation';
 // renderReceiptText — fixed-width thermal-receipt layout for the terminal.
 //
 // A pure(-ish) string builder over the ReceiptModel. Honours NO_COLOR (no ANSI)
@@ -103,7 +104,7 @@ export function renderReceiptText(model: ReceiptModel, e: RenderTextEnv = {}): s
 	}
 	lines.push(C.accent(rule(noArt)));
 
-	if (model.empty) {
+	if (model.empty && !model.subsidisation) {
 		lines.push('');
 		lines.push(centre('no receipts yet.'));
 		lines.push(centre('run `chaching init` to start.'));
@@ -195,25 +196,10 @@ export function renderReceiptText(model: ReceiptModel, e: RenderTextEnv = {}): s
 		const s = model.subsidisation;
 		lines.push('');
 		lines.push(C.dim(noArt ? 'SUBSCRIPTION SUBSIDY' : '✦ SUBSCRIPTION SUBSIDY'));
-		if (s.monthBasis) {
-			const mult =
-				s.multiple == null
-					? '∞ — all of it'
-					: `${s.multiple >= 100 ? Math.round(s.multiple) : s.multiple.toFixed(1)}×`;
-			lines.push(C.accent(C.bold(row(`${s.periodLabel} multiple`, mult))));
-			lines.push(
-				C.dim(row(`${money(s.apiEquivalentUsd)} value`, `for ${money(s.monthlyUsd)} fee`))
-			);
-			if (s.netSubsidyUsd >= 0) {
-				lines.push(row('net subsidy', `+${money(s.netSubsidyUsd)}`));
-			} else {
-				lines.push(C.dim(row('under-using your plan', money(s.netSubsidyUsd))));
-			}
-		} else {
-			// Period mismatch (week/day): show the period burn vs fee, no monthly multiple.
-			lines.push(row(`${s.periodLabel} value`, money(s.apiEquivalentUsd)));
-			lines.push(C.dim(row('flat monthly fee', money(s.monthlyUsd))));
-			lines.push(C.dim('  (set --period month for the subsidy multiple)'));
+		lines.push(C.accent(C.bold(row(`${s.periodLabel} multiple`, subsidyMultipleText({ ...s, monthlyUsd: s.feeUsd })))));
+		lines.push(C.dim(row(`${money(s.apiEquivalentUsd)} value`, s.feeUsd === null ? 'fee unknown' : `for ${money(s.feeUsd)} fee`)));
+		if (s.netSubsidyUsd !== null) {
+			lines.push(row('difference', `${s.netSubsidyUsd >= 0 ? '+' : ''}${money(s.netSubsidyUsd)}`));
 		}
 		lines.push(C.accent(rule(noArt)));
 	}

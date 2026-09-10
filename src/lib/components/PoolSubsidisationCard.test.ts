@@ -28,7 +28,10 @@ describe('PoolSubsidisationCard', () => {
 		expect(text.match(/Shared ChatGPT Pro/g)).toHaveLength(1);
 	});
 
-	it('renders an em dash, never ∞, when the total fee is zero', () => {
+	it.each([
+		[0, '—'],
+		[40, '∞ — all of it']
+	])('renders the zero-fee multiple for %s usage', (valueUsd, multiple) => {
 		const { container } = render(PoolSubsidisationCard, {
 			windowLabel: 'Last 30 days',
 			rows: [
@@ -37,15 +40,15 @@ describe('PoolSubsidisationCard', () => {
 					name: 'Free tier',
 					provider: 'claude',
 					account: '',
-					valueUsd: 40,
+					valueUsd,
 					feeUsd: 0
 				}
 			]
 		});
 
 		const text = container.textContent ?? '';
-		expect(text).toContain('—');
-		expect(text).not.toContain('∞');
+		expect(text).toContain(multiple);
+		if (valueUsd === 0) expect(text).not.toContain('∞');
 	});
 
 	it('annotates the fee as a whole-plan fee when a machine filter is active', () => {

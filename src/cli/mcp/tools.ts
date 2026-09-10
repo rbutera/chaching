@@ -155,18 +155,18 @@ export function cacheEfficiency(ctx: ToolContext, period: Period): Record<string
 export function subscriptionHeadroom(ctx: ToolContext): Record<string, unknown> {
 	const roll = buildSubsidisation(ctx.snapshot.dayModel, ctx.subsidyConfig, new Date(ctx.now));
 	const shape = (
-		monthlyUsd: number,
-		mtd: { apiEquivalentUsd: number; netSubsidyUsd: number; multiple: number | null },
+		monthlyUsd: number | null,
+		mtd: { apiEquivalentUsd: number; netSubsidyUsd: number | null; multiple: number | null },
 		projected: { apiEquivalentUsd: number; multiple: number | null }
 	) => ({
 		monthlyUsd,
 		apiEquivalentUsd: money(mtd.apiEquivalentUsd),
-		netSubsidyUsd: money(mtd.netSubsidyUsd),
+		netSubsidyUsd: mtd.netSubsidyUsd === null ? null : money(mtd.netSubsidyUsd),
 		// null multiple = free ($0) tier: "∞ — all of it". Marker crosses the wire intact.
-		multiple: nullableMultiple(mtd.multiple),
-		headroomUsd: money(Math.max(0, monthlyUsd - mtd.apiEquivalentUsd)),
+		multiple: monthlyUsd === null ? null : monthlyUsd === 0 && mtd.apiEquivalentUsd === 0 ? null : nullableMultiple(mtd.multiple),
+		headroomUsd: monthlyUsd === null ? null : money(Math.max(0, monthlyUsd - mtd.apiEquivalentUsd)),
 		projectedApiEquivalentUsd: money(projected.apiEquivalentUsd),
-		projectedMultiple: nullableMultiple(projected.multiple)
+		projectedMultiple: monthlyUsd === null || (monthlyUsd === 0 && projected.apiEquivalentUsd === 0) ? null : nullableMultiple(projected.multiple)
 	});
 	return {
 		advisory: true,

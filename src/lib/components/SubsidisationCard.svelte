@@ -6,6 +6,7 @@
 	// receipt footer and `chaching wrapped` keep the calendar-month basis. $0-tier
 	// renders "∞ — all of it". Brass-accent headline.
 	import { money } from '$lib/format';
+	import { subsidyMultipleText } from '$lib/core/subsidisation';
 	import type {
 		BurnPace,
 		SubsidisedProvider,
@@ -29,12 +30,6 @@
 		codex: 'Codex'
 	};
 
-	/** Render a multiple as "97×" / "1.4×" / "∞ — all of it" / "0× — nothing yet". */
-	function fmtMultiple(multiple: number | null): string {
-		if (multiple == null) return '∞ — all of it';
-		if (multiple === 0) return '0× — nothing used yet';
-		return multiple >= 100 ? `${Math.round(multiple)}×` : `${multiple.toFixed(1)}×`;
-	}
 
 	let enabledProviders = $derived(rollup.providers.filter((p) => p.enabled));
 
@@ -45,7 +40,7 @@
 		<div>
 			<h2 id="subsidy-heading" class="title">Subscription subsidy</h2>
 			<p class="basis">
-				{windowLabel} · vs {money(rollup.combined.windowFeeUsd)}
+				{windowLabel} · vs {rollup.combined.windowFeeUsd === null ? 'Unknown' : money(rollup.combined.windowFeeUsd)}
 				({rollup.windowDays === 30
 					? 'your monthly fee'
 					: `${rollup.windowDays} ${rollup.windowDays === 1 ? 'day' : 'days'} of fee at 1/30 per day`})
@@ -61,14 +56,15 @@
 	<!-- COMBINED HEADLINE -->
 	<div class="headline">
 		<span class="multiple num" aria-label="combined subsidy multiple">
-			{fmtMultiple(rollup.combined.sub.multiple)}
+			{subsidyMultipleText(rollup.combined.sub)}
 		</span>
 		<p class="headline-sub">
 			<span class="num">{money(rollup.combined.sub.apiEquivalentUsd)}</span> of API value for
-			<span class="num">{money(rollup.combined.windowFeeUsd)}</span>
+			<span class="num">{rollup.combined.windowFeeUsd === null ? 'Unknown' : money(rollup.combined.windowFeeUsd)}</span>
 		</p>
 		<p class="headline-net">
-			{#if rollup.combined.sub.netSubsidyUsd >= 0}
+			{#if rollup.combined.sub.netSubsidyUsd === null}<span class="net-dim">Fee unknown</span>
+			{:else if rollup.combined.sub.netSubsidyUsd >= 0}
 				<span class="net-pos">net subsidy +{money(rollup.combined.sub.netSubsidyUsd)}</span>
 			{:else}
 				<span class="net-dim">net {money(rollup.combined.sub.netSubsidyUsd)} vs the pro-rated fee</span>
@@ -83,14 +79,15 @@
 			<li class="prov">
 				<div class="prov-top">
 					<span class="prov-name">{label}</span>
-					<span class="prov-mult num">{fmtMultiple(p.sub.multiple)}</span>
+					<span class="prov-mult num">{subsidyMultipleText(p.sub)}</span>
 				</div>
 				<div class="prov-detail">
 					<span class="num">{money(p.sub.apiEquivalentUsd)}</span> value ·
-					{#if p.sub.netSubsidyUsd >= 0}
+					{#if p.sub.netSubsidyUsd === null}<span class="net-dim">Fee unknown</span>
+					{:else if p.sub.netSubsidyUsd >= 0}
 						<span class="net-pos">+{money(p.sub.netSubsidyUsd)} subsidy</span>
 					{:else}
-						<span class="net-dim">net {money(p.sub.netSubsidyUsd)} vs {money(p.windowFeeUsd)} pro-rated</span>
+						<span class="net-dim">net {money(p.sub.netSubsidyUsd)} vs {p.windowFeeUsd === null ? 'Unknown' : money(p.windowFeeUsd)} pro-rated</span>
 					{/if}
 				</div>
 

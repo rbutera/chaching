@@ -129,6 +129,20 @@ describe('buildReceipt — sections + invariants', () => {
 });
 
 describe('buildReceipt — billed cache cost + subsidisation footer', () => {
+	it('uses the selected dates and provider for both usage and fee, including unknown fees', () => {
+		const options = {
+			period: 'month' as const,
+			range: { from: '2026-06-13', to: '2026-06-19' },
+			providers: ['claude'],
+			subscription: { claude: { enabled: true, tier: 'custom', monthlyUsd: 300 }, codex: { enabled: true, tier: 'unknown', monthlyUsd: null } }
+		};
+		const receipt = buildReceipt(snap, options);
+		expect(receipt.totalBurn).toBe(12.5);
+		expect(receipt.subsidisation).toMatchObject({ from: options.range.from, to: options.range.to, feeUsd: 70, apiEquivalentUsd: receipt.totalBurn });
+		const combined = buildReceipt(snap, { ...options, providers: [] });
+		expect(combined.subsidisation).toMatchObject({ feeUsd: null, multiple: null, netSubsidyUsd: null, apiEquivalentUsd: combined.totalBurn });
+	});
+
 	const snap = snapFrom(grain);
 	const subscription = {
 		claude: { enabled: true, tier: 'corporate', monthlyUsd: 99 },
@@ -154,11 +168,10 @@ describe('buildReceipt — billed cache cost + subsidisation footer', () => {
 		expect(m.subsidisation).toBeNull();
 	});
 
-	it('--period month shows the month-basis subsidisation with a multiple', () => {
+	it('--period month prorates a 30-day fee with a multiple', () => {
 		const m = buildReceipt(snap, { now: FIXED_NOW, period: 'month', subscription });
 		expect(m.subsidisation).not.toBeNull();
-		expect(m.subsidisation!.monthBasis).toBe(true);
-		expect(m.subsidisation!.monthlyUsd).toBe(119); // 99 + 20, both enabled
+		expect(m.subsidisation!.feeUsd).toBe(119); // 99 + 20, both enabled
 		expect(m.subsidisation!.multiple).not.toBeNull();
 		// month-to-date burn = claude+codex June burn; multiple = burn / 119
 		expect(m.subsidisation!.multiple!).toBeCloseTo(
@@ -167,16 +180,16 @@ describe('buildReceipt — billed cache cost + subsidisation footer', () => {
 		);
 	});
 
-	it('default (all-time) receipt uses the current-month headline (monthBasis)', () => {
+	it('default receipt uses its rolling window for usage and fees', () => {
 		const m = buildReceipt(snap, { now: FIXED_NOW, subscription });
-		expect(m.subsidisation!.monthBasis).toBe(true);
+		expect(m.subsidisation?.apiEquivalentUsd).toBeCloseTo(m.totalBurn);
 	});
 
-	it('--period week omits the monthly multiple (period mismatch)', () => {
+	it('--period week compares seven days of usage against seven days of fees', () => {
 		const m = buildReceipt(snap, { now: FIXED_NOW, period: 'week', subscription });
 		expect(m.subsidisation).not.toBeNull();
-		expect(m.subsidisation!.monthBasis).toBe(false);
-		expect(m.subsidisation!.multiple).toBeNull();
+		expect(m.subsidisation!.feeUsd).toBeCloseTo(119 * 7 / 30);
+		expect(m.subsidisation!.multiple).toBeCloseTo(m.subsidisation!.apiEquivalentUsd / (119 * 7 / 30));
 		expect(m.subsidisation!.periodLabel).toBe('this week');
 	});
 
