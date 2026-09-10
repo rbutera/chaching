@@ -7,6 +7,7 @@ export interface Account {
 	tier: string;
 	monthlyUsd: number | null;
 	feeSource: 'explicit' | 'inferred';
+	pendingLegacyIds?: string[];
 }
 
 export interface PrivateAccount extends Account {
@@ -26,7 +27,7 @@ export function accountFeesByProvider(config: {
 		return {
 			enabled: config.providers[provider].enabled,
 			tier: accounts.length === 1 ? accounts[0].tier : accounts.length ? `${accounts.length} accounts` : 'unknown',
-			monthlyUsd: accounts.length && accounts.length === ids.size ? sumFees(accounts.map(account => account.monthlyUsd)) : null
+			monthlyUsd: accounts.length && accounts.length === ids.size && !accounts.some(account => account.pendingLegacyIds?.length) ? sumFees(accounts.map(account => account.monthlyUsd)) : null
 		};
 	}
 	return { claude: forProvider('claude'), codex: forProvider('codex') };
@@ -39,6 +40,8 @@ export function accountConfigProblems(config: { accounts: PrivateAccount[]; prov
 	if (broken) problems.push(`${broken} broken Account link(s); repair providerAccounts in config.`);
 	const unresolved = config.accounts.filter(account => account.legacy && !account.identity).length;
 	if (unresolved) problems.push(`${unresolved} legacy Account(s) awaiting identity matching.`);
+	const pending = config.accounts.filter(account => account.pendingLegacyIds?.length).length;
+	if (pending) problems.push(`${pending} Account match(es) unresolved; use Settings to match an existing bill or keep separate.`);
 	const unknown = config.accounts.filter(account => account.monthlyUsd === null).length;
 	if (unknown) problems.push(`${unknown} Account fee(s) unknown; enter monthly fees in Settings.`);
 	return problems;

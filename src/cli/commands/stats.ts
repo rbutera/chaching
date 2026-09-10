@@ -2,7 +2,7 @@
 
 import { runOnce } from '../../lib/core/engine.js';
 import { writeSync } from 'node:fs';
-import { loadConfig } from '../../lib/core/config.js';
+import { refreshAccountDiscovery } from '../../lib/core/account-discovery.js';
 import { getPricingMeta } from '../../lib/core/pricing/cost.js';
 
 // Synchronous stdout write. The launcher force-exits one-shot commands, and a
@@ -53,7 +53,7 @@ export interface StatsFlags {
 }
 
 export async function runStats(flags: StatsFlags): Promise<void> {
-	const cfg = await loadConfig();
+	const cfg = await refreshAccountDiscovery();
 	const snapshot = await runOnce(cfg);
 
 	// --json: emit only the raw snapshot. ZERO art/decoration regardless of flags.

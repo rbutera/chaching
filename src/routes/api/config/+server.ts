@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { loadConfig, publicConfig, updateConfig, type chachingConfig } from '$lib/core/config';
+import { publicConfig, updateConfig, type chachingConfig } from '$lib/core/config';
+import { refreshAccountDiscovery, matchLegacyAccount } from '$lib/core/account-discovery';
 import { getService } from '$lib/server/service';
 
 export const GET: RequestHandler = async () => {
-	return json(publicConfig(await loadConfig()));
+	return json(publicConfig(await refreshAccountDiscovery()));
 };
 
 interface ConfigPatch {
+	match?: { discoveredId?: unknown; legacyId?: unknown };
 	/** existing cutover write (unchanged behaviour) */
 	cutoverTs?: number | null;
 	/** Update a canonical Account, or create one when id is absent. */
@@ -21,6 +23,11 @@ export const POST: RequestHandler = async ({ request }) => {
 	const body = parsed as ConfigPatch;
 	const next = await updateConfig(cfg => {
 		let next: chachingConfig = cfg;
+		if (body.match) {
+			if (typeof body.match.discoveredId !== 'string' || (body.match.legacyId !== null && typeof body.match.legacyId !== 'string')) error(400, 'Choose an Account to match.');
+			try { next = matchLegacyAccount(next, body.match.discoveredId, body.match.legacyId); }
+			catch (cause) { error(400, cause instanceof Error ? cause.message : 'Invalid Account match.'); }
+		}
 
 		let cutoverTs = cfg.cutoverTs;
 		if ('cutoverTs' in body) {
@@ -44,7 +51,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			const account = {
 				id: existing?.id ?? randomUUID(), provider, name: name.trim(), tier, monthlyUsd,
 				feeSource: patch.monthlyUsd === undefined && existing ? existing.feeSource : monthlyUsd === null ? 'inferred' as const : 'explicit' as const,
-				identity: existing?.identity ?? null, registrations: existing?.registrations ?? [], legacy: existing?.legacy ?? false
+				identity: existing?.identity ?? null, registrations: existing?.registrations ?? [], legacy: existing?.legacy ?? false,
+				...(existing?.pendingLegacyIds?.length ? { pendingLegacyIds: existing.pendingLegacyIds } : {})
 			};
 			next = {
 				...next,

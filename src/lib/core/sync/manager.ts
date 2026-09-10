@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { expandPath } from '../fs-utils';
-import { readTokenmaxxQuota } from '../providers/tokenmaxx/sqlite';
+import { readTokenmaxxAccounts, type TokenmaxxQuotaSnapshot } from '../providers/tokenmaxx/sqlite';
+import { accountQuotaSnapshot, refreshAccountDiscovery } from '../account-discovery';
 import {
 	loadConfig,
 	updateConfig,
@@ -26,10 +27,10 @@ export function localSyncStatus(error: string | null = null): SyncStatus {
 }
 
 export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus> {
-	const cfg = config ?? (await loadConfig());
-	let localQuota: ReturnType<typeof readTokenmaxxQuota> = null;
+	const cfg = config ?? (await refreshAccountDiscovery());
+	let localQuota: TokenmaxxQuotaSnapshot | null = null;
 	try {
-		localQuota = cfg.tokenmaxx.enabled ? readTokenmaxxQuota(expandPath(cfg.tokenmaxx.dbPath), cfg.sync.poolId || undefined) : null;
+		localQuota = accountQuotaSnapshot(cfg, cfg.tokenmaxx.enabled ? readTokenmaxxAccounts(expandPath(cfg.tokenmaxx.dbPath), cfg.sync.poolId || undefined) : []);
 	} catch {
 		// Quota display is supplementary; token reconciliation reports ingest failures separately.
 	}

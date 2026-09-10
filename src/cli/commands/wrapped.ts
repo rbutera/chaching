@@ -11,7 +11,7 @@ import { accountFeesByProvider } from '../../lib/core/accounts.js';
 
 import { writeSync } from 'node:fs';
 import { runOnce } from '../../lib/core/engine.js';
-import { loadConfig } from '../../lib/core/config.js';
+import { refreshAccountDiscovery } from '../../lib/core/account-discovery.js';
 import { getPricingMeta } from '../../lib/core/pricing/cost.js';
 import { noArt as resolveNoArt, receiptFooter } from '../theme/personality.js';
 import { buildWrapped } from '../wrapped/build.js';
@@ -49,7 +49,7 @@ export interface WrappedFlags {
 }
 
 export async function runWrapped(flags: WrappedFlags): Promise<void> {
-	const cfg = await loadConfig();
+	const cfg = await refreshAccountDiscovery();
 	const snapshot = await runOnce(cfg);
 
 	const noArt = flags.noArt ?? resolveNoArt();

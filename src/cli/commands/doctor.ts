@@ -14,7 +14,8 @@ import { request } from 'node:http';
 
 import { createEngine } from '../../lib/core/engine.js';
 import { accountConfigProblems } from '../../lib/core/accounts.js';
-import { loadConfig, type chachingConfig } from '../../lib/core/config.js';
+import type { chachingConfig } from '../../lib/core/config.js';
+import { refreshAccountDiscovery } from '../../lib/core/account-discovery.js';
 import { expandPath, safeMtime } from '../../lib/core/fs-utils.js';
 import { isoDayUTC } from '../../lib/core/ingest/parse.js';
 import { discoverFiles, resolveProjectsDirs } from '../../lib/core/ingest/discover.js';
@@ -281,7 +282,7 @@ export interface DoctorFlags {
 
 export async function runDoctor(argv: string[]): Promise<void> {
 	const flags = parseDoctorFlags(argv);
-	const cfg = await loadConfig();
+	const cfg = await refreshAccountDiscovery();
 	const input = await gatherDoctorInput(cfg);
 	const report = buildDoctorReport(input);
 

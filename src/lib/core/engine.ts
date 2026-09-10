@@ -13,6 +13,7 @@ import type { FrozenAgg, PublishDirtySnapshot } from './rollup/rollup';
 import { DedupSet } from './ingest/dedup';
 import { discoverFiles, resolveProjectsDirs } from './ingest/discover';
 import { ingestRange, type FileState } from './watch/tail';
+import { accountQuotaSnapshot, refreshAccountDiscovery } from './account-discovery';
 import { loadConfig, type chachingConfig, type CursorProviderConfig } from './config';
 import { expandPath, safeMtime } from './fs-utils';
 import { isoDayUTC } from './ingest/parse';
@@ -23,7 +24,7 @@ import { readPiRecords, type PiReadResult } from './providers/pi/local';
 import { readOpenCodeSessions } from './providers/opencode/sqlite';
 import {
 	readTokenmaxxAggregates,
-	readTokenmaxxQuota,
+	readTokenmaxxAccounts,
 	type TokenmaxxQuotaSnapshot
 } from './providers/tokenmaxx/sqlite';
 import { fetchCursorUsageRecords } from './providers/cursor/api';
@@ -164,7 +165,7 @@ class Ingestion {
 
 	private async start(): Promise<void> {
 		const t0 = Date.now();
-		const cfg = this.config ?? (await loadConfig());
+		const cfg = this.config ?? (await refreshAccountDiscovery());
 		this.resolvedConfig = cfg;
 		this.rollup.setCutover(cfg.cutoverTs);
 
@@ -581,7 +582,9 @@ class Ingestion {
 					correctedProviders.add(aggregate.provider);
 				}
 			}
-			this.tokenmaxxQuota = readTokenmaxxQuota(dbPath, this.resolvedConfig?.sync.poolId || undefined);
+			const current = await loadConfig();
+			const accountConfig = expandPath(current.tokenmaxx.dbPath) === dbPath ? await refreshAccountDiscovery() : this.resolvedConfig ?? current;
+			this.tokenmaxxQuota = accountQuotaSnapshot(accountConfig, readTokenmaxxAccounts(dbPath, accountConfig.sync.poolId || undefined));
 			if (this.historyStore && correctedProviders.size > 0) {
 				const frozen = this.rollup.frozenDaySet();
 				const { aggregates, sessions } = this.rollup.freezeCandidates(frozen);

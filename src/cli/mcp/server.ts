@@ -10,7 +10,7 @@ import { accountFeesByProvider } from '../../lib/core/accounts.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createEngine } from '../../lib/core/engine.js';
-import { loadConfig } from '../../lib/core/config.js';
+import { refreshAccountDiscovery } from '../../lib/core/account-discovery.js';
 import type { ProviderSubsidisationConfig, SubsidisedProvider } from '../../lib/core/subsidisation.js';
 import type { chachingConfig } from '../../lib/core/config.js';
 import { packageVersion } from '../help.js';
@@ -29,16 +29,16 @@ function subsidyConfig(
  * launcher must NOT force-exit this command.
  */
 export async function runMcp(): Promise<void> {
-	const cfg = await loadConfig();
+	const cfg = await refreshAccountDiscovery();
 	const engine = createEngine(cfg);
 	await engine.ensureStarted();
 
 	const server = new McpServer({ name: 'chaching', version: packageVersion() });
 
 	// Fresh context per tool call: the latest snapshot + live provider-health map.
-	const getContext = (): ToolContext => ({
+	const getContext = async (): Promise<ToolContext> => ({
 		snapshot: engine.snapshot(),
-		subsidyConfig: subsidyConfig(cfg),
+		subsidyConfig: subsidyConfig(await refreshAccountDiscovery()),
 		providerErrors: engine.stats.providerErrors,
 		now: Date.now()
 	});

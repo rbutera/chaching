@@ -4,8 +4,10 @@
 	import { money, providerLabel } from '$lib/format';
 	import Button from './ds/Button.svelte';
 
-	let { account, busy, onSave }: {
+	let { account, busy, onSave, matches = [], onMatch }: {
 		account: Account;
+		matches?: Account[];
+		onMatch: (id: string, legacyId: string | null) => Promise<void>;
 		busy: boolean;
 		onSave: (id: string, name: string, tier: string, monthlyUsd: number) => Promise<void>;
 	} = $props();
@@ -47,10 +49,29 @@
 			saving = false;
 		}
 	}
+	let legacyId = $state('');
+	async function match() {
+		if (!legacyId || busy || saving) return;
+		saving = true;
+		error = '';
+		try { await onMatch(account.id, legacyId === 'separate' ? null : legacyId.slice(5)); }
+		catch (cause) { error = cause instanceof Error ? cause.message : 'Could not match the Account.'; }
+		finally { saving = false; }
+	}
+
 </script>
 
 <form onsubmit={save} aria-label={`${account.name} plan`}>
 	<h4>{providerLabel(account.provider)}</h4>
+	{#if matches.length}
+		<p class="match-note">Match this login to an existing bill. Its fee is excluded until resolved.</p>
+		<label>Existing bill<select bind:value={legacyId} disabled={busy || saving}>
+			<option value="">Choose an existing bill</option>
+			<option value="separate">Separate Account — keep both fees</option>
+			{#each matches as bill (bill.id)}<option value={'bill:' + bill.id}>{bill.name} · {bill.monthlyUsd === null ? 'Unknown fee' : money(bill.monthlyUsd)}</option>{/each}
+		</select></label>
+		<Button type="button" variant="secondary" disabled={!legacyId || busy || saving} onclick={match}>{legacyId === 'separate' ? 'Keep separate' : 'Match Account'}</Button>
+	{/if}
 	<label class="account-name">Account name<input required bind:value={name} disabled={busy || saving}/></label>
 	<div class="fields">
 		<label>Plan<select bind:value={tier} onchange={selectTier} disabled={busy || saving}>
@@ -67,6 +88,7 @@
 <style>
 	form {border:1px solid var(--border);border-radius:var(--radius);padding:20px}
 	h4 {margin:0 0 16px;font-size:16px}
+	.match-note {color:var(--text-muted);margin:0 0 12px}
 	.account-name {margin-bottom:12px}
 	.fields {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:12px;align-items:end}
 	label {display:grid;gap:6px;font-size:12px;color:var(--text-muted);min-width:0}

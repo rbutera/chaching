@@ -213,6 +213,18 @@
 		}
 	}
 
+	async function onMatchAccount(discoveredId: string, legacyId: string | null) {
+		feeSaving = true;
+		try {
+			const res = await fetch(resolve('/api/config'), {
+				method: 'POST', headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ match: { discoveredId, legacyId } })
+			});
+			if (!res.ok) throw new Error(`Could not match the Account (${res.status}).`);
+			config = await res.json();
+		} finally { feeSaving = false; }
+	}
+
 	let accountError = $state('');
 	async function addAccount(provider: SubsidisedProvider) {
 		feeSaving = true;
@@ -381,7 +393,7 @@
 					<section class="plan-settings" aria-label="Plans and fees">
 						<h3>Plans and fees</h3>
 						{#each config.accounts as account (account.id)}
-							<PlanSettings {account} busy={feeSaving} onSave={onTierChange}/>
+							<PlanSettings {account} matches={config.accounts.filter(item => account.pendingLegacyIds?.includes(item.id))} busy={feeSaving} onSave={onTierChange} onMatch={onMatchAccount}/>
 						{/each}
 						<div><Button variant="secondary" disabled={feeSaving} onclick={() => addAccount('claude')}>Add Claude Account</Button> <Button variant="secondary" disabled={feeSaving} onclick={() => addAccount('codex')}>Add Codex Account</Button></div>
 						{#if accountError}<p role="alert">{accountError}</p>{/if}

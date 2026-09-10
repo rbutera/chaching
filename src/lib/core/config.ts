@@ -261,7 +261,7 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 export function publicConfig(cfg: chachingConfig): PublicchachingConfig {
 	return {
 		version: cfg.version,
-		accounts: cfg.accounts.map(({ id, provider, name, tier, monthlyUsd, feeSource }) => ({ id, provider, name, tier, monthlyUsd, feeSource })),
+		accounts: cfg.accounts.map(({ id, provider, name, tier, monthlyUsd, feeSource, pendingLegacyIds }) => ({ id, provider, name, tier, monthlyUsd, feeSource, ...(pendingLegacyIds?.length ? { pendingLegacyIds: [...pendingLegacyIds] } : {}) })),
 		providerAccounts: Object.fromEntries(Object.entries(cfg.providerAccounts).map(([provider, ids]) => [provider, [...ids]])),
 		cutoverTs: cfg.cutoverTs,
 		server: { ...cfg.server },
@@ -336,6 +336,7 @@ export async function updateConfig(change: (config: chachingConfig) => chachingC
 		const parsed: unknown = raw === null ? null : JSON.parse(raw);
 		const current = raw === null ? defaultConfig() : normalizeConfig(parsed);
 		const normalized = normalizeConfig(change(current));
+		if (raw !== null && objectRecord(parsed).version === CONFIG_VERSION && JSON.stringify(normalized) === JSON.stringify(current)) return cache = normalized;
 		if (raw !== null && objectRecord(parsed).version === undefined) await writeConfigFile(`${configFilePath()}.pre-accounts`, raw, true);
 		await writeConfigFile(configFilePath(), JSON.stringify(normalized, null, 2));
 		return cache = normalized;
@@ -464,7 +465,8 @@ function normalizeAccounts(root: Record<string, unknown>): Pick<chachingConfig, 
 		}
 		accounts.push({ id: account.id, provider: account.provider, name: account.name, tier: account.tier,
 			monthlyUsd: account.monthlyUsd, feeSource: account.feeSource, identity,
-			registrations: stringArrayOr(account.registrations, []), legacy: account.legacy === true });
+			registrations: stringArrayOr(account.registrations, []), legacy: account.legacy === true,
+			...(stringArrayOr(account.pendingLegacyIds, []).length ? { pendingLegacyIds: stringArrayOr(account.pendingLegacyIds, []) } : {}) });
 	}
 	for (const [provider, ids] of Object.entries(objectRecord(root.providerAccounts))) {
 		if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string')) throw new Error('Invalid provider Account links.');
