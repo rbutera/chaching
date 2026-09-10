@@ -241,6 +241,7 @@ export interface ModelTotal {
 	tokens: TokenCounts;
 	cost: number;
 	requests: number;
+	costUnknownRequests?: number;
 }
 
 export interface ProviderTotal {
@@ -262,6 +263,7 @@ export function aggregateByModel(dayModel: DayModelAgg[]): ModelTotal[] {
 		addInto(t.tokens, dm.tokens);
 		t.cost += dm.cost;
 		t.requests += dm.requests;
+		if (dm.costUnknownRequests) t.costUnknownRequests = (t.costUnknownRequests ?? 0) + dm.costUnknownRequests;
 	}
 	return [...m.values()].sort((a, b) => b.cost - a.cost);
 }

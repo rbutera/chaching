@@ -82,7 +82,7 @@ export class Dashboard {
 						this.subscriptionFilter = new Set(p.subscriptions);
 					// Hydrate the pinned day; clamping against a (possibly shrunk) data range
 					// happens once the snapshot lands, via reconcileFocusedDay().
-					if (typeof p.focusedDay === 'string') this.focusedDay = p.focusedDay;
+					if (typeof p.focusedDay === 'string' && vm.isCalendarDay(p.focusedDay)) this.focusedDay = p.focusedDay;
 					if (typeof p.windowEnd === 'string' && vm.isCalendarDay(p.windowEnd)) this.windowEnd = p.windowEnd > this.today ? this.today : p.windowEnd;
 					if (p.quotaView === 'current' || p.quotaView === 'all' || p.quotaView === 'provider') this.quotaView = p.quotaView;
 				}
@@ -158,15 +158,19 @@ export class Dashboard {
 
 	/** Pin the dashboard to a single day, clamped to `[earliestDay, latestDay]` (design D5/D8). */
 	setFocusedDay(snap: RollupSnapshot, day: string): void {
-		this.focusedDay = vm.clampDay(snap, day);
+		if (!vm.isCalendarDay(day)) return;
+		this.focusedDay = vm.clampDay(snap, day, this.today);
+		const range = this.periodWindow(snap);
+		if (this.focusedDay && (this.focusedDay < range.from || this.focusedDay > range.to)) {
+			this.windowEnd = this.focusedDay === this.today ? null : this.focusedDay;
+		}
 		this.persist();
 	}
 
 	/** Step the pinned day by ±n calendar days, clamped (no wrap, no-op at the bounds). */
 	stepFocusedDay(snap: RollupSnapshot, delta: number): void {
 		if (this.focusedDay == null) return;
-		this.focusedDay = vm.clampDay(snap, vm.addDaysISO(this.focusedDay, delta));
-		this.persist();
+		this.setFocusedDay(snap, vm.addDaysISO(this.focusedDay, delta));
 	}
 
 	/** Exit pinned mode, back to the rolling-period view. */
@@ -182,7 +186,7 @@ export class Dashboard {
 	 */
 	reconcileFocusedDay(snap: RollupSnapshot): void {
 		if (this.focusedDay == null) return;
-		const clamped = vm.clampDay(snap, this.focusedDay);
+		const clamped = vm.clampDay(snap, this.focusedDay, this.today);
 		if (clamped !== this.focusedDay) {
 			this.focusedDay = clamped;
 			this.persist();

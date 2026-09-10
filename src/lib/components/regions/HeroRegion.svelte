@@ -196,7 +196,7 @@
 	}
 	.hero-label {
 		margin: 0 0 0.4rem;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: 0.7rem;
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
@@ -220,7 +220,7 @@
 		align-items: baseline;
 		gap: 0.5rem;
 		margin: 0;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-3xl);
 		font-weight: var(--fw-medium);
 		letter-spacing: var(--tracking-snug);
@@ -260,7 +260,7 @@
 	}
 	.flourish {
 		margin-top: 0.5rem;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: 0.82rem;
 		color: var(--text-muted);
 	}
@@ -268,7 +268,7 @@
 		margin-top: 0.85rem;
 	}
 	.receipt-btn {
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
 		letter-spacing: var(--tracking-snug);
 		color: var(--text-on-gold);

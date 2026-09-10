@@ -75,7 +75,7 @@
 		flex: 0 0 auto;
 	}
 	.label {
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-sm);
 		color: var(--text);
 		overflow: hidden;

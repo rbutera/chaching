@@ -2,17 +2,14 @@
 	import type { FeedStore } from '$lib/client/feed.svelte';
 	import type { Dashboard } from '$lib/client/dashboard.svelte';
 	import SessionExplorer from '$lib/components/SessionExplorer.svelte';
+	import type { SortingState } from '@tanstack/svelte-table';
 
-	let { feed, dash }: { feed: FeedStore; dash: Dashboard } = $props();
+	let { feed, dash, search = $bindable(''), sorting = $bindable<SortingState | undefined>() }: {
+		feed: FeedStore; dash: Dashboard; search?: string; sorting?: SortingState;
+	} = $props();
 
 	let snap = $derived(feed.snapshot);
-	let focusedDay = $derived(dash.focusedDay);
-
-	// The explorer is cross-day by default (design D6): all banked sessions, frozen ∪ live.
-	// A pinned focusedDay deep-links it to that single day (design D8 drill-target scope).
-	let explorerSessions = $derived(
-		snap ? (focusedDay ? dash.focusedSessions(snap, focusedDay) : dash.allSessions(snap)) : []
-	);
+	let explorerSessions = $derived(snap ? dash.scopedSessions(snap) : []);
 </script>
 
 <!-- REGION 8 · SESSIONS -->
@@ -20,6 +17,8 @@
 	<section class="sessions-sec" aria-label="Sessions">
 		<div class="panel">
 			<SessionExplorer
+				bind:search
+				bind:sorting
 				sessions={explorerSessions}
 				now={snap.generatedAt || Date.now()}
 				onOpen={(s) => dash.openSessionDrill(s)}

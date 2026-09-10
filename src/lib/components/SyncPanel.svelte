@@ -367,7 +367,7 @@
 	.error,
 	.muted,
 	.danger-zone {
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 	}
 	.eyebrow,
 	h3 {
@@ -431,7 +431,7 @@
 	.rows li {
 		padding: 0.5rem 0;
 		border-bottom: 1px solid var(--border);
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: 0.75rem;
 	}
 	.rows span {
@@ -473,7 +473,7 @@
 		background: var(--surface-2);
 		color: var(--text);
 		padding: 0.45rem 0.55rem;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 	}
 	button {
 		border: 1px solid var(--border);
@@ -481,7 +481,7 @@
 		background: var(--surface-2);
 		color: var(--text-muted);
 		padding: 0.4rem 0.8rem;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
 		cursor: pointer;
 	}

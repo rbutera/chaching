@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import type { SortingState } from '@tanstack/svelte-table';
 	import { resolve } from '$app/paths';
 	import { FeedStore } from '$lib/client/feed.svelte';
 	import { Dashboard } from '$lib/client/dashboard.svelte';
@@ -38,6 +39,13 @@
 	const feed = new FeedStore();
 	const dash = new Dashboard();
 	let section = $state<'Dashboard' | 'Explore' | 'Settings'>('Dashboard');
+	let sessionSearch = $state('');
+	let sessionSorting = $state<SortingState>([{ id: 'recency', desc: true }]);
+	function exploreRecentSessions() {
+		sessionSearch = '';
+		sessionSorting = [{ id: 'recency', desc: true }];
+		section = 'Explore';
+	}
 	let now = $state(Date.now());
 
 
@@ -340,16 +348,16 @@
 				<HeroRegion {feed} {dash} {reducedMotion} {suppressArt}/>
 				<StatRowRegion {feed} {dash}/>
 				<HeatmapRegion {feed} {dash}/>
-				<ByModelRegion {feed} {dash} {syncStatus}/>
-				<ByProjectRegion {feed} {dash}/>
-				<SessionsRegion {feed} {dash}/>
+				<ByModelRegion {feed} {dash} {syncStatus} {suppressArt} reducedMotion={reducedMotion || suppressArt}/>
+				<ByProjectRegion {feed} {dash} reducedMotion={reducedMotion || suppressArt}/>
+				<SessionsRegion {feed} {dash} bind:search={sessionSearch} bind:sorting={sessionSorting}/>
 				<LifetimeRegion {feed} {dash}/>
 			{:else}
 				<SpendOverview {feed} {dash} {reducedMotion} {suppressArt}/>
 				<CommandBar {feed} {dash} {syncStatus}/>
 				<SpendChart {feed} {dash} reducedMotion={reducedMotion || suppressArt}/>
 				<QuotaRegion {dash} {syncStatus} {now} reducedMotion={reducedMotion || suppressArt}/>
-				<section aria-label="Recent sessions"><div class="section-heading"><h2>Sessions</h2><button onclick={() => section = 'Explore'}>View all →</button></div><SessionExplorer sessions={recentSessions} now={snap.generatedAt} onOpen={s => dash.openSessionDrill(s)}/></section>
+				<section aria-label="Recent sessions"><div class="section-heading"><h2>Sessions</h2><button onclick={exploreRecentSessions}>View all →</button></div><SessionExplorer compact sessions={recentSessions} now={snap.generatedAt} onOpen={s => dash.openSessionDrill(s)}/></section>
 				<ValueBandRegion {feed} {dash} {config} {syncStatus} {onTierChange}/>
 			{/if}
 		</main>

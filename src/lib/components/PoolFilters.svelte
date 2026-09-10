@@ -80,7 +80,7 @@
 	}
 	.filter-label {
 		color: var(--text-dim);
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
 		text-transform: uppercase;
 		letter-spacing: var(--tracking-caps);
@@ -92,7 +92,7 @@
 		background: var(--surface-2);
 		color: var(--text-muted);
 		padding: 0.3rem 0.7rem;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
 		cursor: pointer;
 	}

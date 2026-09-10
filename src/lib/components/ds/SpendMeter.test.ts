@@ -49,6 +49,13 @@ describe('SpendMeter', () => {
 		expect(container.querySelector('.emoji')).toBeNull();
 		expect(remark(container as HTMLElement)).toBe('full send');
 	});
+	it('no-art removes the flourish and motion while retaining the amount and window label', () => {
+		const { container } = render(SpendMeter, { amount: 75, suppressArt: true, label: 'closes 14:00' });
+		expect(container.querySelector('.remark')).toBeNull();
+		expect(container.textContent).toContain('$75.00');
+		expect(container.textContent).toContain('closes 14:00');
+		expect(container.querySelector('[data-animated]')).toHaveAttribute('data-animated', 'false');
+	});
 
 	it('marks the gauge aria-hidden', () => {
 		const { container } = render(SpendMeter, { props: { amount: 50, context: 'block' } });

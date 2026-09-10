@@ -602,6 +602,14 @@ describe('clampDay — bounds + step', () => {
 	it('returns null when there is no data range', () => {
 		expect(clampDay(snapFrom([]), '2026-06-16')).toBeNull();
 	});
+	it('allows a quiet current day when the caller supplies a live calendar bound', () => {
+		expect(clampDay(snap, '2026-06-20', '2026-06-20')).toBe('2026-06-20');
+		expect(clampDay(snap, '2026-06-21', '2026-06-20')).toBe('2026-06-20');
+		expect(clampDay(snap, '2026-02-30', '2026-06-20')).toBeNull();
+		expect(clampDay(snapFrom([]), '2026-06-20', '2026-06-20')).toBeNull();
+		const future = snapFrom([dm('2026-06-22', 'codex', 'claude-opus-4-8', 5)]);
+		expect(clampDay(future, '2026-06-20', '2026-06-20')).toBe('2026-06-20');
+	});
 
 	it('stepping via addDaysISO+clamp is a no-op at the bounds', () => {
 		// at earliest, stepping -1 then clamping stays at earliest

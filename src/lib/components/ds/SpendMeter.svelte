@@ -1,5 +1,6 @@
 <script lang="ts" module>
-	import MoneyFigure from './MoneyFigure.svelte';
+	import MoneyOdometer from './MoneyOdometer.svelte';
+	import { BLOCK_FLOURISHES, DAILY_FLOURISHES, LIFETIME_FLOURISHES, tierIndex } from '$lib/voice';
 
 	export type SpendContext = 'block' | 'daily' | 'lifetime';
 
@@ -13,41 +14,11 @@
 		label?: string;
 		/** Show the escalation emoji. Default true. */
 		showEmoji?: boolean;
+		suppressArt?: boolean;
+		reducedMotion?: boolean;
 	}
 
-	interface Rung {
-		t: number;
-		emoji: string;
-		remark: string;
-	}
-
-	// The escalation ladders, verbatim from the design reference (mirrors the
-	// product's personality module).
-	const LADDERS = {
-		block: [
-			{ t: 0, emoji: '', remark: '' },
-			{ t: 10, emoji: '💸', remark: 'warming up' },
-			{ t: 30, emoji: '💸💸', remark: 'getting spicy' },
-			{ t: 75, emoji: '🔥', remark: 'full send' },
-			{ t: 120, emoji: '🔥🔥', remark: 'please take a break' },
-			{ t: 200, emoji: '🚨', remark: 'the register is on fire' }
-		],
-		daily: [
-			{ t: 0, emoji: '', remark: '' },
-			{ t: 20, emoji: '💰', remark: 'decent day' },
-			{ t: 50, emoji: '💸', remark: 'treating yourself' },
-			{ t: 100, emoji: '💸💸', remark: 'big day' },
-			{ t: 200, emoji: '🔥', remark: 'account on fire' },
-			{ t: 500, emoji: '🚨🚨', remark: 'send help' }
-		],
-		lifetime: [
-			{ t: 0, emoji: '', remark: '' },
-			{ t: 100, emoji: '💰', remark: "you've committed" },
-			{ t: 500, emoji: '💸', remark: 'well into it now' },
-			{ t: 1000, emoji: '🔥', remark: 'you live here now' },
-			{ t: 5000, emoji: '🚨', remark: 'write a blog post' }
-		]
-	} satisfies Record<SpendContext, Rung[]>;
+	const LADDERS = { block: BLOCK_FLOURISHES, daily: DAILY_FLOURISHES, lifetime: LIFETIME_FLOURISHES };
 
 	// calm → warm → hot → alarm, by how high up the ladder we are.
 	const TIER_COLORS = [
@@ -68,30 +39,28 @@
 		context = 'block',
 		max,
 		label,
-		showEmoji = true
+		showEmoji = true,
+		suppressArt = false,
+		reducedMotion = false
 	}: SpendMeterProps = $props();
 
 	const ladder = $derived(LADDERS[context] ?? LADDERS.block);
 
-	const idx = $derived.by(() => {
-		let i = 0;
-		for (let j = 0; j < ladder.length; j++) if (amount >= ladder[j].t) i = j;
-		return i;
-	});
+	const idx = $derived(tierIndex(amount, ladder));
 	const tier = $derived(ladder[idx]);
 	const color = $derived(
 		TIER_COLORS[
 			Math.min(TIER_COLORS.length - 1, Math.floor((idx / (ladder.length - 1)) * TIER_COLORS.length))
 		] || TIER_COLORS[0]
 	);
-	const ceiling = $derived(max ?? ladder[ladder.length - 1].t);
+	const ceiling = $derived(max ?? ladder[ladder.length - 1].threshold);
 	const frac = $derived(Math.max(0.03, Math.min(1, amount / ceiling)));
 </script>
 
-<div class="spendmeter">
+<div class="spendmeter" class:still={reducedMotion || suppressArt}>
 	<div class="row">
-		<MoneyFigure {amount} size="md" tone="default" />
-		{#if tier.remark}
+		<MoneyOdometer {amount} size="md" tone="default" reducedMotion={reducedMotion || suppressArt} />
+		{#if tier.remark && !suppressArt}
 			<span class="remark">
 				{#if showEmoji && tier.emoji}<span class="emoji">{tier.emoji}</span>{/if}{tier.remark}
 			</span>
@@ -116,7 +85,7 @@
 		gap: 12px;
 	}
 	.remark {
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-xs);
 		color: var(--text-muted);
 		white-space: nowrap;
@@ -140,7 +109,7 @@
 		);
 	}
 	.caption {
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
 		font-weight: var(--fw-medium);
 		text-transform: uppercase;
@@ -153,4 +122,5 @@
 			transition: width var(--dur-slow) var(--ease-snap);
 		}
 	}
+	.still .fill { transition: none; }
 </style>

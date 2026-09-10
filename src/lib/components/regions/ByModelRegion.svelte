@@ -4,16 +4,19 @@
 	import type { SyncStatusView } from '$lib/client/sync';
 	import SpendChart from './SpendChart.svelte';
 	import Donut from '$lib/components/Donut.svelte';
+	import BreakdownTable from '$lib/components/BreakdownTable.svelte';
 	import SpendMeter from '$lib/components/ds/SpendMeter.svelte';
 	import Divider from '$lib/components/ds/Divider.svelte';
-	import { money, compactTokens } from '$lib/format';
+	import { money, compactTokens, modelColor, modelLabel } from '$lib/format';
 	import { totalTokens } from '$lib/core/aggregate';
 
 	let {
 		feed,
 		dash,
-		syncStatus
-	}: { feed: FeedStore; dash: Dashboard; syncStatus: SyncStatusView | null } = $props();
+		syncStatus,
+		reducedMotion = false,
+		suppressArt = false
+	}: { feed: FeedStore; dash: Dashboard; syncStatus: SyncStatusView | null; reducedMotion?: boolean; suppressArt?: boolean } = $props();
 
 	let snap = $derived(feed.snapshot);
 	let focusedDay = $derived(dash.focusedDay);
@@ -22,54 +25,32 @@
 	let modelTotals = $derived(
 		snap ? (focusedDay ? dash.focusedModels(snap, focusedDay) : dash.models(snap)) : []
 	);
+	let modelRows = $derived(modelTotals.map(model => ({
+		id: model.model, name: modelLabel(model.model), detail: model.model,
+		cost: model.cost, tokens: totalTokens(model.tokens), count: model.requests, color: modelColor(model.model), costUnknownRequests: model.costUnknownRequests
+	})));
 	let poolFilterActive = $derived(dash.machineFilter.size > 0 || dash.subscriptionFilter.size > 0);
 	// Five-hour blocks currently carry no attribution dimension. Suppress this one
 	// panel under a pool filter instead of showing a whole-pool number in a scoped view.
 	let activeBlock = $derived(poolFilterActive ? null : (snap?.blocks.find((b) => b.isActive) ?? null));
-	let tokenmaxxQuotas = $derived(
-		(syncStatus?.providerQuotas ?? []).flatMap((status) =>
-			status.source === 'tokenmaxx'
-				? status.accounts.flatMap((account) => {
-					const window = account.windows.find((candidate) => candidate.id === 'weekly_all');
-					return window ? [{ ...account, window, machineId: status.machineId }] : [];
-				})
-				: []
-		)
-	);
-
 </script>
 
 <!-- REGION 7 · BY-MODEL / 5H WINDOW GRID -->
 {#if snap}
 	<section class="grid2">
 		<div class="panel by-model">
-			<SpendChart {feed} {dash}/>
+			<SpendChart {feed} {dash} {reducedMotion}/>
 			<div class="model-break">
-				<h2 class="panel-title"><span>by model</span></h2>
-				<Donut models={modelTotals} activeFilter={dash.modelFilter} onToggle={(m) => dash.toggleModel(m)} />
+				<h2 class="panel-title"><span>Models</span></h2>
+				<Donut showLegend={false} models={modelTotals} activeFilter={dash.modelFilter} onToggle={(m) => dash.toggleModel(m)} />
+				<BreakdownTable rows={modelRows} label="Models" countLabel="Requests" selected={dash.modelFilter} onToggle={model => dash.toggleModel(model)} {reducedMotion}/>
 			</div>
 		</div>
 
 		<div class="panel cap-panel">
-			{#if tokenmaxxQuotas.length > 0}
-				<h2 class="panel-title"><span>Anthropic quota · Tokenmaxx</span></h2>
-				<div class="quota-list">
-					{#each tokenmaxxQuotas as quota (`${quota.machineId}:${quota.label}`)}
-						<div class="quota-row">
-							<div class="quota-head">
-								<span>{quota.label}</span>
-								<strong>{Math.round(quota.window.usedPercent)}%</strong>
-							</div>
-							<progress max="100" value={quota.window.usedPercent}></progress>
-							<p>{quota.window.resetAt ? `resets ${new Date(quota.window.resetAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : 'reset pending'}</p>
-						</div>
-					{/each}
-				</div>
-				<Divider variant="solid" />
-			{/if}
-			<h2 class="panel-title"><span>5-hour API-cost window</span></h2>
+			<h2 class="panel-title"><span>5h spend</span></h2>
 			{#if activeBlock}
-				<SpendMeter amount={activeBlock.cost} context="block" label={`closes ${new Date(activeBlock.endTs).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`} />
+				<SpendMeter {suppressArt} {reducedMotion} amount={activeBlock.cost} context="block" label={`closes ${new Date(activeBlock.endTs).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`} />
 				<p class="cap-sub">{compactTokens(totalTokens(activeBlock.tokens))} tokens this window</p>
 			{:else if poolFilterActive}
 				<p class="empty">5-hour windows are whole-pool only. Clear pool filters to view them.</p>
@@ -123,7 +104,7 @@
 	}
 	.panel-title {
 		margin: 0 0 0.85rem;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: 0.7rem;
 		color: var(--text-dim);
 		text-transform: uppercase;
@@ -139,46 +120,18 @@
 		color: var(--text-dim);
 		text-align: center;
 		padding: 2rem 1rem;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: 0.85rem;
 	}
 	.cap-sub {
 		margin: 0.6rem 0 0;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: 0.76rem;
 		color: var(--text-muted);
 	}
-	.quota-list {
-		display: grid;
-		gap: 0.8rem;
-		margin-bottom: 1rem;
-	}
-	.quota-row {
-		display: grid;
-		gap: 0.25rem;
-	}
-	.quota-head {
-		display: flex;
-		justify-content: space-between;
-		gap: 1rem;
-		font-size: 0.8rem;
-	}
-	.quota-head strong {
-		font-family: var(--font-mono);
-	}
-	.quota-row progress {
-		width: 100%;
-		height: 0.55rem;
-		accent-color: var(--accent);
-	}
-	.quota-row p {
-		margin: 0;
-		color: var(--text-dim);
-		font-size: 0.68rem;
-	}
 	.cap-note {
 		margin: 0.6rem 0 0;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: 0.7rem;
 		line-height: 1.5;
 		color: var(--text-dim);
@@ -197,7 +150,7 @@
 	.recent-blocks li {
 		display: flex;
 		justify-content: space-between;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: 0.8rem;
 	}
 	.blk-sub {

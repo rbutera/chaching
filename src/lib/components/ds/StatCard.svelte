@@ -67,7 +67,7 @@
 		overflow: hidden;
 	}
 	.label {
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
 		font-weight: var(--fw-medium);
 		text-transform: uppercase;
@@ -86,7 +86,7 @@
 	.sub {
 		font-size: var(--text-xs);
 		color: var(--text-muted);
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 	}
 	.accent-bar {
 		position: absolute;

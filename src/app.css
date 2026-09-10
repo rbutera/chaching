@@ -421,9 +421,9 @@ samp {
 	letter-spacing: var(--tracking-snug);
 }
 
-/* Uppercase mono micro-label — the recurring "TOTAL BURN", "BY MODEL" tag */
+/* Uppercase micro-label — the recurring "TOTAL BURN", "BY MODEL" tag */
 .label-caps {
-	font-family: var(--font-mono);
+	font-family: var(--font-sans);
 	font-size: var(--text-2xs);
 	font-weight: var(--fw-medium);
 	text-transform: uppercase;

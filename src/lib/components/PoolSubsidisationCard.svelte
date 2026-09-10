@@ -79,7 +79,7 @@
 	h2,
 	li,
 	.total {
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 	}
 	.eyebrow {
 		margin: 0;
@@ -136,7 +136,7 @@
 	}
 	.fee-note {
 		margin: 0.5rem 0 0;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
 		color: var(--text-dim);
 	}

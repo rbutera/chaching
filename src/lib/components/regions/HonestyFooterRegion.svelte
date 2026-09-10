@@ -58,7 +58,7 @@
 		border: 1px solid var(--border);
 		border-radius: var(--radius);
 		color: var(--text-muted);
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: 0.78rem;
 		line-height: 1.6;
 	}

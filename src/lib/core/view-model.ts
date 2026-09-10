@@ -567,6 +567,7 @@ export interface ProjectTotal {
 	tokens: TokenCounts;
 	cost: number;
 	requests: number;
+	costUnknownRequests?: number;
 	/** number of scoped sessions attributed to this project. */
 	sessionCount: number;
 	/** contributing providers, by descending cost within the project (drives "top provider"). */
@@ -614,6 +615,7 @@ export function aggregateProjects(sessions: SessionSummary[]): ProjectTotal[] {
 		tokens: TokenCounts;
 		cost: number;
 		requests: number;
+		costUnknownRequests: number;
 		sessionCount: number;
 		providerCost: Map<string, number>;
 	}
@@ -634,6 +636,7 @@ export function aggregateProjects(sessions: SessionSummary[]): ProjectTotal[] {
 				tokens: zeroTokens(),
 				cost: 0,
 				requests: 0,
+				costUnknownRequests: 0,
 				sessionCount: 0,
 				providerCost: new Map()
 			};
@@ -642,6 +645,7 @@ export function aggregateProjects(sessions: SessionSummary[]): ProjectTotal[] {
 		addTokensInto(acc.tokens, s.tokens);
 		acc.cost += s.cost;
 		acc.requests += s.requests;
+		acc.costUnknownRequests += s.costUnknownRequests;
 		acc.sessionCount += 1;
 		acc.providerCost.set(s.provider, (acc.providerCost.get(s.provider) ?? 0) + s.cost);
 	}
@@ -651,6 +655,7 @@ export function aggregateProjects(sessions: SessionSummary[]): ProjectTotal[] {
 		tokens: acc.tokens,
 		cost: acc.cost,
 		requests: acc.requests,
+		...(acc.costUnknownRequests ? { costUnknownRequests: acc.costUnknownRequests } : {}),
 		sessionCount: acc.sessionCount,
 		providers: [...acc.providerCost.entries()]
 			.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
@@ -771,10 +776,11 @@ export function focusedSessions(snap: RollupSnapshot, day: string, state: ViewSt
 }
 
 /** Clamp a day into `[earliestDay, latestDay]`; returns null when there's no data range. */
-export function clampDay(snap: RollupSnapshot, day: string): string | null {
-	const lo = snap.earliestDay;
-	const hi = snap.latestDay;
-	if (lo == null || hi == null) return null;
+export function clampDay(snap: RollupSnapshot, day: string, latestDay = snap.latestDay): string | null {
+	if (!isCalendarDay(day)) return null;
+	if (snap.earliestDay == null || snap.latestDay == null || latestDay == null) return null;
+	const lo = snap.earliestDay < latestDay ? snap.earliestDay : latestDay;
+	const hi = latestDay;
 	if (day < lo) return lo;
 	if (day > hi) return hi;
 	return day;

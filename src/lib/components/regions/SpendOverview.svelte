@@ -20,7 +20,7 @@
 <section class="spend-overview" aria-label="Spend overview">
 	<div title="This machine's active five-hour block">
 		<span class="label">5h block</span>
-		{#if activeBlock}<MoneyOdometer amount={activeBlock.cost} tone="default" size="hero" {reducedMotion}/>{:else}<span class="unavailable">—</span>{/if}
+		{#if activeBlock}<MoneyOdometer amount={activeBlock.cost} tone="default" size="hero" reducedMotion={reducedMotion || suppressArt}/>{:else}<span class="unavailable">—</span>{/if}
 		{#if activeBlock && !suppressArt}<small>{formatFlourishText(flourishFor(activeBlock.cost, BLOCK_FLOURISHES))}</small>{/if}
 	</div>
 	{#each periods as item (item.period)}
@@ -29,7 +29,7 @@
 		<div>
 			<button onclick={() => { dash.setWindowEnd(null); dash.setPeriod(item.period); }}>
 				<span class="label">{item.label}</span>
-				{#if item.period === 'day' && item.data.current.coverage.worst === 'missing'}<span class="unavailable">{coverageWord('missing')}</span>{:else}<MoneyOdometer amount={item.data.current.cost} tone="default" size="hero" {reducedMotion}/>{/if}
+				{#if item.period === 'day' && item.data.current.coverage.worst === 'missing'}<span class="unavailable">{coverageWord('missing')}</span>{:else}<MoneyOdometer amount={item.data.current.cost} tone="default" size="hero" reducedMotion={reducedMotion || suppressArt}/>{/if}
 			</button>
 			{#if delta}<span class="delta {delta.dir}" title={`Compared with ${item.baseline}`} aria-label={`${delta.text} compared with ${item.baseline}`}>{delta.text}</span>{/if}
 			{#if flourish && !suppressArt && item.data.current.cost > 0}<small>{flourish}</small>{/if}

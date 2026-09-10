@@ -207,6 +207,65 @@ describe('dashboard route — landmarks + structure (a11y, layout adoption)', ()
 });
 
 describe('dashboard route — behavior contracts', () => {
+	it('marks unpriced model and project totals as unknown rather than free', async () => {
+		const snap = richSnap();
+		snap.dayModel.push({ ...dm('2026-06-19', 'claude', 'unpriced-model', 0), costUnknownRequests: 1 });
+		snap.sessions.push(session({ sessionId: 'unpriced', project: '/unpriced-project', models: ['unpriced-model'], cost: 0, requests: 1, costUnknownRequests: 1 }));
+		snapshotToEmit = snap;
+		const { getByRole } = render(Page);
+		await flush();
+		await fireEvent.click(getByRole('button', { name: 'Explore' }));
+		for (const label of ['Models', 'Projects']) {
+			const table = getByRole('table', { name: label });
+			expect(table).toHaveTextContent('Unknown');
+			expect(table).toHaveTextContent('Partial');
+		}
+	});
+
+	it('keeps Explore search and sorting across views while View all opens recent scoped sessions', async () => {
+		const snap = richSnap();
+		snap.sessions.push(session({ sessionId: 'old', project: '/old-project', firstTs: Date.parse('2026-05-01'), lastTs: Date.parse('2026-05-01'), cost: 999 }));
+		snap.earliestDay = '2026-05-01';
+		snapshotToEmit = snap;
+		const { getByRole, getByLabelText, queryByLabelText, queryByText } = render(Page);
+		await flush();
+		expect(queryByLabelText('Search sessions by project')).toBeNull();
+		await fireEvent.click(getByRole('button', { name: 'Explore' }));
+		expect(queryByText('old-project')).toBeNull();
+		await fireEvent.input(getByLabelText('Search sessions by project'), { target: { value: 'orca' } });
+		await fireEvent.click(getByRole('button', { name: /^Sort by Cost/ }));
+		await fireEvent.click(getByRole('button', { name: 'Dashboard' }));
+		await fireEvent.click(getByRole('button', { name: 'Explore' }));
+		expect(getByLabelText('Search sessions by project')).toHaveValue('orca');
+		expect(getByRole('button', { name: /^Sort by Cost, descending/ })).toHaveAttribute('aria-pressed', 'true');
+		await fireEvent.click(getByRole('button', { name: 'Dashboard' }));
+		await fireEvent.click(getByRole('button', { name: /^View all/ }));
+		expect(getByLabelText('Search sessions by project')).toHaveValue('');
+		expect(getByRole('button', { name: /^Sort by Last active, descending/ })).toHaveAttribute('aria-pressed', 'true');
+		expect(queryByText('old-project')).toBeNull();
+		await fireEvent.click(getByRole('tab', { name: 'All' }));
+		expect(getByRole('button', { name: /^old-project,.*Open session detail/ })).toBeTruthy();
+	});
+
+	it('navigates through quiet today and preserves day focus when choosing a date', async () => {
+		vi.setSystemTime(new Date('2026-06-20T12:00:00Z'));
+		snapshotToEmit = richSnap();
+		const { getByRole, getByLabelText } = render(Page);
+		await flush();
+		await fireEvent.click(getByRole('button', { name: /^20 Jun.*Open the day's detail/ }));
+		expect(getByLabelText('Window ending date')).toHaveValue('2026-06-20');
+		expect(getByRole('button', { name: 'Next window' })).toBeDisabled();
+		await fireEvent.click(getByRole('button', { name: 'Previous window' }));
+		expect(getByLabelText('Window ending date')).toHaveValue('2026-06-19');
+		await fireEvent.change(getByLabelText('Window ending date'), { target: { value: '2026-06-18' } });
+		const saved = JSON.parse(localStorage.getItem('chaching.ui.v1')!);
+		expect(saved.focusedDay).toBe('2026-06-18');
+		expect(saved.period).toBe('month');
+		await fireEvent.click(getByRole('button', { name: 'Latest' }));
+		expect(getByLabelText('Window ending date')).toHaveValue('2026-06-20');
+		expect(JSON.parse(localStorage.getItem('chaching.ui.v1')!).focusedDay).toBeNull();
+	});
+
 	it('does not let a pending quota refresh restore a pool after leaving it', async () => {
 		vi.useFakeTimers();
 		snapshotToEmit = richSnap();
@@ -281,7 +340,7 @@ describe('dashboard route — behavior contracts', () => {
 		await flush();
 		await fireEvent.click(getByRole('button', { name: 'Explore' }));
 		expect(container.querySelector('.by-model')).toBeTruthy();
-		expect((container.textContent ?? '').toLowerCase()).toContain('by model');
+		expect(getByRole('table', { name: 'Models' })).toBeTruthy();
 	});
 
 	it('P13: 5h API-cost panel + recent blocks render', async () => {
@@ -290,7 +349,7 @@ describe('dashboard route — behavior contracts', () => {
 		await flush();
 		await fireEvent.click(getByRole('button', { name: 'Explore' }));
 		expect(container.querySelector('.cap-panel')).toBeTruthy();
-		expect((container.textContent ?? '').toLowerCase()).toContain('api-cost window');
+		expect((container.textContent ?? '').toLowerCase()).toContain('5h spend');
 		expect(container.querySelectorAll('.recent-blocks li').length).toBeGreaterThan(0);
 	});
 

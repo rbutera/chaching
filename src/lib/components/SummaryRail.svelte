@@ -131,7 +131,7 @@
 	}
 	.rail-label {
 		margin: 0;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
 		text-transform: uppercase;
 		letter-spacing: var(--tracking-caps);
@@ -150,7 +150,7 @@
 		align-items: baseline;
 		gap: 0.4rem;
 		margin: 0;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-lg);
 		font-weight: var(--fw-medium);
 		letter-spacing: var(--tracking-snug);
@@ -164,7 +164,7 @@
 	}
 	.rail-scope {
 		margin: 0;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
 		color: var(--accent);
 	}
@@ -180,7 +180,7 @@
 		gap: 0.5rem;
 	}
 	.rail-meta dt {
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
 		text-transform: uppercase;
 		letter-spacing: var(--tracking-wide);
