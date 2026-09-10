@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { entries as fixtureEntries } from './prototype-data';
+	import { createTable, tableFeatures, rowSortingFeature, createSortedRowModel, sortFns, type ColumnDef, type SortingState, type Table } from '@tanstack/svelte-table';
 	type Entry = (typeof fixtureEntries)[number];
 	type Field = 'model' | 'project';
 	let { entries, onselect }: { entries: Entry[]; onselect: (entry: Entry) => void } = $props();
@@ -10,7 +11,7 @@
 	const fields: Field[] = ['model', 'project'];
 	const dollars = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 	let query = $state('');
-	let sort = $state('cost');
+	let sorting = $state<SortingState>([{ id: 'cost', desc: true }]);
 	let page = $state(0);
 	let groups = $derived(fields.map(field => {
 		const totals = new Map<string, { name: string; cents: number; count: number }>();
@@ -26,10 +27,23 @@
 			.sort((a, b) => filters[field].sort === 'name' ? a.name.localeCompare(b.name) : b.cents - a.cents || a.name.localeCompare(b.name));
 		return { field, rows, total: totals.size, page: Math.min(filters[field].page, Math.max(0, Math.ceil(rows.length / 8) - 1)) };
 	}));
-	let sessions = $derived(entries
+	let filteredSessions = $derived(entries
 		.filter(entry => fields.every(field => !filters[field].selected || entry[field] === filters[field].selected))
-		.filter(entry => `${entry.name} ${entry.project} ${entry.model}`.toLowerCase().includes(query.trim().toLowerCase()))
-		.toSorted((a, b) => sort === 'newest' ? a.day - b.day || b.cost - a.cost : b.cost - a.cost || a.day - b.day));
+		.filter(entry => `${entry.name} ${entry.project} ${entry.model}`.toLowerCase().includes(query.trim().toLowerCase())));
+	const features = tableFeatures({ rowSortingFeature, sortedRowModel: createSortedRowModel(), sortFns });
+	const columns: ColumnDef<typeof features, Entry, unknown>[] = [
+		{ id: 'name', accessorKey: 'name' },
+		{ id: 'cost', accessorKey: 'cost', sortDescFirst: true },
+		{ id: 'day', accessorFn: entry => entry.day * 1440 - Number(entry.time.slice(-5, -3)) * 60 - Number(entry.time.slice(-2)), sortDescFirst: false }
+	];
+	const table: Table<typeof features, Entry> = createTable<typeof features, Entry>({
+		features, columns, get data() { return filteredSessions; },
+		state: { get sorting() { return sorting; } },
+		onSortingChange: updater => { sorting = typeof updater === 'function' ? updater(sorting) : updater; page = 0; }
+	});
+	let sessions = $derived(table.getRowModel().rows.map(row => row.original));
+	function sortBy(id: string) { table.getColumn(id)?.toggleSorting(); }
+	function sortLabel(id: string) { return sorting[0]?.id === id ? sorting[0].desc ? 'descending' : 'ascending' : 'none'; }
 	let sessionPage = $derived(Math.min(page, Math.max(0, Math.ceil(sessions.length / 10) - 1)));
 	function select(field: Field, name: string) {
 		filters[field].selected = filters[field].selected === name ? '' : name;
@@ -48,7 +62,7 @@
 				</select>
 			</div>
 			<table>
-				<thead><tr><th>{group.field === 'model' ? 'Model' : 'Project'}</th><th class="number">Sessions</th><th class="number">Spend</th></tr></thead>
+				<thead><tr><th><button onclick={() => { filters[group.field].sort = 'name'; filters[group.field].page = 0; }}>{group.field === 'model' ? 'Model' : 'Project'}</button></th><th class="number">Sessions</th><th class="number"><button onclick={() => { filters[group.field].sort = 'cost'; filters[group.field].page = 0; }}>Spend ↓</button></th></tr></thead>
 				<tbody>
 					{#each group.rows.slice(group.page * 8, group.page * 8 + 8) as row (row.name)}
 						<tr class:selected={filters[group.field].selected === row.name}>
@@ -78,10 +92,10 @@
 	{/if}
 	<div class="controls">
 		<input type="search" aria-label="Search sessions" placeholder="Search sessions, projects or models" bind:value={query} oninput={() => page = 0} />
-		<select aria-label="Sort sessions" bind:value={sort} onchange={() => page = 0}><option value="cost">Highest spend</option><option value="newest">Newest first</option></select>
+		<select aria-label="Sort sessions" value={sorting[0]?.id} onchange={e => { sorting = [{ id: e.currentTarget.value, desc: e.currentTarget.value === 'cost' }]; page = 0; }}><option value="cost">Highest spend</option><option value="day">Newest first</option><option value="name">Name A–Z</option></select>
 	</div>
 	<table>
-		<thead><tr><th>Session</th><th class="number">Spend</th></tr></thead>
+		<thead><tr><th aria-sort={sortLabel('name')}><button onclick={() => sortBy('name')}>Session {sorting[0]?.id === 'name' ? sorting[0].desc ? '↓' : '↑' : ''}</button></th><th class="number" aria-sort={sortLabel('cost')}><button onclick={() => sortBy('cost')}>Spend {sorting[0]?.id === 'cost' ? sorting[0].desc ? '↓' : '↑' : ''}</button></th></tr></thead>
 		<tbody>
 			{#each sessions.slice(sessionPage * 10, sessionPage * 10 + 10) as entry}
 				<tr><td><button class="row-link" onclick={() => onselect(entry)}>{entry.name}</button><small>{entry.project} · {entry.model} · {entry.time}</small></td><td class="number amount">{dollars(entry.cost)}</td></tr>
@@ -96,12 +110,12 @@
 	section { min-width: 0; }
 	header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
 	h2 { font-size: 18px; margin: 0; }
-	header span, small, nav span { color: var(--text-muted); font: 11px var(--font-mono); }
+	header span, small, nav span { color: var(--text-muted); font: 11px var(--font-sans); }
 	.controls { display: flex; gap: 8px; margin-bottom: 8px; }
-	input, select, nav button, .selections button { min-height: 34px; border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; background: var(--surface-2); color: var(--text); font: 11px var(--font-mono); }
+	input, select, nav button, .selections button { min-height: 34px; border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; background: var(--surface-2); color: var(--text); font: 11px var(--font-sans); }
 	input { min-width: 0; width: 100%; }
 	select { max-width: 145px; }
-	table { border-collapse: collapse; width: 100%; table-layout: fixed; font: 11px var(--font-mono); }
+	table { border-collapse: collapse; width: 100%; table-layout: fixed; font: 11px var(--font-sans); }
 	th { color: var(--text-muted); text-align: left; font-weight: 400; padding: 8px 0; }
 	td { padding: 7px 0; border-top: 1px solid var(--border-faint); overflow-wrap: anywhere; }
 	th:first-child, td:first-child { width: 54%; padding-right: 8px; }
@@ -121,4 +135,6 @@
 	.selections { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 	.empty { padding: 20px 0; color: var(--text-muted); }
 	@media (max-width: 700px) { .breakdowns { grid-template-columns: 1fr; gap: 20px; } }
+
+	th button{color:inherit;font:inherit;min-height:30px}th[aria-sort=ascending],th[aria-sort=descending]{color:var(--text)}
 </style>

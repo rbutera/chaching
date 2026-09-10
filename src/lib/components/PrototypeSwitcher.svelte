@@ -84,15 +84,15 @@
 		color-scheme: light;
 	}
 	.compact { display: none; }
-	summary { min-height: 44px; padding: 12px; cursor: pointer; font: 12px / 20px var(--font-mono); }
+	summary { min-height: 44px; padding: 12px; cursor: pointer; font: 12px / 20px var(--font-sans); }
 	summary:focus-visible { outline: 2px solid var(--cream-ink); outline-offset: 2px; }
 	.variant-controls { display: flex; align-items: center; min-width: 0; gap: 8px; }
 	.variant-label { min-width: 168px; display: grid; gap: 4px; text-align: center; }
-	.variant-label span { font: 10px var(--font-mono); letter-spacing: .08em; }
+	.variant-label span { font: 10px var(--font-sans); letter-spacing: .08em; }
 	.variant-label strong { font-size: 14px; white-space: nowrap; }
 	button { min-width: 44px; min-height: 44px; border-radius: var(--radius-xs); font-size: 22px; }
 	button:hover { background: var(--cream-200); }
-	select { min-height: 44px; max-width: 100%; padding: 0 28px 0 12px; border: 1px solid var(--cream-300); border-radius: var(--radius-xs); background: var(--cream-100); color: var(--cream-ink); font: 12px var(--font-mono); cursor: pointer; }
+	select { min-height: 44px; max-width: 100%; padding: 0 28px 0 12px; border: 1px solid var(--cream-300); border-radius: var(--radius-xs); background: var(--cream-100); color: var(--cream-ink); font: 12px var(--font-sans); cursor: pointer; }
 	button:focus-visible, select:focus-visible { outline: 2px solid var(--cream-ink); outline-offset: 2px; }
 	@media (max-width: 650px), (max-height: 650px) {
 		.desktop { display: none; }
