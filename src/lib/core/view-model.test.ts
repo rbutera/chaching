@@ -14,6 +14,7 @@ import {
 	focusedSessions,
 	focusedTotals,
 	heroTotals,
+	headlineTotals,
 	inWindow,
 	isLive,
 	models,
@@ -1113,5 +1114,39 @@ describe('pooled machine and subscription filters', () => {
 			machineFilter: new Set(['kinto'])
 		};
 		expect(byDay(snapshot, state)[0]?.coverage).toBe('partial');
+	});
+});
+
+
+describe('dashboard explicit date windows', () => {
+	it('keeps actual-today headlines independent of historic selection and applies scope to both periods', () => {
+		const snap = snapFrom([
+			dm('2026-09-08', 'codex', 'gpt', 8),
+			dm('2026-09-09', 'codex', 'gpt', 12),
+			dm('2026-09-10', 'codex', 'gpt', 3),
+			dm('2026-09-10', 'claude', 'opus', 90)
+		]);
+		const state = { ...defaultViewState('day'), windowEnd: '2026-09-09', providerFilter: new Set(['codex']) };
+		expect(heroTotals(snap, state).current.cost).toBe(12);
+		expect(heroTotals(snap, state).prior.cost).toBe(8);
+		const headlines = headlineTotals(snap, state, '2026-09-10');
+		expect(headlines.today.current.cost).toBe(3);
+		expect(headlines.today.prior.cost).toBe(12);
+		expect(headlines.all.current.cost).toBe(23);
+		expect(headlines.all.priorHasBaseline).toBe(false);
+	});
+
+	it('does not substitute the last recorded day for a quiet current day', () => {
+		const snap = snapFrom([dm('2026-09-09', 'codex', 'gpt', 12)]);
+		const headlines = headlineTotals(snap, defaultViewState(), '2026-09-10');
+		expect(headlines.today.current.cost).toBe(0);
+		expect(headlines.today.current.coverage.worst).toBe('missing');
+		expect(headlines.today.prior.cost).toBe(12);
+	});
+
+	it('resolves disjoint thirty-day windows across a year boundary', () => {
+		const snap = snapFrom([]);
+		const range = periodWindow(snap, { ...defaultViewState('month'), windowEnd: '2026-01-10' });
+		expect(range).toMatchObject({ from: '2025-12-12', to: '2026-01-10', priorFrom: '2025-11-12', priorTo: '2025-12-11' });
 	});
 });

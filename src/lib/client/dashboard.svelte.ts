@@ -46,10 +46,15 @@ interface PersistedUI {
 	subscriptions?: string[];
 	/** the pinned single-day focus (YYYY-MM-DD), or absent/null for rolling-period mode */
 	focusedDay?: string | null;
+	windowEnd?: string | null;
+	quotaView?: 'current' | 'all' | 'provider';
 }
 
 export class Dashboard {
-	period = $state<Period>('week');
+	period = $state<Period>('month');
+	today = $state(vm.todayUTC());
+	windowEnd = $state<string | null>(null);
+	quotaView = $state<'current' | 'all' | 'provider'>('current');
 	/** empty = all models; otherwise scope the whole dashboard to these models */
 	modelFilter = $state<Set<string>>(new Set());
 	providerFilter = $state<Set<string>>(new Set());
@@ -78,6 +83,8 @@ export class Dashboard {
 					// Hydrate the pinned day; clamping against a (possibly shrunk) data range
 					// happens once the snapshot lands, via reconcileFocusedDay().
 					if (typeof p.focusedDay === 'string') this.focusedDay = p.focusedDay;
+					if (typeof p.windowEnd === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.windowEnd) && !Number.isNaN(Date.parse(p.windowEnd))) this.windowEnd = p.windowEnd > this.today ? this.today : p.windowEnd;
+					if (p.quotaView === 'current' || p.quotaView === 'all' || p.quotaView === 'provider') this.quotaView = p.quotaView;
 				}
 			} catch {
 				/* ignore */
@@ -94,7 +101,9 @@ export class Dashboard {
 				providers: [...this.providerFilter],
 				machines: [...this.machineFilter],
 				subscriptions: [...this.subscriptionFilter],
-				focusedDay: this.focusedDay
+				focusedDay: this.focusedDay,
+				windowEnd: this.windowEnd,
+				quotaView: this.quotaView
 			};
 			localStorage.setItem(LS_KEY, JSON.stringify(data));
 		} catch {
@@ -110,8 +119,32 @@ export class Dashboard {
 			providerFilter: this.providerFilter,
 			machineFilter: this.machineFilter,
 			subscriptionFilter: this.subscriptionFilter,
-			focusedDay: this.focusedDay
+			focusedDay: this.focusedDay,
+			windowEnd: this.windowEnd ?? this.today
 		};
+	}
+
+	setQuotaView(view: 'current' | 'all' | 'provider'): void {
+		this.quotaView = view;
+		this.persist();
+	}
+
+	setWindowEnd(day: string | null): void {
+		if (day !== null && (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(Date.parse(day)))) return;
+		this.windowEnd = day === null || day >= this.today ? null : day;
+		this.focusedDay = null;
+		this.persist();
+	}
+
+	stepWindow(snap: RollupSnapshot, direction: -1 | 1): void {
+		const span = vm.periodSpan(this.period);
+		if (span === null) return;
+		const next = vm.addDaysISO(this.windowEnd ?? this.today, direction * span);
+		this.setWindowEnd(snap.earliestDay && next < snap.earliestDay ? snap.earliestDay : next);
+	}
+
+	headlines(snap: RollupSnapshot) {
+		return vm.headlineTotals(snap, this.state(), this.today);
 	}
 
 	setPeriod(p: Period): void {

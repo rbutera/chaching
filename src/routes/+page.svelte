@@ -88,6 +88,7 @@
 
 	onMount(() => {
 		feed.start();
+		const dayClock = setInterval(() => { dash.today = new Date().toISOString().slice(0, 10); }, 1000);
 		void loadPublicConfig();
 		void loadSyncStatus();
 		suppressArt = webSuppressArt();
@@ -97,6 +98,7 @@
 		mq.addEventListener('change', onMq);
 		return () => {
 			feed.stop();
+			clearInterval(dayClock);
 			mq.removeEventListener('change', onMq);
 		};
 	});

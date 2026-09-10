@@ -12,7 +12,7 @@
 	import type { SyncStatusView } from '$lib/client/sync';
 	import type { Period } from '$lib/types';
 	import PeriodSwitcher from '$lib/components/PeriodSwitcher.svelte';
-	import DayNavigator from '$lib/components/DayNavigator.svelte';
+	import RangeNavigator from '$lib/components/RangeNavigator.svelte';
 	import PoolFilters from '$lib/components/PoolFilters.svelte';
 	import { money, providerLabel, modelLabel, fmtDay } from '$lib/format';
 
@@ -67,15 +67,7 @@
 				{#if focusedDay != null}<span class="override-note">overridden by focused day</span>{/if}
 			</div>
 
-			<DayNavigator
-				{focusedDay}
-				earliest={snap.earliestDay}
-				latest={snap.latestDay}
-				onStep={(d) => dash.stepFocusedDay(snap, d)}
-				onJump={(day) => dash.setFocusedDay(snap, day)}
-				onClear={() => dash.clearFocusedDay()}
-				onEnter={() => snap.latestDay && dash.setFocusedDay(snap, snap.latestDay)}
-			/>
+			<RangeNavigator {dash} snapshot={snap}/>
 
 			{#if providerTotals.length > 1}
 				<div class="pills" aria-label="Provider filter">

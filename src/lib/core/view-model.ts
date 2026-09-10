@@ -79,6 +79,8 @@ export function enumerateDays(from: string, to: string): string[] {
 /** The minimal UI selection both faces own. Sets may be empty (= "all"). */
 export interface ViewState {
 	period: Period;
+	/** Explicit UTC endpoint supplied by the caller; independent of the latest recorded day. */
+	windowEnd?: string;
 	/** empty = all models */
 	modelFilter: Set<string>;
 	/** empty = all providers */
@@ -338,7 +340,7 @@ export interface PeriodWindow {
 }
 
 /** Rolling-window span in days for a fixed-length period, or null for "all". */
-function periodSpan(period: Period): number | null {
+export function periodSpan(period: Period): number | null {
 	switch (period) {
 		case 'day':
 			return 1;
@@ -368,7 +370,7 @@ function periodSpan(period: Period): number | null {
  * suppresses the delta.
  */
 export function periodWindow(snap: RollupSnapshot, state: ViewState): PeriodWindow {
-	const to = snap.latestDay ?? snap.earliestDay ?? '1970-01-01';
+	const to = state.windowEnd ?? snap.latestDay ?? snap.earliestDay ?? '1970-01-01';
 	const span = periodSpan(state.period);
 	if (span === null) {
 		// All-time: span the full data range; prior window is the (data-less) day
@@ -389,6 +391,17 @@ export function periodWindow(snap: RollupSnapshot, state: ViewState): PeriodWind
 					? 'Last 30 days'
 					: 'Last 90 days';
 	return { from, to, priorFrom, priorTo, label };
+}
+
+/** Fixed headlines stay current while the selected chart window can move through history. */
+export function headlineTotals(snap: RollupSnapshot, state: ViewState, today: string) {
+	const current = { ...state, windowEnd: today, focusedDay: null };
+	return {
+		today: heroTotals(snap, { ...current, period: 'day' }),
+		week: heroTotals(snap, { ...current, period: 'week' }),
+		month: heroTotals(snap, { ...current, period: 'month' }),
+		all: heroTotals(snap, { ...current, period: 'all' })
+	};
 }
 
 /**
