@@ -12,7 +12,7 @@ Rai and developers tracking coding-agent usage across machines and paid Accounts
 
 ## Product Purpose
 
-Local multi-provider usage accounting. The dashboard prioritises remaining Account quotas so the user can see available capacity, then usage spend and subsidisation.
+Local multi-provider usage accounting. The dashboard leads with prominent all-time, today, seven-day and thirty-day spend totals, followed by charts and Account quotas. Provider, machine and Account filters scope the data.
 
 ## Capabilities and Constraints
 
@@ -28,4 +28,4 @@ Confirmed in the Account, subsidisation and dashboard IA decision sessions. Sour
 
 ## Dashboard copy
 
-No decorative taglines or redundant introductory chrome. Use functional data labels. Retain existing cold-scan personality; do not invent slogans to decorate dashboard regions.
+No invented taglines or redundant introductory chrome. Preserve chaching's existing spend-driven personality and cold-scan copy. Support both full-screen use and a small window in the corner of a second monitor, with a compact header and responsive information density.

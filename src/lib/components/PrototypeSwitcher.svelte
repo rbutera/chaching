@@ -32,8 +32,7 @@
 
 <svelte:window onkeydown={handleKey} />
 
-{#if dev}
-	<nav class="prototype-switcher" aria-label="Prototype controls">
+{#snippet controls()}
 		<div class="variant-controls">
 			<button type="button" onclick={() => move(-1)} aria-label="Previous layout" title="Previous layout (left arrow)">←</button>
 			<div class="variant-label" aria-live="polite">
@@ -50,7 +49,18 @@
 				<option value="loading">Cold scan</option>
 			</select>
 		</label>
+{/snippet}
+
+{#if dev}
+	<nav class="prototype-switcher desktop" aria-label="Prototype controls">
+		{@render controls()}
 	</nav>
+	<details class="prototype-switcher compact">
+		<summary>Layouts · {variants[index].id}</summary>
+		<nav class="compact-controls" aria-label="Prototype controls">
+			{@render controls()}
+		</nav>
+	</details>
 {/if}
 
 <style>
@@ -73,6 +83,9 @@
 		box-shadow: var(--shadow-paper);
 		color-scheme: light;
 	}
+	.compact { display: none; }
+	summary { min-height: 44px; padding: 12px; cursor: pointer; font: 12px / 20px var(--font-mono); }
+	summary:focus-visible { outline: 2px solid var(--cream-ink); outline-offset: 2px; }
 	.variant-controls { display: flex; align-items: center; min-width: 0; gap: 8px; }
 	.variant-label { min-width: 168px; display: grid; gap: 4px; text-align: center; }
 	.variant-label span { font: 10px var(--font-mono); letter-spacing: .08em; }
@@ -81,8 +94,11 @@
 	button:hover { background: var(--cream-200); }
 	select { min-height: 44px; max-width: 100%; padding: 0 28px 0 12px; border: 1px solid var(--cream-300); border-radius: var(--radius-xs); background: var(--cream-100); color: var(--cream-ink); font: 12px var(--font-mono); cursor: pointer; }
 	button:focus-visible, select:focus-visible { outline: 2px solid var(--cream-ink); outline-offset: 2px; }
-	@media (max-width: 540px) {
-		.prototype-switcher { flex-wrap: wrap; justify-content: center; gap: 4px; width: 300px; }
+	@media (max-width: 650px), (max-height: 650px) {
+		.desktop { display: none; }
+		.compact { display: block; left: auto; right: 12px; bottom: max(8px, env(safe-area-inset-bottom)); transform: none; padding: 0; }
+		.compact[open] { width: 300px; }
+		.compact-controls { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 8px 8px; }
 		.variant-controls { width: 100%; justify-content: space-between; }
 		.variant-label { min-width: 0; }
 		label, select { width: 100%; }
