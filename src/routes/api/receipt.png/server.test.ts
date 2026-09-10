@@ -60,6 +60,7 @@ vi.mock('../../../cli/receipt/render-png', () => ({
 }));
 
 import { GET } from './+server';
+import { renderReceiptPng } from '../../../cli/receipt/render-png';
 
 function call(query: string) {
 	const url = new URL(`http://localhost/api/receipt.png${query}`);
@@ -99,4 +100,20 @@ describe('/api/receipt.png', () => {
 		const res = await call('?day=2026-06-10');
 		expect(res.status).toBe(200);
 	});
+});
+
+
+it('exports the explicit historical window instead of the latest period', async () => {
+	await call('?period=week&from=2026-06-01&to=2026-06-07');
+	expect(vi.mocked(renderReceiptPng).mock.calls.at(-1)?.[0]).toMatchObject({ from: '2026-06-01', to: '2026-06-07', lineItems: [] });
+	await call('?period=week&from=2026-06-08&to=2026-06-14');
+	const receipt = vi.mocked(renderReceiptPng).mock.calls.at(-1)?.[0];
+	expect(receipt).toMatchObject({ from: '2026-06-08', to: '2026-06-14' });
+	expect(receipt?.lineItems.length).toBeGreaterThan(0);
+});
+
+it('rejects incomplete, reversed and impossible date ranges', async () => {
+	for (const query of ['?from=2026-06-01', '?from=2026-06-10&to=2026-06-01', '?from=2026-02-30&to=2026-03-01', '?day=2026-02-30']) {
+		await expect(call(query)).rejects.toMatchObject({ status: 400 });
+	}
 });

@@ -47,6 +47,10 @@ export interface DayCell {
 	coverage: DayCoverage;
 }
 
+export function isCalendarDay(value: string): boolean {
+	return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+}
+
 /** Add (or subtract) whole days to a YYYY-MM-DD string, in UTC. */
 export function addDaysISO(day: string, delta: number): string {
 	const d = new Date(day + 'T00:00:00Z');

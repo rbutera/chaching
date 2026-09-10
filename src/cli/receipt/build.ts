@@ -179,6 +179,8 @@ export function buildReceipt(snapshot: RollupSnapshot, opts: BuildReceiptOptions
 		if (coveredTo === null || dm.day > coveredTo) coveredTo = dm.day;
 	}
 
+	if (opts.range) { coveredFrom = opts.range.from; coveredTo = opts.range.to; }
+
 	if (empty) {
 		const seed = `empty:${periodLabel}:${now.toISOString().slice(0, 10)}`;
 		return {

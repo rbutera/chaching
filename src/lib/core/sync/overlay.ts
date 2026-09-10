@@ -184,6 +184,7 @@ export function mergePooledSnapshot(
 		dayModel,
 		sessions,
 		blocks: mergeBlocks(local.blocks, peer.blocks, local.generatedAt),
+		localBlocks: local.localBlocks ?? local.blocks,
 		models,
 		providers,
 		unknownPriceModels: [...new Set([...local.unknownPriceModels, ...peer.unknownPriceModels])],

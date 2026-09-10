@@ -161,3 +161,15 @@ describe('mergePooledSnapshot partial-peer coverage (C8)', () => {
 		expect(merged.coverage['2026-07-15']).toBe('partial');
 	});
 });
+
+
+it('preserves the local five-hour source separately from pooled blocks', () => {
+	const block = { startTs: 0, endTs: 18_000_000, tokens: { input: 1, output: 1, cacheCreation: 0, cacheRead: 0 }, requests: 1, cost: 10, isActive: true };
+	const local = emptySnap({ blocks: [block] });
+	const peer = emptySnap({ blocks: [{ ...block, cost: 30 }] });
+	const merged = mergePooledSnapshot(local, peer, '2026-07-17');
+	expect(merged.blocks.reduce((sum, block) => sum + block.cost, 0)).toBe(40);
+	expect(merged.localBlocks?.[0].cost).toBe(10);
+	expect(merged.localBlocks).toBe(local.blocks);
+	expect(attachSubscriptions(merged, buildSubscriptionIndex([], 'local')).localBlocks).toBe(local.blocks);
+});

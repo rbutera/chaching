@@ -36,8 +36,8 @@ describe('honest copy', () => {
 		expect(page).not.toContain('◈');
 	});
 
-	it('the honest tagline is present in the header', () => {
-		expect(page).toContain('local AI token spend');
+	it('the compact header retains the brand mark', () => {
+		expect(page).toContain('<BrandMark');
 	});
 
 	it('app.html advertises the multi-provider description and OG card', () => {

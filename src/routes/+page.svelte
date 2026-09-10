@@ -10,7 +10,8 @@
 	import StatRowRegion from '$lib/components/regions/StatRowRegion.svelte';
 	import ValueBandRegion from '$lib/components/regions/ValueBandRegion.svelte';
 	import LifetimeRegion from '$lib/components/regions/LifetimeRegion.svelte';
-	import WhatifRegion from '$lib/components/regions/WhatifRegion.svelte';
+	import SpendOverview from '$lib/components/regions/SpendOverview.svelte';
+	import SessionExplorer from '$lib/components/SessionExplorer.svelte';
 	import HeatmapRegion from '$lib/components/regions/HeatmapRegion.svelte';
 	import ByModelRegion from '$lib/components/regions/ByModelRegion.svelte';
 	import ByProjectRegion from '$lib/components/regions/ByProjectRegion.svelte';
@@ -34,6 +35,8 @@
 
 	const feed = new FeedStore();
 	const dash = new Dashboard();
+	let section = $state<'Dashboard' | 'Explore' | 'Settings'>('Dashboard');
+
 
 	// The persisted public config (carries the per-provider subscription block). The
 	// subsidisation card + tier switcher are controlled off this local copy; a tier
@@ -104,6 +107,7 @@
 	});
 
 	let snap = $derived(feed.snapshot);
+	let recentSessions = $derived(snap ? dash.scopedSessions(snap).toSorted((a,b) => b.lastTs - a.lastTs).slice(0,5) : []);
 
 	// The zoomed-in pin (null = rolling-period mode). Retained at page level for the
 	// joy escalation chain and the arrow-key day stepper; regions derive their own.
@@ -255,8 +259,9 @@
 		<div class="brand">
 			<h1 class="brand-title"><BrandMark size={24} wordmark title="chaching" /></h1>
 			<span class="ver" title="chaching version">v{version}</span>
-			<p class="tagline">local AI token spend</p>
+
 		</div>
+		<nav aria-label="Main navigation">{#each ['Dashboard', 'Explore', 'Settings'] as label}<button class:active={section === label} onclick={() => { if(label === 'Dashboard' || label === 'Explore' || label === 'Settings') section = label; }}>{label}</button>{/each}</nav>
 		<div class="topbar-right">
 			<!-- Opt-in joy (default OFF): a sound toggle + a mute. No AudioContext, no
 			     asset, no canvas-confetti loads until enabled and a crossing fires. The
@@ -304,40 +309,28 @@
 			<p class="loading-sub">First load streams every session file once. This is the only slow part.</p>
 		</div>
 	{:else}
-		<!-- Single-column register: the hero owns the spend headline, and the
-		     counterfactual lab comes last so analysis follows the primary ledger. -->
-		<main class="bento">
-			<div class="slot-cmd">
-				<CommandBar {feed} {dash} {syncStatus} />
-			</div>
-
-			<div class="zone-now">
-				<HeroRegion {feed} {dash} {reducedMotion} {suppressArt} />
-				<StatRowRegion {feed} {dash} />
-			</div>
-
-			<div class="zone-money">
-				<ValueBandRegion {feed} {dash} {config} {syncStatus} {onTierChange} />
-				<LifetimeRegion {feed} {dash} />
-			</div>
-
-			<div class="zone-history">
-				<HeatmapRegion {feed} {dash} />
-				<ByModelRegion {feed} {dash} {syncStatus} />
-				<ByProjectRegion {feed} {dash} />
-			</div>
-
-			<div class="zone-pool">
-				<SyncPanel status={syncStatus} onAction={onSyncAction} />
-			</div>
-
-			<div class="zone-ledger">
-				<SessionsRegion {feed} {dash} />
-			</div>
-
-			<div class="zone-lab">
-				<WhatifRegion {feed} {dash} {reducedMotion} />
-			</div>
+		<main>
+			{#if section === 'Settings'}
+				<h2>Settings</h2>
+				<SyncPanel status={syncStatus} onAction={onSyncAction}/>
+				<ValueBandRegion {feed} {dash} {config} {syncStatus} {onTierChange}/>
+			{:else if section === 'Explore'}
+				<h2>Explore</h2>
+				<CommandBar {feed} {dash} {syncStatus}/>
+				<HeroRegion {feed} {dash} {reducedMotion} {suppressArt}/>
+				<StatRowRegion {feed} {dash}/>
+				<HeatmapRegion {feed} {dash}/>
+				<ByModelRegion {feed} {dash} {syncStatus}/>
+				<ByProjectRegion {feed} {dash}/>
+				<SessionsRegion {feed} {dash}/>
+				<LifetimeRegion {feed} {dash}/>
+			{:else}
+				<SpendOverview {feed} {dash} {reducedMotion} {suppressArt}/>
+				<CommandBar {feed} {dash} {syncStatus}/>
+				<ByModelRegion {feed} {dash} {syncStatus}/>
+				<section aria-label="Recent sessions"><div class="section-heading"><h2>Sessions</h2><button onclick={() => section = 'Explore'}>View all →</button></div><SessionExplorer sessions={recentSessions} now={snap.generatedAt} onOpen={s => dash.openSessionDrill(s)}/></section>
+				<ValueBandRegion {feed} {dash} {config} {syncStatus} {onTierChange}/>
+			{/if}
 		</main>
 	{/if}
 </div>
@@ -347,211 +340,5 @@
 {/if}
 
 <style>
-	.page {
-		max-width: var(--maxw);
-		margin: 0 auto;
-		padding: 0 1rem env(safe-area-inset-bottom, 1rem);
-	}
-
-	/* ── Register layout ─────────────────────────────────────────────────────
-	   One column keeps the hero as the only spend headline. The lab is last: the
-	   user reads the real ledger before exploring counterfactuals. */
-	.bento {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-		grid-template-areas:
-			'cmd'
-			'now'
-			'money'
-			'history'
-			'pool'
-			'ledger'
-			'lab';
-		gap: var(--bento-gap);
-	}
-	.slot-cmd {
-		grid-area: cmd;
-		/* The command bar sticks under the topbar while the page scrolls. Sticky must
-		   live HERE, on the grid item, not on `.command-bar` inside it: a sticky box's
-		   containing block is its parent's content box, and `.slot-cmd`'s parent is the
-		   `.bento` grid container — which spans the whole page, giving the box the
-		   scroll travel it needs. Put on `.command-bar` instead, the containing block
-		   is `.slot-cmd`, which is exactly the bar's own height, so it has no room to
-		   move and never sticks. */
-		position: sticky;
-		top: 58px;
-		z-index: 8;
-	}
-	.zone-now {
-		grid-area: now;
-	}
-	.zone-money {
-		grid-area: money;
-	}
-	.zone-history {
-		grid-area: history;
-	}
-	.zone-pool {
-		grid-area: pool;
-	}
-	.zone-ledger {
-		grid-area: ledger;
-	}
-	.zone-lab {
-		grid-area: lab;
-	}
-	/* Each content zone is a query container so its regions can respond to the
-	   available page width. */
-	.zone-now,
-	.zone-money,
-	.zone-history,
-	.zone-pool,
-	.zone-ledger,
-	.zone-lab {
-		container-type: inline-size;
-	}
-
-	/* REGION 1 · TOPBAR — sticky, brass mark on warm ink, --bg gradient mask. */
-	.topbar {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1.1rem 0 0.75rem;
-		position: sticky;
-		top: 0;
-		z-index: var(--z-sticky);
-		background: linear-gradient(var(--bg) 72%, transparent);
-	}
-	.brand {
-		display: flex;
-		align-items: baseline;
-		gap: 0.85rem;
-	}
-	.brand-title {
-		margin: 0;
-		font-size: 1rem;
-		font-weight: inherit;
-		line-height: 1;
-	}
-	.tagline {
-		margin: 0;
-		font-family: var(--font-mono);
-		font-size: 0.75rem;
-		color: var(--text-dim);
-	}
-	.ver {
-		font-family: var(--font-mono);
-		font-size: 0.7rem;
-		color: var(--text-dim);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-pill, 999px);
-		padding: 0.05rem 0.45rem;
-		opacity: 0.8;
-	}
-	.conn {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.5rem;
-		font-family: var(--font-mono);
-		font-size: 0.75rem;
-		color: var(--text-muted);
-	}
-	.dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-	}
-	.topbar-right {
-		display: inline-flex;
-		align-items: center;
-		gap: 1rem;
-	}
-	.joy-controls {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-	.joy-toggle,
-	.joy-mute {
-		font-family: var(--font-mono);
-		font-size: var(--text-2xs);
-		letter-spacing: var(--tracking-snug);
-		color: var(--text-muted);
-		background: var(--surface-2);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-pill);
-		padding: 0.2rem 0.6rem;
-	}
-	.joy-toggle.on {
-		color: var(--text-on-gold);
-		background: var(--accent);
-		border-color: var(--accent);
-	}
-	.joy-mute.on {
-		color: var(--text);
-		border-color: var(--border-strong);
-	}
-
-	/* Register "ka-chunk" microinteraction — press scale .97 + darken to gold-600,
-	   hover lift + brighten to gold-400, 2px gold focus ring. CSS-only, on the
-	   --dur-fast/--dur motion tokens; gated by prefers-reduced-motion (the base
-	   reset kills the transition, and the transform only applies when motion is ok). */
-	.ka-chunk {
-		transform: translateY(0) scale(1);
-	}
-	.ka-chunk:focus-visible {
-		outline: 2px solid var(--accent);
-		outline-offset: 2px;
-	}
-	@media (prefers-reduced-motion: no-preference) {
-		.ka-chunk {
-			transition:
-				transform var(--dur-fast) var(--ease-snap),
-				background var(--dur-fast) var(--ease-out),
-				border-color var(--dur-fast) var(--ease-out),
-				color var(--dur-fast) var(--ease-out),
-				box-shadow var(--dur) var(--ease-out);
-		}
-		.ka-chunk:hover:not(:disabled) {
-			transform: translateY(-1px);
-			border-color: var(--gold-400);
-			color: var(--gold-400);
-		}
-		.ka-chunk:active:not(:disabled) {
-			transform: scale(0.97);
-			background: var(--gold-600);
-			border-color: var(--gold-600);
-		}
-	}
-
-	/* LOADING — characterful cold-scan state. */
-	.loading {
-		text-align: center;
-		padding: 4rem 1rem;
-		color: var(--text-muted);
-		font-family: var(--font-mono);
-	}
-	.loading-sub {
-		font-size: 0.8rem;
-		color: var(--text-dim);
-	}
-	.spinner {
-		width: 28px;
-		height: 28px;
-		border: 3px solid var(--border);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		margin: 0 auto 1rem;
-		animation: spin 0.9s linear infinite;
-	}
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.spinner {
-			animation: none;
-		}
-	}
+	.page{max-width:1440px;margin:auto;padding:0 40px 40px}.topbar{display:flex;align-items:center;gap:28px;padding:8px 0;border-bottom:1px solid var(--border)}.brand{display:flex;align-items:center;gap:10px}.brand-title{margin:0}.ver{font:var(--type-label);color:var(--text-muted)}nav{display:flex;gap:20px}button{font:inherit;cursor:pointer;color:var(--text);background:none;border:0;min-height:36px}nav button{color:var(--text-muted)}nav button.active{color:var(--text);box-shadow:0 2px var(--accent)}button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.topbar-right{margin-left:auto;display:flex;align-items:center;gap:16px}.joy-controls{display:flex;gap:6px;font-size:11px}.conn{display:flex;align-items:center;gap:6px;font:var(--type-label)}.dot{width:6px;height:6px;border-radius:50%}main{display:grid;gap:20px;padding-top:16px;min-width:0}.section-heading{display:flex;justify-content:space-between;align-items:center}h2{font:var(--type-title)}.loading{min-height:65vh;display:grid;align-content:center;justify-items:center;text-align:center}.loading-sub{color:var(--text-muted);font-size:12px}.spinner{width:24px;height:24px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spinner{animation:none}}@media(max-width:760px){.page{padding:0 16px 24px}.topbar{gap:12px;flex-wrap:wrap}.ver,.conn-txt{display:none}nav{gap:12px}nav button{font-size:12px}.topbar-right{gap:8px}.joy-controls{display:none}main{gap:16px}}@media(max-width:500px){.topbar-right{display:none}.brand :global(svg){max-width:105px}nav{margin-left:auto;gap:8px}}
 </style>

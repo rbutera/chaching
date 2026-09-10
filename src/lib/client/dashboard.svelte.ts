@@ -83,7 +83,7 @@ export class Dashboard {
 					// Hydrate the pinned day; clamping against a (possibly shrunk) data range
 					// happens once the snapshot lands, via reconcileFocusedDay().
 					if (typeof p.focusedDay === 'string') this.focusedDay = p.focusedDay;
-					if (typeof p.windowEnd === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.windowEnd) && !Number.isNaN(Date.parse(p.windowEnd))) this.windowEnd = p.windowEnd > this.today ? this.today : p.windowEnd;
+					if (typeof p.windowEnd === 'string' && vm.isCalendarDay(p.windowEnd)) this.windowEnd = p.windowEnd > this.today ? this.today : p.windowEnd;
 					if (p.quotaView === 'current' || p.quotaView === 'all' || p.quotaView === 'provider') this.quotaView = p.quotaView;
 				}
 			} catch {
@@ -130,7 +130,7 @@ export class Dashboard {
 	}
 
 	setWindowEnd(day: string | null): void {
-		if (day !== null && (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(Date.parse(day)))) return;
+		if (day !== null && !vm.isCalendarDay(day)) return;
 		this.windowEnd = day === null || day >= this.today ? null : day;
 		this.focusedDay = null;
 		this.persist();

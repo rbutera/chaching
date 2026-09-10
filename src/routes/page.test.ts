@@ -10,7 +10,7 @@
 // data constants), so a dropped feature shows up as a missing region/control.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, cleanup } from '@testing-library/svelte';
+import { render, cleanup, fireEvent } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import Page from './+page.svelte';
 import type { DayModelAgg, RollupSnapshot, TokenCounts, SessionSummary } from '$lib/types';
@@ -92,6 +92,9 @@ class FakeEventSource {
 }
 
 beforeEach(() => {
+	vi.useFakeTimers({ toFake: ['Date'] });
+	vi.setSystemTime(new Date('2026-06-19T12:00:00Z'));
+	localStorage.clear();
 	vi.stubGlobal('EventSource', FakeEventSource as unknown as typeof EventSource);
 	// jsdom has no matchMedia; default to motion-allowed (the reduced-motion test overrides).
 	vi.stubGlobal(
@@ -133,6 +136,7 @@ afterEach(() => {
 	snapshotToEmit = null;
 	syncStatusToReturn = {};
 	vi.unstubAllGlobals();
+	vi.useRealTimers();
 });
 
 // Let the fake EventSource emit (macrotask), the config fetch settle, then flush
@@ -167,41 +171,29 @@ describe('dashboard route — landmarks + structure (a11y, layout adoption)', ()
 		expect(container.querySelector('main header, main main, header main')).toBeNull();
 	});
 
-	it('renders the dashboard in order with the counterfactual lab last', async () => {
+	it('puts spend before charts and recent sessions without the what-if calculator', async () => {
 		snapshotToEmit = richSnap();
-		const { container } = render(Page);
+		const { container, getByRole } = render(Page);
 		await flush();
-		const main = container.querySelector('main')!;
-		// Main's direct children are the named zone wrappers in document order.
-		const order = [...main.children].map((el) => el.className.split(/\s+/)[0]);
-		const idx = (c: string) => order.findIndex((x) => x === c);
-		expect(idx('slot-cmd')).toBeGreaterThanOrEqual(0);
-		expect(idx('slot-rail')).toBe(-1);
-		expect(idx('slot-cmd')).toBeLessThan(idx('zone-now'));
-		expect(idx('zone-now')).toBeLessThan(idx('zone-money'));
-		expect(idx('zone-money')).toBeLessThan(idx('zone-history'));
-		expect(idx('zone-history')).toBeLessThan(idx('zone-pool'));
-		expect(idx('zone-pool')).toBeLessThan(idx('zone-ledger'));
-		expect(idx('zone-ledger')).toBeLessThan(idx('zone-lab'));
+		const overview = getByRole('region', { name: 'Spend overview' });
+		const sessions = getByRole('region', { name: 'Recent sessions' });
+		expect(overview.compareDocumentPosition(sessions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(container.querySelector('.whatif')).toBeNull();
+		expect(container.querySelector('.summary-rail')).toBeNull();
 	});
 
-	it('places the primary regions without the redundant rail or honesty box', async () => {
+	it('keeps exploration and real sync controls reachable from the shared navigation', async () => {
 		snapshotToEmit = richSnap();
-		const { container } = render(Page);
+		const { getByRole, container } = render(Page);
 		await flush();
-		expect(container.querySelector('.zone-now .hero')).toBeTruthy();
-		expect(container.querySelector('.zone-now .stat-grid')).toBeTruthy();
-		expect(container.querySelector('.zone-money .value-grid')).toBeTruthy();
-		expect(container.querySelector('.zone-history .heatmap-sec')).toBeTruthy();
-		expect(container.querySelector('.zone-history .grid2')).toBeTruthy();
-		expect(container.querySelector('.zone-ledger .sessions-sec')).toBeTruthy();
-		expect(container.querySelector('.zone-lab .whatif')).toBeTruthy();
-		expect(container.querySelector('.summary-rail')).toBeNull();
-		expect(container.querySelector('footer.honesty')).toBeNull();
-		// The command bar owns the scope controls (period tabs + provider pills).
-		expect(container.querySelector('.slot-cmd .command-bar')).toBeTruthy();
-		expect(container.querySelector('.slot-cmd [role="tablist"]')).toBeTruthy();
+		await fireEvent.click(getByRole('button', { name: 'Explore' }));
+		expect(container.querySelector('[data-heatmap-grid]')).toBeTruthy();
+		expect(container.querySelector('.sessions-sec')).toBeTruthy();
+		await fireEvent.click(getByRole('button', { name: 'Settings' }));
+		expect(getByRole('heading', { name: 'Settings' })).toBeTruthy();
+		expect(container.querySelector('[data-heatmap-grid]')).toBeNull();
 	});
+
 });
 
 describe('dashboard route — behavior contracts', () => {
@@ -225,8 +217,9 @@ describe('dashboard route — behavior contracts', () => {
 
 	it('P4 + P3: renders the calendar heatmap grid with per-day cells', async () => {
 		snapshotToEmit = richSnap();
-		const { container } = render(Page);
+		const { container, getByRole } = render(Page);
 		await flush();
+		await fireEvent.click(getByRole('button', { name: 'Explore' }));
 		expect(container.querySelector('[data-heatmap-grid]')).toBeTruthy();
 	});
 
@@ -293,8 +286,9 @@ describe('dashboard route — behavior contracts', () => {
 
 	it('P7: cross-day session browser renders rows', async () => {
 		snapshotToEmit = richSnap();
-		const { container } = render(Page);
+		const { container, getByRole } = render(Page);
 		await flush();
+		await fireEvent.click(getByRole('button', { name: 'Explore' }));
 		expect(container.querySelector('.sessions-sec')).toBeTruthy();
 		// session project names appear somewhere in the explorer
 		expect(container.textContent ?? '').toMatch(/orca|chaching/);
@@ -353,7 +347,7 @@ describe('dashboard route — behavior contracts', () => {
 		const { container } = render(Page);
 		await flush();
 		// the hero MoneyFigure renders a $ figure
-		const hero = container.querySelector('.hero')!;
+		const hero = container.querySelector('[aria-label="Spend overview"]')!;
 		expect((hero.textContent ?? '')).toMatch(/\$/);
 	});
 });
@@ -380,7 +374,7 @@ describe('dashboard route — motion (reduced-motion contract)', () => {
 		// CSS reels (no plain-text value) and its visual is aria-hidden, so the
 		// value the a11y tree + this assertion read is the odometer's visually-hidden
 		// text mirror. Under reduced motion it must still be the correct final total.
-		const hero = container.querySelector('.hero')!;
+		const hero = container.querySelector('[aria-label="Spend overview"]')!;
 		expect(hero.querySelector('[data-testid="money-odometer"]')).toBeTruthy();
 		expect(hero.textContent ?? '').toMatch(/\$20[0-9]/);
 	});
@@ -395,6 +389,6 @@ describe('dashboard route — motion (reduced-motion contract)', () => {
 		const { container } = render(Page);
 		await flush();
 		await tick();
-		expect((container.querySelector('.hero')?.textContent ?? '')).toMatch(/\$20[0-9]/);
+		expect((container.querySelector('[aria-label="Spend overview"]')?.textContent ?? '')).toMatch(/\$20[0-9]/);
 	});
 });

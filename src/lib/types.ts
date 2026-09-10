@@ -109,6 +109,8 @@ export interface RollupSnapshot {
 	sessions: SessionSummary[];
 	/** rolling 5-hour blocks, newest first */
 	blocks: BlockSummary[];
+	/** This machine's blocks before the peer overlay, present on pooled snapshots. */
+	localBlocks?: BlockSummary[];
 	/** distinct models seen, by total cost desc */
 	models: string[];
 	providers: string[];

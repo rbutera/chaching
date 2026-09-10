@@ -16,6 +16,7 @@
 // query.
 
 import { error } from '@sveltejs/kit';
+import { isCalendarDay } from '$lib/core/view-model';
 import type { RequestHandler } from './$types';
 import { getService } from '$lib/server/service';
 import { loadConfig } from '$lib/core/config';
@@ -38,7 +39,6 @@ function parsePeriod(raw: string | null): Period {
 	return 'month';
 }
 
-const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export const GET: RequestHandler = async ({ url }) => {
 	const params = url.searchParams;
@@ -54,10 +54,15 @@ export const GET: RequestHandler = async ({ url }) => {
 	// silently widen the scope back to the full period — that would show MORE than the
 	// caller asked for, which matters now redaction is opt-in).
 	const day = params.get('day');
-	if (day !== null && !DAY_RE.test(day)) {
+	if (day !== null && !isCalendarDay(day)) {
 		throw error(400, `invalid day '${day}' (expected YYYY-MM-DD)`);
 	}
-	const range = day ? { from: day, to: day } : undefined;
+	const from = params.get('from');
+	const to = params.get('to');
+	if ((from !== null || to !== null) && (!from || !to || !isCalendarDay(from) || !isCalendarDay(to) || from > to)) {
+		throw error(400, 'invalid date range (expected from and to in YYYY-MM-DD order)');
+	}
+	const range = day ? { from: day, to: day } : from && to ? { from, to } : undefined;
 
 	// Provider filter (repeatable or comma-separated), mirroring the CLI.
 	const providers = params

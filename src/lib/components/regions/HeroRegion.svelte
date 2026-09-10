@@ -61,6 +61,7 @@
 		const qs = new URLSearchParams();
 		qs.set('period', dash.period);
 		if (focusedDay) qs.set('day', focusedDay);
+		else if (snap) { const range = dash.periodWindow(snap); qs.set('from', range.from); qs.set('to', range.to); }
 		for (const p of dash.providerFilter) qs.append('provider', p);
 		return `${resolve('/api/receipt.png')}?${qs.toString()}`;
 	});

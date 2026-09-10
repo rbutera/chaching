@@ -195,7 +195,7 @@
 	--font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
 	--font-sans: 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, sans-serif;
 	--font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Menlo', 'Consolas', monospace;
-	--font-num: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Menlo', monospace;
+	--font-num: var(--font-sans);
 
 	--text-2xs: 0.6875rem; /* 11 */
 	--text-xs: 0.75rem; /* 12 */
@@ -231,7 +231,7 @@
 	--type-title: var(--fw-semibold) var(--text-xl) / var(--lh-snug) var(--font-display);
 	--type-body: var(--fw-regular) var(--text-base) / var(--lh-normal) var(--font-sans);
 	--type-num: var(--fw-medium) var(--text-md) / 1 var(--font-num);
-	--type-label: var(--fw-medium) var(--text-2xs) / 1 var(--font-mono);
+	--type-label: var(--fw-medium) var(--text-2xs) / 1 var(--font-sans);
 
 	/* ── Spacing (4px grid) ──────────────────────────────────────────────── */
 	--space-0: 0;
