@@ -109,7 +109,7 @@
 				provider: subscription.provider,
 				account: subscription.account,
 				valueUsd: valueBySubscription.get(subscription.id) ?? 0,
-				feeUsd: subscription.monthlyUsd * (days / 30)
+				feeUsd: subscription.monthlyUsd === null ? null : subscription.monthlyUsd * (days / 30)
 			}));
 	});
 

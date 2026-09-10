@@ -17,6 +17,22 @@ const localStatus: SyncStatusView = {
 };
 
 describe('SyncPanel', () => {
+	it('shows multiple linked accounts without selecting one arbitrarily and permits clearing them', async () => {
+		const onAction = vi.fn(async () => {});
+		const status: SyncStatusView = {
+			...localStatus, enabled: true,
+			pool: { id: 'pool', name: 'Pool' },
+			machine: { id: 'machine', name: 'Machine', hostname: 'machine', lastSeenAt: null },
+			subscriptions: ['one', 'two'].map(id => ({ id, provider: 'claude', name: id, account: '', tier: 'unknown', monthlyUsd: null, feeSource: 'inferred' })),
+			mappings: ['one', 'two'].map(subscriptionId => ({ machineId: 'machine', provider: 'claude', subscriptionId }))
+		};
+		const view = render(SyncPanel, { status, onAction });
+		expect(view.getByRole('option', { name: '2 accounts' })).toHaveProperty('selected', true);
+		expect(view.container.textContent).toContain('Fee unknown');
+		await fireEvent.change(view.getByLabelText('claude'), { target: { value: '' } });
+		expect(onAction).toHaveBeenCalledWith({ action: 'map', machineId: 'machine', provider: 'claude', subscriptionId: null });
+	});
+
 	it('creates a pool without rendering the database password back into the page', async () => {
 		const onAction = vi.fn(async () => {});
 		const { getByRole, getByLabelText, container } = render(SyncPanel, {

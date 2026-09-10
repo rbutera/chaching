@@ -100,12 +100,10 @@
 		}
 	}
 
-	function mappedSubscription(machineId: string, mappedProvider: string): string {
-		return (
-			status?.mappings.find(
-				(mapping) => mapping.machineId === machineId && mapping.provider === mappedProvider
-			)?.subscriptionId ?? ''
-		);
+	function mappedSubscriptions(machineId: string, mappedProvider: string): string[] {
+		return [...new Set((status?.mappings ?? [])
+			.filter(mapping => mapping.machineId === machineId && mapping.provider === mappedProvider)
+			.flatMap(mapping => mapping.subscriptionId ? [mapping.subscriptionId] : []))];
 	}
 </script>
 
@@ -159,7 +157,7 @@
 									<strong>{subscription.name}</strong>
 									<small>{subscription.provider} · {subscription.account || 'no account label'}</small>
 								</span>
-								<span class="money">${subscription.monthlyUsd}/mo</span>
+								<span class="money">{subscription.monthlyUsd === null ? 'Fee unknown' : `$${subscription.monthlyUsd}/mo`}</span>
 							</li>
 						{/each}
 					</ul>
@@ -212,10 +210,11 @@
 				<h3>this machine uses</h3>
 				<div class="mapping-list">
 					{#each providers as mappedProvider}
+						{@const linked = mappedSubscriptions(status.machine.id, mappedProvider)}
 						<label>
 							{syncProviderLabel(mappedProvider)}
 							<select
-								value={mappedSubscription(status.machine.id, mappedProvider)}
+								value={linked.length > 1 ? '__multiple__' : linked[0] ?? ''}
 								onchange={(event) =>
 									run({
 										action: 'map',
@@ -226,6 +225,7 @@
 								disabled={busy}
 							>
 								<option value="">unmapped</option>
+								{#if linked.length > 1}<option value="__multiple__" disabled>{linked.length} accounts</option>{/if}
 								{#each status.subscriptions.filter((item) => item.provider === mappedProvider) as subscription (subscription.id)}
 									<option value={subscription.id}>{subscription.name}</option>
 								{/each}

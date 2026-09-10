@@ -7,7 +7,7 @@
 		provider: string;
 		account: string;
 		valueUsd: number;
-		feeUsd: number;
+		feeUsd: number | null;
 	}
 
 	interface Props {
@@ -19,8 +19,8 @@
 
 	let { rows, windowLabel, wholePlanFee = false }: Props = $props();
 	let totalValue = $derived(rows.reduce((sum, row) => sum + row.valueUsd, 0));
-	let totalFee = $derived(rows.reduce((sum, row) => sum + row.feeUsd, 0));
-	let multiple = $derived(totalFee > 0 ? totalValue / totalFee : null);
+	let totalFee = $derived(rows.some(row => row.feeUsd === null) ? null : rows.reduce((sum, row) => sum + (row.feeUsd ?? 0), 0));
+	let multiple = $derived(totalFee !== null && totalFee > 0 ? totalValue / totalFee : null);
 </script>
 
 <section class="pool-subsidy" aria-labelledby="pool-subsidy-heading">
@@ -41,7 +41,7 @@
 				</span>
 				<span class="figures">
 					<strong>{money(row.valueUsd)}</strong>
-					<small>for {money(row.feeUsd)} fee</small>
+					<small>{row.feeUsd === null ? 'Fee unknown' : `for ${money(row.feeUsd)} fee`}</small>
 				</span>
 			</li>
 		{/each}
@@ -51,7 +51,7 @@
 		<span>API-priced value</span>
 		<strong>{money(totalValue)}</strong>
 		<span>pro-rated fees</span>
-		<strong>{money(totalFee)}</strong>
+		<strong>{totalFee === null ? 'Unknown' : money(totalFee)}</strong>
 	</p>
 
 	{#if wholePlanFee}

@@ -42,6 +42,18 @@ function dm(day: string, over: Partial<DayModelAgg> = {}): DayModelAgg {
 
 // C11: an explicit OWN null cursor mapping must not suppress a peer's real attribution.
 describe('buildSubscriptionIndex cursor attribution (C11)', () => {
+	it('does not assign machine history to an arbitrary account when several are linked', () => {
+		const mappings: SyncMapping[] = [
+			{ machineId: 'own', provider: 'codex', subscriptionId: 'one' },
+			{ machineId: 'own', provider: 'codex', subscriptionId: 'two' },
+			{ machineId: 'own', provider: 'codex', subscriptionId: 'one' }
+		];
+		const index = buildSubscriptionIndex(mappings, 'own');
+		const snapshot = emptySnap({ dayModel: [dm('2026-09-01', { machineId: 'own', cost: 42 })] });
+		expect(attachSubscriptions(snapshot, index).dayModel[0]).toMatchObject({ cost: 42, subscriptionId: null });
+		expect(buildSubscriptionIndex(mappings.toReversed(), 'own').byMachineProvider).toEqual(index.byMachineProvider);
+	});
+
 	it('an explicit own null cursor mapping does not suppress a peer mapping', () => {
 		const mappings: SyncMapping[] = [
 			{ machineId: 'own', provider: 'cursor', subscriptionId: null },

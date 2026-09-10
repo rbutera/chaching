@@ -39,25 +39,21 @@ export interface SubscriptionIndex {
  * every machine renders the same value (all machines share one Cursor account).
  */
 export function buildSubscriptionIndex(mappings: readonly SyncMapping[], ownMachineId: string): SubscriptionIndex {
-	const byMachineProvider = new Map<string, string | null>();
-	let ownCursor: string | null | undefined;
-	let peerCursor: string | null = null;
+	const candidates = new Map<string, Set<string>>();
 	for (const mapping of mappings) {
-		byMachineProvider.set(mappingKey(mapping.machineId, mapping.provider), mapping.subscriptionId);
-		if (mapping.provider === 'cursor') {
-			if (mapping.machineId === ownMachineId) ownCursor = mapping.subscriptionId;
-			// First peer (mappings arrive machine-id ordered) with a REAL mapping. An own
-			// explicit-null mapping must not suppress this, so peer attribution is the fallback
-			// whenever this machine has no non-null cursor mapping of its own (C11).
-			else if (mapping.subscriptionId != null && peerCursor == null) peerCursor = mapping.subscriptionId;
-		}
+		const key = mappingKey(mapping.machineId, mapping.provider);
+		const ids = candidates.get(key) ?? new Set<string>();
+		if (mapping.subscriptionId !== null) ids.add(mapping.subscriptionId);
+		candidates.set(key, ids);
 	}
-	// Prefer this machine's own non-null cursor mapping; else any peer's non-null mapping; else
-	// null. `ownCursor != null` covers both "no own mapping" (undefined) and "own explicit null".
+	const byMachineProvider = new Map<string, string | null>();
+	for (const [key, ids] of candidates) byMachineProvider.set(key, ids.size === 1 ? [...ids][0] : null);
+	const ownKey = mappingKey(ownMachineId, 'cursor');
+	const peerCursor = mappings.find(mapping => mapping.provider === 'cursor' && mapping.machineId !== ownMachineId && byMachineProvider.get(mappingKey(mapping.machineId, 'cursor')) != null);
 	return {
 		byMachineProvider,
 		ownMachineId,
-		cursor: ownCursor != null ? ownCursor : peerCursor
+		cursor: (candidates.get(ownKey)?.size ?? 0) > 1 ? null : byMachineProvider.get(ownKey) ?? peerCursor?.subscriptionId ?? null
 	};
 }
 

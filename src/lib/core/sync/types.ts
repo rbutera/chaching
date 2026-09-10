@@ -14,7 +14,9 @@ export interface SyncSubscription {
 	name: string;
 	account: string;
 	tier: string;
-	monthlyUsd: number;
+	monthlyUsd: number | null;
+	identityKey?: string | null;
+	feeSource?: 'explicit' | 'inferred';
 }
 
 export interface SyncMapping {

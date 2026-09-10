@@ -226,7 +226,7 @@ suite('PostgresSyncStore aggregate ledger', () => {
 				`SELECT version FROM chaching_sync.schema_version WHERE id = 1`
 			);
 			expect(first.rowCount).toBe(1);
-			expect(Number(first.rows[0].version)).toBe(3);
+			expect(Number(first.rows[0].version)).toBe(4);
 
 			// A second, independent store opens against the already-migrated schema without error:
 			// the fast-path SELECT sees the current version and skips the DDL + advisory lock.
@@ -265,7 +265,7 @@ suite('PostgresSyncStore aggregate ledger', () => {
 			await storeA.mapSubscription(a, 'claude', null);
 			expect(await storeA.mappingFingerprint()).not.toBe(before);
 			const cleared = (await storeA.allMappings()).find((m) => m.machineId === a && m.provider === 'claude');
-			expect(cleared?.subscriptionId).toBeNull();
+			expect(cleared).toBeUndefined();
 		} finally {
 			await storeA.close();
 			await storeB.close();
