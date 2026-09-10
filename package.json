@@ -64,7 +64,8 @@
 		"pretest": "npm run build:cli",
 		"test": "vitest run",
 		"start": "node bin/chaching.js",
-		"pack:dry": "npm pack --dry-run"
+		"pack:dry": "npm pack --dry-run",
+		"prototype": "vite dev --host 127.0.0.1 --port 5192"
 	},
 	"devDependencies": {
 		"@fontsource/inter": "5.2.8",
