@@ -25,3 +25,7 @@ Keep chaching's Register & Receipt tokens, existing mark and personality. No new
 ## Evidence on Hand
 
 Confirmed in the Account, subsidisation and dashboard IA decision sessions. Source inventory in the resolution of dashboard information architecture on the repository issue tracker. Prototype data is explicitly fictional and does not claim to show live usage.
+
+## Dashboard copy
+
+No decorative taglines or redundant introductory chrome. Use functional data labels. Retain existing cold-scan personality; do not invent slogans to decorate dashboard regions.
