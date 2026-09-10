@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { entries, selectUsage } from './prototype-data';
+import { entries, selectUsage, spendChange } from './prototype-data';
 
 test('filter intersections preserve usage totals and count shared Accounts once', () => {
 	for (const provider of ['all', 'Claude', 'Codex']) {
@@ -50,4 +50,20 @@ test('day and month navigation changes the window without moving headline totals
 	const filtered = selectUsage('Claude', 'Mac mini', 'c2', 30, 30);
 	expect(filtered.windowEntries).toHaveLength(30);
 	expect(filtered.windowEntries.every(entry => entry.accountId === 'c2' && entry.machine === 'Mac mini')).toBe(true);
+});
+
+
+test('spend changes compare disjoint filtered periods and handle unavailable baselines', () => {
+	const result = selectUsage('Claude', 'Mac mini', 'c2', 30, 30);
+	const sum = (start: number, days: number) => result.entries.filter(e => e.day >= start && e.day < start + days).reduce((total, e) => total + e.cost, 0);
+	expect(result.previousTotals.today).toBeCloseTo(sum(1, 1));
+	expect(result.previousTotals.week).toBeCloseTo(sum(7, 7));
+	expect(result.previousTotals.month).toBeCloseTo(sum(30, 30));
+	expect(result.previousPeriodCost).toBeCloseTo(sum(60, 30));
+	expect(selectUsage('all', 'all', 'all', 90, 30).previousPeriodCost).toBeNull();
+	expect(spendChange(150, 100)).toBe('+50.0%');
+	expect(spendChange(50, 100)).toBe('-50.0%');
+	expect(spendChange(0, 0)).toBe('0%');
+	expect(spendChange(10, 0)).toBe('No prior spend');
+	expect(spendChange(10, null)).toBe('No earlier data');
 });

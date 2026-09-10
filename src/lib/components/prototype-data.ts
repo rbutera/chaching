@@ -28,6 +28,13 @@ export const entries = Array.from({ length: 120 }, (_, day) =>
 	}))
 ).flat();
 
+export function spendChange(current: number, previous: number | null) {
+	if (previous === null) return 'No earlier data';
+	if (previous === 0) return current === 0 ? '0%' : 'No prior spend';
+	const change = (current - previous) / previous * 100;
+	return `${change > 0 ? '+' : ''}${change.toFixed(1)}%`;
+}
+
 export function selectUsage(provider: string, machine: string, accountId: string, endDay = 0, windowDays = 30) {
 	const selectedAccounts = accounts.filter(account =>
 		(provider === 'all' || account.provider === provider) &&
@@ -37,6 +44,7 @@ export function selectUsage(provider: string, machine: string, accountId: string
 	const accountIds = new Set(selectedAccounts.map(account => account.id));
 	const selectedEntries = entries.filter(entry => accountIds.has(entry.accountId) && (machine === 'all' || entry.machine === machine));
 	const sum = (days: number) => selectedEntries.reduce((total, entry) => total + (entry.day < days ? Math.round(entry.cost * 100) : 0), 0) / 100;
+	const previous = (start: number, days: number) => start + days > 120 ? null : selectedEntries.reduce((total, entry) => total + (entry.day >= start && entry.day < start + days ? Math.round(entry.cost * 100) : 0), 0) / 100;
 	const windowEntries = selectedEntries.filter(entry => entry.day >= endDay && entry.day < endDay + windowDays);
 	const dailyCosts = Array.from({ length: windowDays }, (_, index) => windowEntries.reduce((total, entry) => total + (entry.day === endDay + windowDays - 1 - index ? Math.round(entry.cost * 100) : 0), 0) / 100);
 	return {
@@ -47,6 +55,8 @@ export function selectUsage(provider: string, machine: string, accountId: string
 		periodCost: windowEntries.reduce((total, entry) => total + Math.round(entry.cost * 100), 0) / 100,
 		endDay,
 		windowDays,
+		previousTotals: { today: previous(1, 1), week: previous(7, 7), month: previous(30, 30) },
+		previousPeriodCost: previous(endDay + windowDays, windowDays),
 		totals: { all: sum(Infinity), today: sum(1), week: sum(7), month: sum(30) },
 		days30: Array.from({ length: 30 }, (_, index) => selectedEntries.reduce((total, entry) => total + (entry.day === 29 - index ? Math.round(entry.cost * 100) : 0), 0) / 100)
 	};
