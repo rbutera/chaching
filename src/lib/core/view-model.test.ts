@@ -1158,3 +1158,21 @@ describe('dashboard explicit date windows', () => {
 		expect(range).toMatchObject({ from: '2025-12-12', to: '2026-01-10', priorFrom: '2025-11-12', priorTo: '2025-12-11' });
 	});
 });
+
+
+it('keeps a known unsplit Account set in charts and sessions only when the whole set is selected', () => {
+	const original = snapFrom([dm('2026-06-19', 'claude', 'claude-opus-4-8', 100)]);
+	original.sessions = [{ ...sess('shared', '2026-06-19', '2026-06-19'), provider: 'claude', cost: 100 }];
+	const snapshot = attachAccounts(original, buildAccountIndex(['a', 'b', 'a'].map(accountId => ({ machineId: 'one', provider: 'claude', accountId })), 'one'));
+	expect(snapshot.dayModel[0]).toMatchObject({ accountId: null, accountCandidates: ['a', 'b'] });
+	for (const ids of [['a', 'b'], ['a', 'b', 'other']]) {
+		const state = { ...defaultViewState('day'), accountFilter: new Set(ids) };
+		expect(scopedTotals(snapshot, state).cost).toBe(100);
+		expect(scopedSessions(snapshot, state)).toHaveLength(1);
+	}
+	for (const ids of [['a'], ['b'], ['other']]) {
+		const state = { ...defaultViewState('day'), accountFilter: new Set(ids) };
+		expect(scopedTotals(snapshot, state).cost).toBe(0);
+		expect(scopedSessions(snapshot, state)).toHaveLength(0);
+	}
+});

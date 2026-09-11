@@ -27,6 +27,7 @@ function mappingKey(machineId: string, provider: string): string {
 /** Resolve subscription attribution at read time from the pool's mapping rows. */
 export interface AccountIndex {
 	byMachineProvider: Map<string, string | null>;
+	candidates: Map<string, Set<string>>;
 	ownMachineId: string;
 	/** Pool-level cursor attribution for account-scoped (machineId-less) cursor rows. */
 	cursor: string | null;
@@ -52,6 +53,7 @@ export function buildAccountIndex(mappings: readonly SyncMapping[], ownMachineId
 	const peerCursor = mappings.find(mapping => mapping.provider === 'cursor' && mapping.machineId !== ownMachineId && byMachineProvider.get(mappingKey(mapping.machineId, 'cursor')) != null);
 	return {
 		byMachineProvider,
+		candidates,
 		ownMachineId,
 		cursor: (candidates.get(ownKey)?.size ?? 0) > 1 ? null : byMachineProvider.get(ownKey) ?? peerCursor?.accountId ?? null
 	};
@@ -227,7 +229,8 @@ export function attachAccounts<T extends Pick<RollupSnapshot, 'dayModel' | 'sess
 		return {
 			...dm,
 			machineId,
-			accountId: resolve(index, machineId, dm.provider)
+			accountId: resolve(index, machineId, dm.provider),
+			accountCandidates: machineId ? [...(index.candidates.get(mappingKey(machineId, dm.provider)) ?? [])] : undefined
 		};
 	});
 	const sessions: SessionSummary[] = snap.sessions.map((s) => {
@@ -235,7 +238,8 @@ export function attachAccounts<T extends Pick<RollupSnapshot, 'dayModel' | 'sess
 		return {
 			...s,
 			machineId,
-			accountId: resolve(index, machineId, s.provider)
+			accountId: resolve(index, machineId, s.provider),
+			accountCandidates: machineId ? [...(index.candidates.get(mappingKey(machineId, s.provider)) ?? [])] : undefined
 		};
 	});
 	return { ...snap, dayModel, sessions };

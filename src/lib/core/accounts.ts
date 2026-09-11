@@ -29,7 +29,7 @@ export function accountWindowValues({ grain, accounts, mappings, from, to, provi
 	for (const usage of grain) {
 		if (usage.day < from || usage.day > to || (providers.size && !providers.has(usage.provider)) ||
 			(models.size && !models.has(usage.model)) || (machines.size && (!usage.machineId || !machines.has(usage.machineId)))) continue;
-		const candidates = usage.accountId ? new Set([usage.accountId]) : new Set(mappings
+		const candidates = usage.accountId ? new Set([usage.accountId]) : new Set(usage.accountCandidates ?? mappings
 			.filter(mapping => mapping.machineId === usage.machineId && mapping.provider === usage.provider)
 			.flatMap(mapping => mapping.accountId ? [mapping.accountId] : []));
 		const relevant = rows.filter(row => row.provider === usage.provider && (!candidates.size || candidates.has(row.id)));

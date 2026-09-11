@@ -141,6 +141,7 @@ class Ingestion {
 	private syncMappings: readonly SyncMapping[] = [];
 	private syncAccountIndex: AccountIndex = {
 		byMachineProvider: new Map(),
+		candidates: new Map(),
 		ownMachineId: '',
 		cursor: null
 	};

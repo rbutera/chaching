@@ -38,6 +38,8 @@ export interface DayModelAgg {
 	provider: string;
 	model: string;
 	machineId?: string;
+	/** Known contributing set when individual attribution is unavailable. */
+	accountCandidates?: string[];
 	accountId?: string | null;
 	tokens: TokenCounts;
 	requests: number;
@@ -50,6 +52,8 @@ export interface SessionSummary {
 	sessionId: string;
 	provider: string;
 	machineId?: string;
+	/** Known contributing set when individual attribution is unavailable. */
+	accountCandidates?: string[];
 	accountId?: string | null;
 	project: string;
 	firstTs: number;

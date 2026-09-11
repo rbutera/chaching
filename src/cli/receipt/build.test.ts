@@ -285,3 +285,11 @@ it('scopes pooled receipt usage by both machine and Account while retaining a sh
 	});
 	expect(receipt).toMatchObject({ totalBurn: 10, machines: ['one'], accountIds: ['a'], subsidisation: { apiEquivalentUsd: 10, feeUsd: 100, wholeAccountFee: true } });
 });
+
+
+it('retains known-set unsplit spend in a combined Account receipt without inventing individual spend', () => {
+	const snapshot = snapFrom([{ ...dm('2026-06-19', 'claude', 'claude-opus-4-8', 100, toks(100)), accountId: null, accountCandidates: ['a', 'b'] }]);
+	const options = { now: FIXED_NOW, range: { from: '2026-06-19', to: '2026-06-19' } };
+	expect(buildReceipt(snapshot, { ...options, accountIds: ['a', 'b'] }).totalBurn).toBe(100);
+	expect(buildReceipt(snapshot, { ...options, accountIds: ['a'] }).totalBurn).toBe(0);
+});

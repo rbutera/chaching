@@ -140,11 +140,18 @@ export function coverageForState(snap: RollupSnapshot, state: ViewState): Covera
 type PooledDayModel = DayModelAgg & {
 	machineId?: string;
 	accountId?: string | null;
+	accountCandidates?: string[];
 };
 type PooledSession = SessionSummary & {
 	machineId?: string;
 	accountId?: string | null;
+	accountCandidates?: string[];
 };
+
+function matchesAccountScope(row: Pick<DayModelAgg, 'accountId' | 'accountCandidates'>, accounts: Set<string>): boolean {
+	if (row.accountId) return accounts.has(row.accountId);
+	return Boolean(row.accountCandidates?.length && row.accountCandidates.every(id => accounts.has(id)));
+}
 
 /** Apply pool attribution filters before any period/model/provider aggregation. */
 export function poolGrain(rows: readonly DayModelAgg[], state: Pick<ViewState, 'machineFilter' | 'accountFilter'>): DayModelAgg[] {
@@ -156,7 +163,7 @@ export function poolGrain(rows: readonly DayModelAgg[], state: Pick<ViewState, '
 		if (machines && (!pooled.machineId || !machines.has(pooled.machineId))) return false;
 		if (
 			accounts &&
-			(!pooled.accountId || !accounts.has(pooled.accountId))
+			!matchesAccountScope(pooled, accounts)
 		)
 			return false;
 		return true;
@@ -170,7 +177,7 @@ function poolSessionMatches(session: SessionSummary, state: ViewState): boolean 
 	if (machines && (!pooled.machineId || !machines.has(pooled.machineId))) return false;
 	if (
 		accounts &&
-		(!pooled.accountId || !accounts.has(pooled.accountId))
+		!matchesAccountScope(pooled, accounts)
 	)
 		return false;
 	return true;
