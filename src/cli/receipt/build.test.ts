@@ -278,3 +278,27 @@ describe('buildReceipt — ROLLING window matches the dashboard (anchored at lat
 		expect(r.to).toBeUndefined();
 	});
 });
+
+
+it('filters model usage and coupons while retaining the whole selected Account fee', () => {
+	const snapshot = snapFrom([
+		dm('2026-06-19', 'claude', 'claude-opus-4-8', 120, toks(1_000_000, 0, 0, 1_000_000)),
+		dm('2026-06-19', 'claude', 'claude-sonnet-4-6', 80, toks(500_000, 0, 0, 500_000))
+	]);
+	const options = {
+		now: FIXED_NOW,
+		range: { from: '2026-06-01', to: '2026-06-30' },
+		subscription: {
+			claude: { enabled: true, tier: 'max', monthlyUsd: 100 },
+			codex: { enabled: false, tier: 'unknown', monthlyUsd: null }
+		}
+	};
+	const receipt = buildReceipt(snapshot, { ...options, models: ['claude-opus-4-8'] });
+	expect(receipt.totalBurn).toBe(120);
+	expect(receipt.lineItems.map((item) => item.model)).toEqual(['claude-opus-4-8']);
+	expect(receipt.coupons.map((coupon) => coupon.model)).toEqual(['claude-opus-4-8']);
+	expect(receipt.subsidisation).toMatchObject({ feeUsd: 100, apiEquivalentUsd: 120, multiple: 1.2 });
+	const empty = buildReceipt(snapshot, { ...options, models: ['absent'] });
+	expect(empty.empty).toBe(true);
+	expect(empty.subsidisation).toMatchObject({ feeUsd: 100, apiEquivalentUsd: 0 });
+});

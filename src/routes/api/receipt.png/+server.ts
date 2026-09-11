@@ -71,6 +71,8 @@ export const GET: RequestHandler = async ({ url }) => {
 		.map((s) => s.trim())
 		.filter(Boolean);
 
+	const models = params.getAll('model').flatMap((value) => value.split(',')).map((value) => value.trim()).filter(Boolean);
+
 	const service = getService();
 	await service.ensureStarted();
 	const snapshot = service.snapshot();
@@ -82,6 +84,7 @@ export const GET: RequestHandler = async ({ url }) => {
 	const model = buildReceipt(snapshot, {
 		period,
 		providers: providers.length > 0 ? providers : undefined,
+		models,
 		range,
 		footer: receiptFooter(),
 		subscription,

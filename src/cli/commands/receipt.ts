@@ -37,6 +37,7 @@ function writeStdoutSync(text: string): void {
 export interface ReceiptFlags {
 	period?: Period;
 	providers?: string[];
+	models?: string[];
 	json?: boolean;
 	/** --png present; value is the path (or undefined → default path). */
 	png?: boolean;
@@ -76,6 +77,7 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 	const model = buildReceipt(snapshot, {
 		period,
 		providers: flags.providers,
+		models: flags.models,
 		noArt: noArt || !!flags.json,
 		footer,
 		subscription,
@@ -96,6 +98,8 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 			flags.providers && flags.providers.length > 0 ? new Set(flags.providers) : null;
 		let grain = filterDays(snapshot.dayModel, from, to);
 		if (providerFilter) grain = grain.filter((dm) => providerFilter.has(dm.provider));
+		const modelFilter = new Set(flags.models);
+		if (modelFilter.size) grain = grain.filter((dm) => modelFilter.has(dm.model));
 		const totals = sumGrain(grain);
 		const payload: ReceiptJson = {
 			receipt: redacted,

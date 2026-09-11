@@ -349,6 +349,7 @@ function parseWhatifFlags(argv: string[]): WhatifFlags {
 function parseReceiptFlags(argv: string[]): ReceiptFlags {
 	const flags: ReceiptFlags = {};
 	const providers: string[] = [];
+	const models: string[] = [];
 
 	flags.noArt = noArt(argv);
 
@@ -421,6 +422,13 @@ function parseReceiptFlags(argv: string[]): ReceiptFlags {
 				process.exit(1);
 			}
 			providers.push(...raw.split(',').map((s) => s.trim()).filter(Boolean));
+		} else if (arg === '--model' || arg.startsWith('--model=')) {
+			const raw = arg === '--model' ? argv[++i] : arg.slice('--model='.length);
+			if (!raw || raw.startsWith('--') || !raw.split(',').some((value) => value.trim())) {
+				console.error('chaching receipt: --model requires a value');
+				process.exit(1);
+			}
+			models.push(...raw.split(',').map((value) => value.trim()).filter(Boolean));
 		} else if (arg.startsWith('-')) {
 			console.error(`chaching receipt: unknown flag '${arg}'`);
 			console.error(`Run \`chaching --help\` for usage.`);
@@ -429,6 +437,7 @@ function parseReceiptFlags(argv: string[]): ReceiptFlags {
 	}
 
 	if (providers.length > 0) flags.providers = providers;
+	if (models.length > 0) flags.models = models;
 
 	return flags;
 }

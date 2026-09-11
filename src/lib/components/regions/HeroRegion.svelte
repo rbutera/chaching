@@ -52,17 +52,13 @@
 		return null;
 	});
 
-	// "Receipt" button → /api/receipt.png reflecting the dashboard's current period,
-	// focused-day pin, and provider filter. (The receipt has no per-MODEL scope — same
-	// as the CLI receipt command — so a model filter isn't forwarded.) Redaction is
-	// OPT-IN (no `redact` param here): it's the user's own local data; add `?redact=1`
-	// when sharing.
 	let receiptUrl = $derived.by(() => {
 		const qs = new URLSearchParams();
 		qs.set('period', dash.period);
 		if (focusedDay) qs.set('day', focusedDay);
 		else if (snap) { const range = dash.periodWindow(snap); qs.set('from', range.from); qs.set('to', range.to); }
 		for (const p of dash.providerFilter) qs.append('provider', p);
+		for (const model of dash.modelFilter) qs.append('model', model);
 		return `${resolve('/api/receipt.png')}?${qs.toString()}`;
 	});
 

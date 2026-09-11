@@ -33,6 +33,7 @@ import type {
 export interface BuildReceiptOptions {
 	period?: Period;
 	providers?: string[];
+	models?: string[];
 	/** suppress decorative copy (footer flourish) — barcode/structure stay */
 	noArt?: boolean;
 	/** optional fixed timestamp (epoch ms) for deterministic ref/barcode in tests */
@@ -160,6 +161,9 @@ export function buildReceipt(snapshot: RollupSnapshot, opts: BuildReceiptOptions
 		grain = grain.filter((dm) => providerFilter.has(dm.provider));
 	}
 
+	const modelFilter = new Set(opts.models);
+	if (modelFilter.size) grain = grain.filter((dm) => modelFilter.has(dm.model));
+
 	const periodLabel = periodLabelOf(opts.period);
 	let subsidisation: ReceiptSubsidisation | null = null;
 	if (opts.subscription && from && to) {
@@ -200,6 +204,7 @@ export function buildReceipt(snapshot: RollupSnapshot, opts: BuildReceiptOptions
 			from: from ?? null,
 			to: to ?? null,
 			providers: opts.providers ?? null,
+			models: opts.models ?? null,
 			account: opts.account ?? null,
 			lineItems: [],
 			coupons: [],
@@ -339,7 +344,8 @@ export function buildReceipt(snapshot: RollupSnapshot, opts: BuildReceiptOptions
 		coveredFrom ?? '',
 		coveredTo ?? '',
 		opts.period ?? 'all',
-		(opts.providers ?? []).join(',')
+		(opts.providers ?? []).join(','),
+		(opts.models ?? []).join(',')
 	].join('|');
 
 	return {
@@ -349,6 +355,7 @@ export function buildReceipt(snapshot: RollupSnapshot, opts: BuildReceiptOptions
 		from: coveredFrom,
 		to: coveredTo,
 		providers: opts.providers ?? null,
+		models: opts.models ?? null,
 		account: opts.account ?? null,
 		lineItems,
 		coupons,

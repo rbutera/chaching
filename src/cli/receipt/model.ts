@@ -88,6 +88,7 @@ export interface ReceiptModel {
 	to: string | null;
 	/** provider filter applied, if any */
 	providers: string[] | null;
+	models?: string[] | null;
 	/**
 	 * Real "user@host" for the header's user·path line (the machine the receipt was
 	 * cut on). Shown verbatim by DEFAULT; scrubbed to a redaction block only when the

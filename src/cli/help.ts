@@ -68,6 +68,7 @@ Flags for stats:
   --json                   Output only the raw JSON snapshot to stdout
 
 Flags for receipt:
+  --model <name>           Filter usage by model; repeatable or comma-separated
   --period day|week|month|quarter|all  Aggregate by period (default: this month)
   --provider <name>        Filter to provider(s); repeatable or comma-separated
   --json                   Machine-readable receipt model to stdout (art-free)

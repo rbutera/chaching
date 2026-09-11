@@ -114,3 +114,12 @@ it('rejects incomplete, reversed and impossible date ranges', async () => {
 		await expect(call(query)).rejects.toMatchObject({ status: 400 });
 	}
 });
+
+
+it('keeps fees when model filtering excludes all usage', async () => {
+	await call('?from=2026-06-01&to=2026-06-30&model=absent,also-absent&model=another');
+	expect(vi.mocked(renderReceiptPng).mock.calls.at(-1)?.[0]).toMatchObject({
+		models: ['absent', 'also-absent', 'another'], lineItems: [], totalBurn: 0,
+		subsidisation: { feeUsd: 99, apiEquivalentUsd: 0 }
+	});
+});

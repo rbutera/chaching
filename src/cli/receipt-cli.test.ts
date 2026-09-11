@@ -168,3 +168,16 @@ describe('receipt --png', () => {
 		rmSync(out);
 	}, 45_000);
 });
+
+
+it('accepts repeated and comma-separated model filters and scopes JSON totals', async () => {
+	const { stdout, code } = await runCli(['receipt', '--json', '--model=absent,also-absent', '--model', 'another']);
+	expect(code).toBe(0);
+	const result = JSON.parse(stdout);
+	expect(result.receipt.models).toEqual(['absent', 'also-absent', 'another']);
+	expect(result.receipt.lineItems).toEqual([]);
+	expect(result.totals).toMatchObject({ cost: 0, requests: 0 });
+	const invalid = await runCli(['receipt', '--model', '--json']);
+	expect(invalid.code).not.toBe(0);
+	expect(invalid.stderr).toContain('--model requires a value');
+});
