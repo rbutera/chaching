@@ -3,8 +3,7 @@
 // HeroRegion — cost-honesty of the hero headline figure (hard rule: never fabricate
 // a "$0.00"). A pinned day that is a gap (`missing`) or still landing (`partial`)
 // must render the coverage vocabulary in the figure slot, NOT a dollar headline; a
-// genuine `zero` day and a `frozen` day still headline money. Mirrors the coverage
-// classes SummaryRail.test.ts pins, on the hero surface.
+// genuine `zero` day and a `frozen` day still headline money.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, cleanup } from '@testing-library/svelte';

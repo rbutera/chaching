@@ -34,7 +34,7 @@
 	let heroCost = $derived(focusedTotals ? focusedTotals.cost : (hero?.current.cost ?? 0));
 	let heroLabel = $derived(focusedDay ? fmtDay(focusedDay) : (hero?.label ?? '—'));
 
-	// Cost-honesty (hard rule), mirroring SummaryRail's `pinnedMark`: a pinned day
+	// A pinned day
 	// that is a gap (`missing`) or still landing (`partial`) must NOT be headlined as
 	// a dollar figure — `focusedTotals.cost` is 0/incomplete for those, so rolling it
 	// on the odometer would fabricate a final "$0.00". For a single-day window the
@@ -206,7 +206,7 @@
 	/* Coverage mark standing in for the hero money figure on a gap/partial pinned day.
 	   Same figure slot, mono voice, deliberately dimmer than a real total so it never
 	   reads as a dollar amount. `missing` is the most muted (a true gap); `partial`
-	   carries the warn hue (data still landing). Mirrors SummaryRail's `.rail-coverage`. */
+	   carries the warn hue (data still landing). */
 	.hero-coverage {
 		display: inline-flex;
 		align-items: baseline;
