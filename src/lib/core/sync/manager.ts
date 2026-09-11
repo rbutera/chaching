@@ -4,6 +4,7 @@ import { expandPath } from '../fs-utils';
 import { accountIdentityKey, readTokenmaxxAccounts, type TokenmaxxQuotaSnapshot } from '../providers/tokenmaxx/sqlite';
 import { accountQuotaSnapshot, refreshAccountDiscovery } from '../account-discovery';
 import type { PrivateAccount } from '../accounts';
+import { reportAccountFees } from '../accounts';
 import {
 	loadConfig,
 	updateConfig,
@@ -143,6 +144,12 @@ export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus
 	} finally {
 		await store.close().catch(() => {});
 	}
+}
+
+export async function getReportAccountContext() {
+	const status = await getSyncStatus();
+	const config = await loadConfig();
+	return { config, status, fees: reportAccountFees(config, status) };
 }
 
 export async function performSyncAction(action: SyncAction): Promise<SyncStatus> {

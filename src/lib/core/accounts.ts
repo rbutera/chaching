@@ -1,6 +1,6 @@
 import { FEE_PRORATA_DAYS, inclusiveDays, sumFees, type SubsidisedProvider, type ProviderSubsidisationConfig } from './subsidisation';
 import type { DayModelAgg } from '../types';
-import type { SyncMapping, SyncSubscription } from './sync/types';
+import type { SyncMapping, SyncSubscription, SyncStatus } from './sync/types';
 
 export interface AccountValueRow {
 	id: string;
@@ -80,6 +80,24 @@ export function accountFeesByProvider(config: {
 		};
 	}
 	return { claude: forProvider('claude'), codex: forProvider('codex') };
+}
+
+export function reportAccountFees(config: Parameters<typeof accountFeesByProvider>[0], status: Pick<SyncStatus, 'enabled' | 'subscriptions' | 'unreachable'>) {
+	if (!status.enabled) return accountFeesByProvider(config);
+	const accounts = [...new Map(status.subscriptions.map(account => [account.id, account])).values()]
+		.map(account => ({ ...account, feeSource: account.feeSource ?? 'explicit' as const }));
+	const providerAccounts = Object.fromEntries(['claude', 'codex'].map(provider => [provider, accounts.filter(account => account.provider === provider).map(account => account.id)]));
+	const fees = accountFeesByProvider({ ...config, accounts, providerAccounts, providers: {
+		claude: { enabled: config.providers.claude.enabled || providerAccounts.claude.length > 0 },
+		codex: { enabled: config.providers.codex.enabled || providerAccounts.codex.length > 0 }
+	} });
+	for (const provider of ['claude', 'codex'] as const) {
+		if (status.unreachable || config.accounts.some(account => account.provider === provider && account.pendingLegacyIds?.length)) {
+			fees[provider].enabled = true;
+			fees[provider].monthlyUsd = null;
+		}
+	}
+	return fees;
 }
 
 export function accountConfigProblems(config: { accounts: PrivateAccount[]; providerAccounts: Record<string, string[]> }): string[] {

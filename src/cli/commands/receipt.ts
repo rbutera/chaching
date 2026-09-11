@@ -1,4 +1,3 @@
-import { accountFeesByProvider } from '../../lib/core/accounts.js';
 // `chaching receipt` — render a period's spend as a branded thermal receipt.
 //
 // Reuses the core engine (runOnce) + aggregation; this command is a *renderer*
@@ -10,7 +9,7 @@ import { accountFeesByProvider } from '../../lib/core/accounts.js';
 
 import { writeSync } from 'node:fs';
 import { runOnce } from '../../lib/core/engine.js';
-import { refreshAccountDiscovery } from '../../lib/core/account-discovery.js';
+import { getReportAccountContext } from '../../lib/core/sync/manager.js';
 import { getPricingMeta } from '../../lib/core/pricing/cost.js';
 import { sumGrain, filterDays } from '../../lib/core/aggregate.js';
 import type { Period } from '../../lib/types.js';
@@ -51,7 +50,7 @@ export interface ReceiptFlags {
 }
 
 export async function runReceipt(flags: ReceiptFlags): Promise<void> {
-	const cfg = await refreshAccountDiscovery();
+	const { config: cfg, fees: subscription } = await getReportAccountContext();
 	const snapshot = await runOnce(cfg);
 
 	const noArt = flags.noArt ?? resolveNoArt();
@@ -73,7 +72,6 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 
 	// Pass the per-provider subscription config so the receipt can render the
 	// subsidisation footer. Built additively from the (already loaded) config.
-	const subscription = accountFeesByProvider(cfg);
 
 	const model = buildReceipt(snapshot, {
 		period,

@@ -1,4 +1,3 @@
-import { accountFeesByProvider } from '$lib/core/accounts';
 // GET /api/receipt.png — stream a branded thermal-receipt PNG of the CURRENT
 // dashboard view. SERVER-ONLY (Node): reuses the exact CLI receipt pipeline
 // (buildReceipt → redactReceipt → renderReceiptPng, satori + resvg). It lives in
@@ -20,7 +19,7 @@ import { error } from '@sveltejs/kit';
 import { isCalendarDay } from '$lib/core/view-model';
 import type { RequestHandler } from './$types';
 import { getService } from '$lib/server/service';
-import { loadConfig } from '$lib/core/config';
+import { getReportAccountContext } from '$lib/core/sync/manager';
 import { buildReceipt } from '../../../cli/receipt/build';
 import { redactReceipt, currentAccount } from '../../../cli/receipt/redact';
 import { receiptFooter } from '../../../cli/theme/personality';
@@ -78,8 +77,7 @@ export const GET: RequestHandler = async ({ url }) => {
 
 	// Per-provider subscription config for the subsidisation footer — built from the
 	// persisted config, exactly like the CLI receipt command.
-	const cfg = await loadConfig();
-	const subscription = accountFeesByProvider(cfg);
+	const { fees: subscription } = await getReportAccountContext();
 
 	const model = buildReceipt(snapshot, {
 		period,

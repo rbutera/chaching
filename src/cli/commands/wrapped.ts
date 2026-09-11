@@ -1,4 +1,3 @@
-import { accountFeesByProvider } from '../../lib/core/accounts.js';
 // `chaching wrapped` — a Spotify-Wrapped-style MONTHLY recap in the thermal-receipt
 // voice. The receipt's fun cousin: same engine (runOnce), same PNG plumbing, same
 // personality voice + redaction semantics, but the body is a shareable "your month
@@ -11,7 +10,7 @@ import { accountFeesByProvider } from '../../lib/core/accounts.js';
 
 import { writeSync } from 'node:fs';
 import { runOnce } from '../../lib/core/engine.js';
-import { refreshAccountDiscovery } from '../../lib/core/account-discovery.js';
+import { getReportAccountContext } from '../../lib/core/sync/manager.js';
 import { getPricingMeta } from '../../lib/core/pricing/cost.js';
 import { noArt as resolveNoArt, receiptFooter } from '../theme/personality.js';
 import { buildWrapped } from '../wrapped/build.js';
@@ -49,7 +48,7 @@ export interface WrappedFlags {
 }
 
 export async function runWrapped(flags: WrappedFlags): Promise<void> {
-	const cfg = await refreshAccountDiscovery();
+	const { config: cfg, fees: subscription } = await getReportAccountContext();
 	const snapshot = await runOnce(cfg);
 
 	const noArt = flags.noArt ?? resolveNoArt();
@@ -59,7 +58,6 @@ export async function runWrapped(flags: WrappedFlags): Promise<void> {
 	const footer = noArt || flags.json ? '' : receiptFooter();
 
 	// Per-provider subscription config → enables the subsidy block (mirrors receipt).
-	const subscription = accountFeesByProvider(cfg);
 
 	const model = buildWrapped(snapshot, {
 		month: flags.month,

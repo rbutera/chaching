@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { accountWindowValues } from './accounts';
+import { accountWindowValues, reportAccountFees } from './accounts';
+import { defaultConfig } from './config';
 
 function input(): Parameters<typeof accountWindowValues>[0] {
 	return {
@@ -11,6 +12,16 @@ function input(): Parameters<typeof accountWindowValues>[0] {
 }
 
 describe('Account window values', () => {
+	it('uses all distinct pool bills in reports and never substitutes local fees offline', () => {
+		const cfg = defaultConfig();
+		cfg.providers.claude.enabled = false;
+		const account = input().accounts[0];
+		const fees = reportAccountFees(cfg, { enabled: true, subscriptions: [account, account, { ...account, id: 'peer', monthlyUsd: 300 }] });
+		expect(fees.claude).toMatchObject({ enabled: true, monthlyUsd: 500 });
+		expect(reportAccountFees(cfg, { enabled: true, unreachable: true, subscriptions: [account] }).claude.monthlyUsd).toBeNull();
+		expect(reportAccountFees(cfg, { enabled: true, unreachable: true, subscriptions: [] }).claude).toMatchObject({ enabled: true, monthlyUsd: null });
+		expect(reportAccountFees(cfg, { enabled: true, subscriptions: [account, { ...account, id: 'peer', monthlyUsd: null }] }).claude.monthlyUsd).toBeNull();
+	});
 	it('marks missing Account references unavailable without counting excluded Accounts', () => {
 		const data = input();
 		data.grain[0].subscriptionId = 'missing';
