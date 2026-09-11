@@ -109,23 +109,27 @@
 	let reducedMotion = $derived(systemReducedMotion || motionDisabled);
 	let preferenceError = $state('');
 
-	function togglePersonality() {
+	function togglePersonality(input: HTMLInputElement) {
 		try {
 			setWebSuppressArt(!suppressArt);
 			suppressArt = webSuppressArt();
 			preferenceError = '';
 		} catch {
 			preferenceError = 'Could not save this preference. Browser storage may be blocked.';
+		} finally {
+			input.checked = !suppressArt;
 		}
 	}
 
-	function toggleMotion() {
+	function toggleMotion(input: HTMLInputElement) {
 		try {
 			localStorage.setItem('chaching.reducedMotion', motionDisabled ? '0' : '1');
 			motionDisabled = !motionDisabled;
 			preferenceError = '';
 		} catch {
 			preferenceError = 'Could not save this preference. Browser storage may be blocked.';
+		} finally {
+			input.checked = !reducedMotion && !suppressArt;
 		}
 	}
 
@@ -391,8 +395,8 @@
 				<h2>Settings</h2>
 				<section class="preferences" aria-labelledby="appearance-heading">
 					<h3 id="appearance-heading">Appearance</h3>
-					<label><span>Personality<small>Remarks and emoji, including room to grow.</small></span><input type="checkbox" checked={!suppressArt} onchange={togglePersonality}/></label>
-					<label><span>Animations<small>{systemReducedMotion ? 'Reduced motion is enabled in your system settings.' : suppressArt ? 'Paused while personality is off.' : 'Rolling numbers and moving charts.'}</small></span><input type="checkbox" checked={!reducedMotion && !suppressArt} disabled={systemReducedMotion || suppressArt} onchange={toggleMotion}/></label>
+					<label><span>Personality<small>Remarks and emoji, including room to grow.</small></span><input type="checkbox" checked={!suppressArt} onchange={(event) => togglePersonality(event.currentTarget)}/></label>
+					<label><span>Animations<small>{systemReducedMotion ? 'Reduced motion is enabled in your system settings.' : suppressArt ? 'Paused while personality is off.' : 'Rolling numbers and moving charts.'}</small></span><input type="checkbox" checked={!reducedMotion && !suppressArt} disabled={systemReducedMotion || suppressArt} onchange={(event) => toggleMotion(event.currentTarget)}/></label>
 					<label><span>Celebrations<small>Chime and confetti at milestones.</small></span><input type="checkbox" checked={joyEnabled} disabled={suppressArt} onchange={toggleJoy}/></label>
 					{#if joyEnabled}<label><span>Mute chime<small>Keep celebrations silent.</small></span><input type="checkbox" checked={joyMuted} disabled={suppressArt} onchange={toggleMute}/></label>{/if}
 					{#if preferenceError}<p role="alert">{preferenceError}</p>{/if}

@@ -11,8 +11,9 @@ export interface AccountValueRow {
 	feeUsd: number | null;
 }
 
-export function accountWindowValues({ grain, accounts, mappings, from, to, providers, machines, selected, models }: {
+export function accountWindowValues({ grain, accounts, mappings, from, to, providers, machines, selected, models, localAccounts = [] }: {
 	grain: readonly DayModelAgg[]; accounts: readonly SyncAccount[]; mappings: readonly SyncMapping[];
+	localAccounts?: readonly Account[];
 	from: string; to: string; providers: ReadonlySet<string>; machines: ReadonlySet<string>;
 	selected: ReadonlySet<string>; models: ReadonlySet<string>;
 }) {
@@ -22,7 +23,7 @@ export function accountWindowValues({ grain, accounts, mappings, from, to, provi
 		.filter(account => (!providers.size || providers.has(account.provider)) &&
 			(!machines.size || machineAccounts.has(account.id)) && (!selected.size || selected.has(account.id)))
 		.map(account => ({ id: account.id, provider: account.provider, name: account.name, account: account.account,
-			valueUsd: 0, feeUsd: account.monthlyUsd === null ? null : account.monthlyUsd * days / FEE_PRORATA_DAYS }));
+			valueUsd: 0, feeUsd: account.monthlyUsd === null || localAccounts.some(local => local.provider === account.provider && local.pendingLegacyIds?.length) ? null : account.monthlyUsd * days / FEE_PRORATA_DAYS }));
 	const byId = new Map(rows.map(row => [row.id, row]));
 	let valueUsd: number | null = 0;
 	for (const usage of grain) {

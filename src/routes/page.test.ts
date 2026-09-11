@@ -532,6 +532,20 @@ describe('dashboard route — motion (reduced-motion contract)', () => {
 		expect(view.getByRole('spinbutton')).toHaveProperty('value', '275.5');
 	});
 
+	it.each(['Personality', 'Animations'])('restores %s checkbox when storage rejects the change', async (name) => {
+		snapshotToEmit = richSnap();
+		const view = render(Page);
+		await flush();
+		await fireEvent.click(view.getByRole('button', { name: 'Settings' }));
+		const checkbox = view.getByRole('checkbox', { name: new RegExp(name) });
+		const write = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('Blocked'); });
+		try {
+			await fireEvent.click(checkbox);
+			expect(view.getByRole('alert').textContent).toContain('Could not save');
+			expect(checkbox).toHaveProperty('checked', true);
+		} finally { write.mockRestore(); }
+	});
+
 	it('persists appearance controls across remounts and suppresses Explore motion and art', async () => {
 		snapshotToEmit = richSnap();
 		let view = render(Page);

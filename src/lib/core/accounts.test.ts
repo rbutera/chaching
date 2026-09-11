@@ -89,3 +89,22 @@ it('retains configured local Account fees when provider scanning is disabled', (
 	cfg.providerAccounts.claude = ['missing'];
 	expect(accountFeesByProvider(cfg).claude).toMatchObject({ enabled: true, monthlyUsd: null });
 });
+
+
+it('keeps unresolved pooled fee totals unknown in dashboard and reports', () => {
+	const cfg = defaultConfig();
+	const data = input();
+	cfg.accounts = [{ ...data.accounts[0], id: 'pending', feeSource: 'inferred', identity: null,
+		registrations: [], legacy: false, pendingLegacyIds: ['a'] }];
+	const other = { ...data.accounts[0], id: 'codex', provider: 'codex', monthlyUsd: 20 };
+	data.accounts = [...data.accounts, other];
+	const values = accountWindowValues({ ...data, localAccounts: cfg.accounts });
+	expect(values.feeUsd).toBeNull();
+	expect(values.valueUsd).toBe(2000);
+	expect(values.rows.filter(row => row.provider === 'claude').map(row => row.feeUsd)).toEqual([null, null]);
+	expect(values.rows.find(row => row.id === 'codex')?.feeUsd).toBe(20);
+	expect(reportAccountFees(cfg, { enabled: true, accounts: [...data.accounts] }).claude.monthlyUsd).toBeNull();
+	expect(accountWindowValues({ ...data, localAccounts: cfg.accounts, providers: new Set(['codex']) }).feeUsd).toBe(20);
+	cfg.accounts[0].pendingLegacyIds = [];
+	expect(accountWindowValues({ ...data, localAccounts: cfg.accounts }).feeUsd).toBe(420);
+});

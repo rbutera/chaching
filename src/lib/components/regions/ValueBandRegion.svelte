@@ -44,6 +44,7 @@
 		if (!snap || !syncStatus?.enabled) return null;
 		const window = dash.periodWindow(snap);
 		return accountWindowValues({
+			localAccounts: config?.accounts,
 			grain: snap.dayModel, accounts: syncStatus.accounts, mappings: syncStatus.mappings,
 			from: focusedDay ?? window.from, to: focusedDay ?? window.to,
 			providers: dash.providerFilter, machines: dash.machineFilter,
