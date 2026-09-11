@@ -713,8 +713,7 @@ export function isLive(session: SessionSummary, now: number = Date.now()): boole
  *
  * Single pass: aggregate the flat grain to day grain once via `aggregateByPeriod(_, 'day')`,
  * index by day, then walk every calendar day from earliest to latest filling gaps with a
- * zero cell. Model/provider display filters are ignored, but pool attribution filters apply:
- * a machine/subscription drill-down needs the heatmap to show that selected ledger slice. Each
+ * zero cell. Scope filters apply without narrowing the navigable calendar range. Each
  * cell's `coverage` is read from the snapshot map, defaulting to `missing` for a gap day
  * (the same range-relative rule as the trend). Empty when there's no data.
  */
@@ -722,7 +721,9 @@ export function byDay(snap: RollupSnapshot, state?: ViewState): DayCell[] {
 	const from = snap.earliestDay;
 	const to = snap.latestDay;
 	if (from == null || to == null) return [];
-	const rows = state ? poolGrain(snap.dayModel, state) : snap.dayModel;
+	const rows = state ? poolGrain(snap.dayModel, state).filter(row =>
+		(!state.providerFilter.size || state.providerFilter.has(row.provider)) &&
+		(!state.modelFilter.size || state.modelFilter.has(row.model))) : snap.dayModel;
 	const coverage = state ? coverageForState(snap, state) : snap.coverage;
 	const present = new Map(aggregateByPeriod(rows, 'day').map((b) => [b.key, b]));
 	const out: DayCell[] = [];

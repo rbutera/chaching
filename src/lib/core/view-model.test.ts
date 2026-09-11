@@ -1176,3 +1176,17 @@ it('keeps a known unsplit Account set in charts and sessions only when the whole
 		expect(scopedSessions(snapshot, state)).toHaveLength(0);
 	}
 });
+
+
+it('filters calendar spend by provider and model without clipping navigation to the selected period or day', () => {
+	const snapshot = snapFrom([
+		dm('2026-06-15', 'codex', 'model-a', 10),
+		dm('2026-06-18', 'codex', 'model-a', 20),
+		dm('2026-06-18', 'codex', 'model-b', 30),
+		dm('2026-06-18', 'claude', 'model-a', 40)
+	]);
+	const state = { ...defaultViewState('day'), focusedDay: '2026-06-18', providerFilter: new Set(['codex']), modelFilter: new Set(['model-a']) };
+	expect(byDay(snapshot, state).map(cell => [cell.day, cell.cost])).toEqual([
+		['2026-06-15', 10], ['2026-06-16', 0], ['2026-06-17', 0], ['2026-06-18', 20]
+	]);
+});
