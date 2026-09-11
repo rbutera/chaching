@@ -27,7 +27,7 @@
 <section class="pool-subsidy" aria-labelledby="pool-subsidy-heading">
 	<div class="head">
 		<div>
-			<p class="eyebrow">pool subscriptions</p>
+			<p class="eyebrow">Accounts</p>
 			<h2 id="pool-subsidy-heading">{windowLabel}</h2>
 		</div>
 		<strong class="multiple">{multiple}</strong>
@@ -51,13 +51,10 @@
 	<p class="total">
 		<span>API-priced value</span>
 		<strong>{money(totalValue)}</strong>
-		<span>pro-rated fees</span>
+		<span>{wholePlanFee ? 'shared Account fee' : 'Account fees'}</span>
 		<strong>{totalFee === null ? 'Unknown' : money(totalFee)}</strong>
 	</p>
 
-	{#if wholePlanFee}
-		<p class="fee-note">Fees shown are the whole shared-plan fee, not a per-machine share.</p>
-	{/if}
 </section>
 
 <style>
@@ -134,11 +131,5 @@
 	.total strong {
 		color: var(--text);
 		text-align: right;
-	}
-	.fee-note {
-		margin: 0.5rem 0 0;
-		font-family: var(--font-sans);
-		font-size: var(--text-2xs);
-		color: var(--text-dim);
 	}
 </style>

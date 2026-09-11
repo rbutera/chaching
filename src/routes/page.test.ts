@@ -449,6 +449,15 @@ describe('dashboard route — behavior contracts', () => {
 		expect(container.textContent).toContain('Shared ChatGPT Pro');
 	});
 
+	it.each([false, true])('does not substitute local fees for an empty pool scope, unreachable=%s', async unreachable => {
+		snapshotToEmit = richSnap();
+		syncStatusToReturn = { enabled: true, databaseConfigured: true, unreachable, pool: null, machine: null, machines: [], subscriptions: [], mappings: [], providerQuotas: [] };
+		const { container } = render(Page);
+		await flush();
+		expect(container.querySelector('#subsidy-heading')).toBeNull();
+		expect(container.textContent).toContain(unreachable ? 'Pool unavailable.' : 'No Accounts in this scope.');
+	});
+
 	it('P2 + hero: renders the brass register total figure', async () => {
 		snapshotToEmit = richSnap();
 		const { container } = render(Page);

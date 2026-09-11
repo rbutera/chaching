@@ -67,7 +67,7 @@ describe('PoolSubsidisationCard', () => {
 			]
 		});
 
-		expect(container.textContent).toContain('whole shared-plan fee');
+		expect(container.textContent).toContain('shared Account fee');
 	});
 
 	it('omits the whole-plan annotation without a machine filter', () => {
@@ -85,6 +85,6 @@ describe('PoolSubsidisationCard', () => {
 			]
 		});
 
-		expect(container.textContent).not.toContain('whole shared-plan fee');
+		expect(container.textContent).not.toContain('shared Account fee');
 	});
 });

@@ -110,12 +110,16 @@
 	{#if cacheBreakdown}
 		<CachePanel breakdown={cacheBreakdown} />
 	{/if}
-	{#if syncStatus?.enabled && poolSubsidyRows.length > 0}
-		<PoolSubsidisationCard
-			rows={poolSubsidyRows}
-			windowLabel={heroLabel}
-			wholePlanFee={dash.machineFilter.size > 0}
-		/>
+	{#if syncStatus?.enabled}
+		{#if poolSubsidyRows.length > 0}
+			<PoolSubsidisationCard
+				rows={poolSubsidyRows}
+				windowLabel={heroLabel}
+				wholePlanFee={dash.machineFilter.size > 0}
+			/>
+		{:else}
+			<p role="status">{syncStatus.unreachable ? 'Pool unavailable.' : 'No Accounts in this scope.'}</p>
+		{/if}
 	{:else if subsidy && subsidyConfig}
 		<SubsidisationCard rollup={subsidy} windowLabel={heroLabel} burnPace={pace} />
 	{/if}
