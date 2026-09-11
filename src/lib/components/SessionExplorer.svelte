@@ -98,7 +98,7 @@
 
 	// default sort = recency, newest first
 
-	const table: Table<typeof features, Row> = createTable<typeof features, Row>({
+	const table: Table<typeof features, Row> = createTable<typeof features, Row, undefined>({
 		features,
 		columns,
 		get data() {
@@ -114,7 +114,7 @@
 			if (sorting === undefined) localSorting = next;
 			else sorting = next;
 		}
-	});
+	}, () => undefined);
 
 	let sortedRows = $derived(table.getRowModel().rows);
 

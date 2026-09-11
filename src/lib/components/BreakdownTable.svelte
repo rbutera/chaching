@@ -40,7 +40,7 @@
 		get data() { return filtered; },
 		state: { get sorting() { return sorting; } },
 		onSortingChange(updater) { sorting = typeof updater === 'function' ? updater(sorting) : updater; page = 0; }
-	});
+	}, () => undefined);
 	let sorted = $derived(table.getRowModel().rows);
 	let lastPage = $derived(Math.max(0, Math.ceil(sorted.length / 8) - 1));
 	let currentPage = $derived(Math.min(page, lastPage));
