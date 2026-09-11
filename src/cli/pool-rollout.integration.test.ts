@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 const baseUrl = process.env.CHACHING_TEST_DATABASE_URL;
 const enabled = baseUrl && process.env.CHACHING_TEST_PG_TOOLS === '1';
 const suite = enabled ? describe : describe.skip;
-suite('Packaged pool rollout rehearsal', () => {
+suite.each([2, 3])('Packaged pool rollout from schema %i', sourceVersion => {
  let directory: string;
  const database = 'chaching_rollout_' + randomUUID().replaceAll('-', '');
  const role = database + '_role';
@@ -30,6 +30,7 @@ suite('Packaged pool rollout rehearsal', () => {
   const target = new URL(baseUrl!); target.pathname = '/' + database; url = target.href;
   db = new Pool({ connectionString: url });
   await db.query(readFileSync('src/lib/core/sync/fixtures/pool-v3.sql', 'utf8'));
+  if (sourceVersion === 2) await db.query('DROP TABLE chaching_sync.machine_provider_status; UPDATE chaching_sync.schema_version SET version=2');
   await db.query(`GRANT USAGE ON SCHEMA chaching_sync TO ${role}`);
   await db.query(`INSERT INTO chaching_sync.pool(id,name) VALUES('pool','Rehearsal');
    INSERT INTO chaching_sync.machine(pool_id,id,name,hostname) VALUES('pool','one','One','fixture');
@@ -70,7 +71,7 @@ suite('Packaged pool rollout rehearsal', () => {
   writeFileSync(dumpPath, dump);
   await db.query("UPDATE chaching_sync.subscription SET monthly_usd=999");
   expect(() => run('migrate',rollout)).toThrow();
-  expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows[0].version).toBe(3);
+  expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows[0].version).toBe(sourceVersion);
   await db.query("UPDATE chaching_sync.subscription SET monthly_usd=123");
   expect(run('migrate',rollout)).toContain('verified');
   expect(run('migrate',rollout)).toContain('verified');

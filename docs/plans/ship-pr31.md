@@ -29,32 +29,23 @@ Automate the existing migration rather than creating a second schema implementat
 
 Use existing PostgreSQL tooling and the existing migration entry point. Keep secrets out of manifests and command output. Rehearse against disposable populated schema-3 data, including failure/rollback and rerun, and make the runbook's commands directly runnable. No live data migration is authorized here.
 
-## Remaining implementation
+## Completion evidence
 
-1. Apply and test the spend/quota simplification, including saved preferences and report compatibility.
-2. Implement the rollout commands, runbook and disposable rehearsal.
-3. Re-run web/CLI/integration gates, browser journeys, package inspection and independent review; update PR 31 and its release-readiness evidence. Do not merge or release merely to demonstrate readiness.
+| Requirement | Evidence |
+| --- | --- |
+| Investigate Tokenmaxx attribution | Source evidence above. No complete historical join exists; no weighting or fabricated split was introduced. |
+| Remove the need for individual Account spend scope | Dashboard state/controls and saved Account filters removed. Combined value follows provider/model/machine/date scope. Per-Account rows show fees only. |
+| Keep fees and quotas useful for Claude and Codex | Account identities, explicit/unknown fees, deduplication and setup remain. Selected identifies Tokenmaxx as its source; providers without a selection retain their quota rows. |
+| Explicit report compatibility | CLI stats/receipt reject `--account` before output; receipt API returns HTTP 400 for Account scope. Supported provider/model/machine/date filters remain. |
+| Cover the actual existing pool | Read-only inspection found schema 2, three machines, one pool and no outside application objects. No data or config was mutated. |
+| Automatable coordinated rollout | `docs/pool-rollout.mjs` and `docs/pool-rollout.md` cover client backups, exact-roster preflight, database backup, existing migration invocation, verification and recovery. Operators attest stopped clients and staged artifacts; commands do not start remote processes. |
+| Data-preserving recovery | `pool-rollout.integration.test.ts` rehearses populated schema 2 and 3, missing roster/corrupt backup/drift rejection, repeatable migration, failed restore rollback, schema/fee/link/aggregate preservation and config/SQLite recovery. |
+| Gates and package | 1,134 tests across 99 files pass with PostgreSQL and PostgreSQL-tool rehearsals enabled. Type checks report zero errors/warnings; web/CLI build passes. Package includes rollout tooling and excludes audit/prototype artifacts. |
+| Browser verification | Final screenshots come from the built production server against synthetic data at 1440x1000, 560x560 and 390x700. No horizontal overflow; no Account spend controls; receipt scopes and Explore tables remain. |
+| Independent review | Bounded read-only GPT-6 reviews found no remaining implementation defects. A stale schema-3-only evidence note was corrected. The requested different-family reviewer reported GPT-6, so different-family review is not claimed. |
 
-## Implementation evidence
+## Operational boundary
 
-Individual web Account spend controls and Dashboard Account state are removed. The web ignores both saved `accounts` and legacy `subscriptions` selections, drops them on the next preference write, and no longer puts Account filters in receipt links. Provider, model, machine, date and quota-view preferences remain. Regression checks exercise both saved formats against ambiguous Account usage and preserve the real pinned-day total.
+The schema command accepts versions 2, 3 and the current target 4. Preflight begins from 2 or 3 and records the original version for recovery. Schema 2 lacks the quota-observation table; the normalized inventory treats that absence as empty. The same original totals, fees and links must survive migration and recovery.
 
-This checkpoint passes eight focused component tests, `npm run check` with zero errors/warnings, and the web/CLI build. Combined fee/value presentation, quota source wording/fallback, explicit CLI/API Account-scope handling and rollout automation remain pending. This is not shipping-readiness evidence for those remaining items.
-
-Combined value now follows provider/model/machine/date scope without inspecting historical Account assignments. The card lists each distinct Account fee and one combined value; no row claims individual spend. Unknown fees remain unknown. The Selected quota view identifies Tokenmaxx as its source and shows all known Account quotas for providers without a selection, including Codex alongside a selected Claude Account.
-
-This checkpoint passes 1,127 tests across 98 files with disposable PostgreSQL integration coverage, zero-error/warning type checks and the web/CLI build. Fresh browser checks against the synthetic preview show $431.41 combined value, separate Account fees, Claude/Codex selected quotas, receipt links without Account scope and no horizontal overflow at 560x560 or 390x700. The shared Playwright instance was occupied; browser verification used a separate Chrome tab after restarting the stopped fixture server. A bounded read-only GPT-6 review found no defects. The requested GPT-5.5 reviewer reported GPT-6, so this does not establish different-family review.
-
-CLI/API Account-scope semantics, rollout automation/rehearsal, final screenshots and PR readiness updates remain open.
-
-CLI `stats` and `receipt` now reject `--account` explicitly before producing a report. The receipt API rejects any `account` query parameter with HTTP 400 before starting the service. The shared report context also rejects nonempty Account scope. Provider/model/machine/date scopes and Account setup/mapping commands remain supported. The focused compatibility tests pass, followed by 1,131 tests across 98 files with disposable PostgreSQL. Bounded GPT-6 review found no defects in this report-scope change.
-
-The packaged `chaching sync schema` command now inspects the database without loading config or starting sync. `sync schema --migrate --clients-stopped` uses the existing transactional migration, accepts only schema 3 or the target schema, and is repeatable. It affects every pool in the database. It is a migration primitive, not the complete rollout procedure: backups, stopped-client roster, baseline verification and recovery automation remain to be implemented. Seventeen focused sync/migration tests pass against disposable PostgreSQL, including version inspection without migration and repeated explicit migration. Type checks and web/CLI build pass. Packaged read-only invocation against the disposable preview database reports version 4.
-
-The rollout implementation and runbook are now in `docs/pool-rollout.mjs` and `docs/pool-rollout.md`. They cover client config/SQLite/artifact backups, exact-roster preflight, database backup, existing migration invocation, inventory verification, transactional database recovery and per-client config/history recovery. They deliberately leave stopping/restarting remote clients and selecting the old installation to the operator, whose roster attests the coordinated stop and staged artifact.
-
-The disposable rehearsal passes: omitted roster rejection, corrupted-backup rejection, changed-fee rejection, repeated migration, failed restore transaction rollback, successful restore and SQLite/config recovery. Full suite evidence is `/tmp/chaching-rollout-full-tests.log` with 1,133 tests across 99 files. The later streaming-hash and file-based restore refinement passes `/tmp/chaching-rollout-native-restore.log`, exercising PostgreSQL's native `--single-transaction -c ... -f ...` path through Docker wrappers. The earlier `/tmp/chaching-rollout-rehearsal.log` failed because the temporary wrapper indexed its file argument incorrectly; it is superseded by the successful native-restore log. Type checks and web/CLI build pass. No live database or client was migrated.
-
-Bounded read-only GPT-6 rollout review passes against the current script and successful native-restore evidence. Different-family review was requested but the worker reported GPT-6.
-
-Remaining release-readiness work: refresh final screenshot/inventory evidence, inspect the packaged artifact and current PR state, push the completed changes and update PR 31. Do not merge or deploy.
+All migration/recovery execution was against disposable databases and client files. The existing pool was inspected only through a read-only PostgreSQL transaction. No merge, deployment, release or live migration is part of preparing PR 31.

@@ -1,6 +1,6 @@
 # Coordinated pool upgrade
 
-This procedure upgrades schema 3 to 4 using the same migration as Chaching. It affects **every pool in the database**. Do not start upgraded clients before backup, and do not start old clients against schema 4. No live rollout has been performed for PR 31.
+This procedure upgrades schema 2 or 3 to 4 using the same migration as Chaching. It affects **every pool in the database**. Do not start upgraded clients before backup, and do not start old clients against schema 4. No live rollout has been performed for PR 31.
 
 The executable is [pool-rollout.mjs](pool-rollout.mjs), shipped in the npm package. It requires Node 24.16+, `tar`, and PostgreSQL `psql`, `pg_dump`, `pg_restore` on PATH. Use PostgreSQL tools matching the server major version. Automated recovery supports a dedicated Chaching database, with no application tables, functions or types outside `chaching_sync`. Use the same database role for backup and restore. Keep the existing database roles available so saved grants can be restored.
 
@@ -58,7 +58,7 @@ node "$ROLLOUT_SCRIPT" preflight "$ROLLOUT_DIR" "$ROSTER_FILE" "$TARGET_TGZ" "$T
 node "$ROLLOUT_SCRIPT" backup "$ROLLOUT_DIR"
 ```
 
-`ROLLOUT_DIR` must not already exist at preflight. Preflight verifies every client backup, the complete database roster, the target package hash and the target executable's agreement with the package. It records schema 3 and fingerprints of aggregate, session, quota, pool/machine, fee and non-null link rows. Null legacy links have no Account relationship and are deliberately omitted from the normalized comparison.
+`ROLLOUT_DIR` must not already exist at preflight. Preflight verifies every client backup, the complete database roster, the target package hash and the target executable's agreement with the package. It records the original schema version and fingerprints of aggregate, session, quota, pool/machine, fee and non-null link rows. Null legacy links have no Account relationship and are deliberately omitted from the normalized comparison.
 
 Backup creates a PostgreSQL custom-format dump of `chaching_sync`, checks that PostgreSQL can read it, verifies that data has not changed since preflight and records its checksum. Keep the directory intact. A failed backup does not authorize migration; preserve its evidence and begin a fresh preflight directory after fixing the cause.
 
@@ -83,7 +83,7 @@ On the coordinator:
 node "$ROLLOUT_SCRIPT" restore "$ROLLOUT_DIR" --clients-stopped
 ```
 
-The dump checksum and original destination must match. The schema replacement runs in one PostgreSQL transaction. An SQL error rolls the replacement back. Success requires schema 3 and the original normalized row inventories. If restoration fails, keep clients stopped and resolve the reported database/tooling problem before retrying.
+The dump checksum and original destination must match. The schema replacement runs in one PostgreSQL transaction. An SQL error rolls the replacement back. Success requires the original schema version and the original normalized row inventories. If restoration fails, keep clients stopped and resolve the reported database/tooling problem before retrying.
 
 On each original client, using its original backup directory:
 
@@ -95,7 +95,7 @@ This verifies backup hashes, restores config/history to their recorded original 
 
 ## Rehearsal
 
-The integration test creates its own disposable database, performs backup, rejects changed fees, migrates twice, verifies, forces an SQL failure during recovery, confirms that failure rolls back, then restores schema/config/SQLite history. It drops only its generated test database and role.
+The integration test creates disposable schema-2 and schema-3 databases, performs backup, rejects changed fees, migrates twice, verifies, forces an SQL failure during recovery, confirms that failure rolls back, then restores schema/config/SQLite history. It drops only its generated test database and role.
 
 ```sh
 CHACHING_TEST_PG_TOOLS=1 CHACHING_TEST_DATABASE_URL="$DISPOSABLE_ADMIN_URL" \
@@ -103,3 +103,5 @@ CHACHING_TEST_PG_TOOLS=1 CHACHING_TEST_DATABASE_URL="$DISPOSABLE_ADMIN_URL" \
 ```
 
 The test database role needs CREATE DATABASE and CREATE ROLE. These permissions are for the disposable rehearsal; the production commands do not create databases or roles. PostgreSQL tools must be installed locally or supplied through PATH wrappers. Without both test environment variables, this optional tooling rehearsal is skipped; the ordinary migration integration suite remains separate.
+
+Read-only inspection of the configured pool on 2026-09-11 found schema 2, three registered machines, one pool and no outside application objects. No identities, URLs, credentials or usage rows were exported. Schema 2 predates the quota-observation table; the comparison treats that absent table as empty and requires it to remain empty through migration. Both starting versions are rehearsed.

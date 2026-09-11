@@ -42,11 +42,12 @@ const version = () => Number(sql('SELECT version FROM chaching_sync.schema_versi
 const roster = () => JSON.parse(sql("SELECT coalesce(json_agg(x),'[]') FROM (SELECT pool_id,id FROM chaching_sync.machine) x;")).sort((a,b) => a.pool_id.localeCompare(b.pool_id) || a.id.localeCompare(b.id));
 function baseline() {
  const v = version();
- if (![3, 4].includes(v)) fail(`Expected schema 3 or 4; found ${v}.`);
+ if (![2, 3, 4].includes(v)) fail(`Expected schema 2, 3 or 4; found ${v}.`);
  const tables = ['pool', 'machine', 'machine_day_agg', 'machine_hour_agg', 'machine_session_agg', 'machine_provider_status'];
  const queries = Object.fromEntries(tables.map(table => [table, `SELECT * FROM chaching_sync.${table}`]));
- queries.accounts = `SELECT pool_id,id,provider,name,account,tier,monthly_usd FROM chaching_sync.${v === 3 ? 'subscription' : 'account'}`;
- queries.links = v === 3 ? 'SELECT pool_id,machine_id,provider,subscription_id AS account_id FROM chaching_sync.machine_subscription WHERE subscription_id IS NOT NULL' : 'SELECT pool_id,machine_id,provider,account_id FROM chaching_sync.machine_account';
+ if (v === 2 && sql("SELECT to_regclass('chaching_sync.machine_provider_status') IS NULL;") === 't') queries.machine_provider_status = 'SELECT 1 WHERE false';
+ queries.accounts = `SELECT pool_id,id,provider,name,account,tier,monthly_usd FROM chaching_sync.${v < 4 ? 'subscription' : 'account'}`;
+ queries.links = v < 4 ? 'SELECT pool_id,machine_id,provider,subscription_id AS account_id FROM chaching_sync.machine_subscription WHERE subscription_id IS NOT NULL' : 'SELECT pool_id,machine_id,provider,account_id FROM chaching_sync.machine_account';
  return Object.fromEntries(Object.entries(queries).map(([name, query]) => [name, sql(`SELECT count(*) || ':' || md5(coalesce(string_agg(row_to_json(x)::text, E'\\n' ORDER BY row_to_json(x)::text),'')) FROM (${query}) x;`)]));
 }
 function checkClients(manifest) {
@@ -109,8 +110,9 @@ try {
   const [rosterPath, artifact, cli] = args;
   if (!rosterPath || !artifact || !cli) fail('preflight requires roster JSON, target package artifact and extracted target bin/chaching.js.');
   dedicatedDatabase();
-  if (version() !== 3) fail('Start a rollout from schema 3; reuse its directory for reruns after migration.');
-  const manifest = { schema: 3, clients: json(rosterPath), targetArtifact: resolve(artifact), targetSha256: hash(artifact), targetCli: resolve(cli), targetCliSha256: hash(cli), targetRuntime: resolve(cli, '../../dist/cli/index.js'), targetRuntimeSha256: hash(resolve(cli, '../../dist/cli/index.js')), database: createHash('sha256').update(JSON.stringify([pgEnvironment().PGHOST, pgEnvironment().PGPORT, pgEnvironment().PGDATABASE])).digest('hex'), baseline: baseline() };
+  const originalSchema = version();
+  if (![2, 3].includes(originalSchema)) fail('Start a rollout from schema 2 or 3; reuse its directory for reruns after migration.');
+  const manifest = { schema: originalSchema, clients: json(rosterPath), targetArtifact: resolve(artifact), targetSha256: hash(artifact), targetCli: resolve(cli), targetCliSha256: hash(cli), targetRuntime: resolve(cli, '../../dist/cli/index.js'), targetRuntimeSha256: hash(resolve(cli, '../../dist/cli/index.js')), database: createHash('sha256').update(JSON.stringify([pgEnvironment().PGHOST, pgEnvironment().PGPORT, pgEnvironment().PGDATABASE])).digest('hex'), baseline: baseline() };
   for (const [entry, expected] of [['package/bin/chaching.js', manifest.targetCliSha256], ['package/dist/cli/index.js', manifest.targetRuntimeSha256]]) {
    const packed = execFileSync('tar', ['-xOf', artifact, entry], { maxBuffer: 128 * 1024 * 1024 });
    equal(createHash('sha256').update(packed).digest('hex'), expected, 'Extracted target executable');
@@ -127,7 +129,7 @@ try {
   const dump = join(dir, 'pool.dump');
   if (phase === 'backup') {
    if (existsSync(dump)) fail('Backup already exists; preserve it and use the next phase.');
-   equal(version(), 3, 'Pre-upgrade schema'); equal(baseline(), manifest.baseline, 'Pre-upgrade data');
+   equal(version(), manifest.schema, 'Pre-upgrade schema'); equal(baseline(), manifest.baseline, 'Pre-upgrade data');
    run('pg_dump', ['--format=custom', '--schema=chaching_sync', '--file=' + dump]);
    run('pg_restore', ['--list', dump]);
    equal(baseline(), manifest.baseline, 'Data during backup');
@@ -143,7 +145,7 @@ try {
     run('pg_restore', ['--no-owner', '--file=' + restoreSql, dump]);
     run('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '--single-transaction', '-c', 'DROP SCHEMA chaching_sync CASCADE;', '-f', restoreSql]);
    }
-   equal(version(), phase === 'restore' ? 3 : 4, 'Resulting schema');
+   equal(version(), phase === 'restore' ? manifest.schema : 4, 'Resulting schema');
    equal(baseline(), manifest.baseline, 'Aggregate, fee and link inventory');
   }
  }
