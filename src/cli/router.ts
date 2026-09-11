@@ -16,6 +16,7 @@ import { printUsage, printVersion } from './help.js';
 import { configFilePath } from '../lib/core/config.js';
 import { existsSync } from 'node:fs';
 import { noArt } from './tui/theme.js';
+import { isCalendarDay } from '../lib/core/view-model.js';
 
 /** Known global flags that may appear before the subcommand token. */
 const GLOBAL_FLAGS = new Set(['--no-art', '--no-color']);
@@ -350,6 +351,8 @@ function parseReceiptFlags(argv: string[]): ReceiptFlags {
 	const flags: ReceiptFlags = {};
 	const providers: string[] = [];
 	const models: string[] = [];
+	let from: string | undefined;
+	let to: string | undefined;
 
 	flags.noArt = noArt(argv);
 
@@ -429,6 +432,15 @@ function parseReceiptFlags(argv: string[]): ReceiptFlags {
 				process.exit(1);
 			}
 			models.push(...raw.split(',').map((value) => value.trim()).filter(Boolean));
+		} else if (arg === '--from' || arg.startsWith('--from=') || arg === '--to' || arg.startsWith('--to=')) {
+			const key = arg.startsWith('--from') ? 'from' : 'to';
+			const value = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : argv[++i];
+			if (!value || !isCalendarDay(value)) {
+				console.error(`chaching receipt: --${key} requires a date in YYYY-MM-DD`);
+				process.exit(1);
+			}
+			if (key === 'from') from = value;
+			else to = value;
 		} else if (arg.startsWith('-')) {
 			console.error(`chaching receipt: unknown flag '${arg}'`);
 			console.error(`Run \`chaching --help\` for usage.`);
@@ -438,6 +450,14 @@ function parseReceiptFlags(argv: string[]): ReceiptFlags {
 
 	if (providers.length > 0) flags.providers = providers;
 	if (models.length > 0) flags.models = models;
+
+	if (from !== undefined || to !== undefined) {
+		if (!from || !to || from > to) {
+			console.error('chaching receipt: --from and --to must both be supplied in date order');
+			process.exit(1);
+		}
+		flags.range = { from, to };
+	}
 
 	return flags;
 }

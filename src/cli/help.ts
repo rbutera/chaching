@@ -68,8 +68,9 @@ Flags for stats:
   --json                   Output only the raw JSON snapshot to stdout
 
 Flags for receipt:
+  --from YYYY-MM-DD --to YYYY-MM-DD  Export an inclusive date range
   --model <name>           Filter usage by model; repeatable or comma-separated
-  --period day|week|month|quarter|all  Aggregate by period (default: this month)
+  --period day|week|month|quarter|all  Aggregate by period (default: last 30 days)
   --provider <name>        Filter to provider(s); repeatable or comma-separated
   --json                   Machine-readable receipt model to stdout (art-free)
   --png [path]             Write a shareable PNG (default: ./chaching-receipt-<period>.png)
@@ -103,7 +104,7 @@ Examples:
   chaching stats --period week --provider codex
   chaching doctor                  # per-provider health + staleness + pricing
   chaching stats --json | jq .totals.cost
-  chaching receipt                 # this month (default)
+  chaching receipt                 # last 30 days (default)
   chaching receipt --period all
   chaching receipt --png receipt.png
   chaching wrapped                 # your month in tokens (month-to-date)

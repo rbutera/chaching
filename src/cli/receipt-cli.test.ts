@@ -75,13 +75,13 @@ describe('receipt --json', () => {
 	});
 });
 
-describe('receipt — default period is this month', () => {
+describe('receipt — default period is the last 30 days', () => {
 	it('bare receipt --json defaults to the monthly period', async () => {
 		const { stdout, code } = await runCli(['receipt', '--json']);
 		expect(code).toBe(0);
 		const parsed = JSON.parse(stdout);
 		expect(parsed.receipt.period).toBe('month');
-		expect(parsed.receipt.periodLabel).toBe('this month');
+		expect(parsed.receipt.periodLabel).toBe('last 30 days');
 	});
 
 	it('--period all opts back into all-time (overrides the monthly default)', async () => {
@@ -93,12 +93,12 @@ describe('receipt — default period is this month', () => {
 		expect(parsed.receipt.periodLabel).toBe('all time');
 	});
 
-	it('--period quarter is accepted and scopes to the quarter', async () => {
+	it('--period quarter is accepted and scopes to the last 90 days', async () => {
 		const { stdout, code } = await runCli(['receipt', '--json', '--period', 'quarter']);
 		expect(code).toBe(0);
 		const parsed = JSON.parse(stdout);
 		expect(parsed.receipt.period).toBe('quarter');
-		expect(parsed.receipt.periodLabel).toBe('this quarter');
+		expect(parsed.receipt.periodLabel).toBe('last 90 days');
 	});
 });
 
@@ -180,4 +180,18 @@ it('accepts repeated and comma-separated model filters and scopes JSON totals', 
 	const invalid = await runCli(['receipt', '--model', '--json']);
 	expect(invalid.code).not.toBe(0);
 	expect(invalid.stderr).toContain('--model requires a value');
+});
+
+
+it('exports explicit dates consistently in the receipt body and JSON totals', async () => {
+	const day = fx.days.at(-1)!;
+	const { code, stdout } = await runCli(['receipt', '--json', '--from', day, '--to=' + day]);
+	expect(code).toBe(0);
+	const result = JSON.parse(stdout);
+	expect(result.receipt).toMatchObject({ from: day, to: day });
+	expect(result.receipt.totalBurn).toBeGreaterThan(0);
+	expect(result.totals.cost).toBe(result.receipt.totalBurn);
+	for (const args of [['--from', day], ['--from=2026-02-30', '--to', day], ['--from=2026-06-02', '--to=2026-06-01']]) {
+		expect((await runCli(['receipt', '--json', ...args])).code).not.toBe(0);
+	}
 });

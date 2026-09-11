@@ -38,6 +38,7 @@ export interface ReceiptFlags {
 	period?: Period;
 	providers?: string[];
 	models?: string[];
+	range?: { from: string; to: string };
 	json?: boolean;
 	/** --png present; value is the path (or undefined → default path). */
 	png?: boolean;
@@ -56,16 +57,9 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 
 	const noArt = flags.noArt ?? resolveNoArt();
 
-	// The receipt defaults to THIS MONTH when no `--period` is given (a monthly
-	// statement is the natural framing). An explicit `--period all` opts back into
-	// all-time; day/week/quarter override as before. Everything downstream reads
-	// `period`, so resolve the default here once.
+	// Match the dashboard default, a rolling 30-day window.
 	const period: Period = flags.period ?? 'month';
 
-	// Pin ONE clock for the whole command. The line items / TOTAL BURN now scope
-	// through the ROLLING window (anchored at snap.latestDay) so the receipt total
-	// matches the dashboard hero; `now` is still passed to buildReceipt for the
-	// deterministic ref/barcode seed and the calendar-MTD subsidisation footer.
 	const now = new Date();
 
 	// Footer copy comes from personality (never under --json, never under --no-art).
@@ -78,6 +72,7 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 		period,
 		providers: flags.providers,
 		models: flags.models,
+		range: flags.range,
 		noArt: noArt || !!flags.json,
 		footer,
 		subscription,
@@ -93,7 +88,7 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 	if (flags.json) {
 		// Same ROLLING window buildReceipt scoped the body through, so the --json
 		// totals == the receipt body == the dashboard hero for this period.
-		const { from, to } = rollingPeriodRange(snapshot, period);
+		const { from, to } = flags.range ?? rollingPeriodRange(snapshot, period, now.getTime());
 		const providerFilter =
 			flags.providers && flags.providers.length > 0 ? new Set(flags.providers) : null;
 		let grain = filterDays(snapshot.dayModel, from, to);
