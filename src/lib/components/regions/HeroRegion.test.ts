@@ -125,12 +125,31 @@ it('forwards the selected models and date to the receipt', async () => {
 	dash.focusedDay = '2026-06-15';
 	dash.modelFilter = new Set(['claude-opus-4-8']);
 	dash.machineFilter = new Set(['one']);
-	dash.accountFilter = new Set(['a']);
 	const view = render(CommandBar, { props: { feed, dash, syncStatus: null } });
 	const link = view.getByRole('link', { name: 'Open a shareable receipt of the current view in a new tab' });
 	const url = new URL(link.getAttribute('href')!, 'http://localhost');
 	expect(url.searchParams.getAll('model')).toEqual(['claude-opus-4-8']);
 	expect(url.searchParams.getAll('machine')).toEqual(['one']);
-	expect(url.searchParams.getAll('account')).toEqual(['a']);
+	expect(url.searchParams.getAll('account')).toEqual([]);
 	expect(url.searchParams.get('day')).toBe('2026-06-15');
+});
+
+
+it.each(['accounts', 'subscriptions'])('discards saved %s spend scope while retaining supported filters', (key) => {
+	localStorage.setItem('chaching.ui.v1', JSON.stringify({
+		period: 'month', models: ['claude-opus-4-8'], providers: ['claude'],
+		machines: ['one'], focusedDay: '2026-06-15', quotaView: 'all', [key]: ['unmatched']
+	}));
+	const dash = new Dashboard();
+	const snap = snapshot();
+	snap.dayModel = snap.dayModel.map(row => ({ ...row, machineId: 'one', accountCandidates: ['a', 'b'] }));
+	expect(dash.focusedTotals(snap, dash.focusedDay!).cost).toBe(40);
+	expect([...dash.modelFilter]).toEqual(['claude-opus-4-8']);
+	expect([...dash.providerFilter]).toEqual(['claude']);
+	expect([...dash.machineFilter]).toEqual(['one']);
+	expect(dash.quotaView).toBe('all');
+	dash.setQuotaView('provider');
+	const saved = JSON.parse(localStorage.getItem('chaching.ui.v1')!);
+	expect(saved.accounts).toBeUndefined();
+	expect(saved.subscriptions).toBeUndefined();
 });

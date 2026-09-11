@@ -34,3 +34,9 @@ Use existing PostgreSQL tooling and the existing migration entry point. Keep sec
 1. Apply and test the spend/quota simplification, including saved preferences and report compatibility.
 2. Implement the rollout commands, runbook and disposable rehearsal.
 3. Re-run web/CLI/integration gates, browser journeys, package inspection and independent review; update PR 31 and its release-readiness evidence. Do not merge or release merely to demonstrate readiness.
+
+## Implementation evidence
+
+Individual web Account spend controls and Dashboard Account state are removed. The web ignores both saved `accounts` and legacy `subscriptions` selections, drops them on the next preference write, and no longer puts Account filters in receipt links. Provider, model, machine, date and quota-view preferences remain. Regression checks exercise both saved formats against ambiguous Account usage and preserve the real pinned-day total.
+
+This checkpoint passes eight focused component tests, `npm run check` with zero errors/warnings, and the web/CLI build. Combined fee/value presentation, quota source wording/fallback, explicit CLI/API Account-scope handling and rollout automation remain pending. This is not shipping-readiness evidence for those remaining items.

@@ -30,9 +30,7 @@
 
 	// Look up a pool machine / subscription display name for its chip.
 	let machineName = $derived((id: string) => syncStatus?.machines.find((m) => m.id === id)?.name ?? id);
-	let accountName = $derived(
-		(id: string) => syncStatus?.accounts.find((s) => s.id === id)?.name ?? id
-	);
+
 
 	// One-action bulk clear (restores the old ControlsRegion "clear filter" buttons).
 	// Shown whenever ANY provider/model/pool filter is active; it does NOT touch the
@@ -41,8 +39,7 @@
 	let anyFilterActive = $derived(
 		dash.providerFilter.size +
 			dash.modelFilter.size +
-			dash.machineFilter.size +
-			dash.accountFilter.size >
+			dash.machineFilter.size >
 			0
 	);
 	function clearAllFilters(): void {
@@ -58,7 +55,6 @@
 		for (const p of dash.providerFilter) qs.append('provider', p);
 		for (const model of dash.modelFilter) qs.append('model', model);
 		for (const machine of dash.machineFilter) qs.append('machine', machine);
-		for (const account of dash.accountFilter) qs.append('account', account);
 		return `${resolve('/api/receipt.png')}?${qs.toString()}`;
 	});
 
@@ -91,14 +87,11 @@
 				</div>
 			{/if}
 
-			{#if syncStatus?.enabled || syncStatus?.accounts?.length}
+			{#if syncStatus?.enabled}
 				<PoolFilters
 					machines={syncStatus.machines}
-					accounts={syncStatus.accounts}
 					machineFilter={dash.machineFilter}
-					accountFilter={dash.accountFilter}
 					onMachineToggle={(id) => dash.toggleMachine(id)}
-					onAccountToggle={(id) => dash.toggleAccount(id)}
 					onClear={() => dash.clearPoolFilters()}
 				/>
 			{/if}
@@ -134,13 +127,6 @@
 				<span class="chip chip-pool">
 					{machineName(id)}
 					<button class="chip-x" aria-label={`Remove ${machineName(id)} machine filter`} onclick={() => dash.toggleMachine(id)}>✕</button>
-				</span>
-			{/each}
-
-			{#each [...dash.accountFilter] as id (id)}
-				<span class="chip chip-pool">
-					{accountName(id)}
-					<button class="chip-x" aria-label={`Remove ${accountName(id)} Account filter`} onclick={() => dash.toggleAccount(id)}>✕</button>
 				</span>
 			{/each}
 

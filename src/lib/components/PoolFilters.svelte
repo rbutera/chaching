@@ -1,28 +1,22 @@
 <script lang="ts">
-	import type { SyncMachineView, SyncAccountView } from '$lib/client/sync';
+	import type { SyncMachineView } from '$lib/client/sync';
 
 	interface Props {
 		machines: SyncMachineView[];
-		accounts: SyncAccountView[];
 		machineFilter: Set<string>;
-		accountFilter: Set<string>;
 		onMachineToggle: (id: string) => void;
-		onAccountToggle: (id: string) => void;
 		onClear: () => void;
 	}
 
 	let {
 		machines,
-		accounts,
 		machineFilter,
-		accountFilter,
 		onMachineToggle,
-		onAccountToggle,
 		onClear
 	}: Props = $props();
 </script>
 
-{#if machines.length > 1 || accounts.length > 1}
+{#if machines.length > 1}
 	<div class="pool-filters" aria-label="Pool filters">
 		{#if machines.length > 1}
 			<details name="scope-filters">
@@ -42,26 +36,8 @@
 			</details>
 		{/if}
 
-		{#if accounts.length > 1}
-			<details name="scope-filters">
-				<summary>Accounts{accountFilter.size ? ` · ${accountFilter.size}` : ''}</summary>
-				<div class="filter-group" aria-label="Account filter">
-				{#each accounts as subscription (subscription.id)}
-					<button
-						type="button"
-						class:active={accountFilter.has(subscription.id)}
-						aria-pressed={accountFilter.has(subscription.id)}
-						onclick={() => onAccountToggle(subscription.id)}
-					>
-						{subscription.name}
-					</button>
-				{/each}
-				</div>
-			</details>
-		{/if}
-
-		{#if machineFilter.size > 0 || accountFilter.size > 0}
-			<button type="button" class="clear" onclick={onClear}>clear pool filters ✕</button>
+		{#if machineFilter.size > 0}
+			<button type="button" class="clear" onclick={onClear}>clear machine filters ✕</button>
 		{/if}
 	</div>
 {/if}

@@ -48,7 +48,7 @@
 			grain: snap.dayModel, accounts: syncStatus.accounts, mappings: syncStatus.mappings,
 			from: focusedDay ?? window.from, to: focusedDay ?? window.to,
 			providers: dash.providerFilter, machines: dash.machineFilter,
-			selected: dash.accountFilter, models: dash.modelFilter
+			selected: new Set(), models: dash.modelFilter
 		});
 	});
 
