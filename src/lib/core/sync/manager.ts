@@ -32,6 +32,14 @@ export async function publishDiscoveredAccounts(store: PostgresSyncStore, cfg: c
 	if (!cfg.sync.poolId) return;
 	const linked = new Set(Object.values(cfg.providerAccounts).flat());
 	for (const account of cfg.accounts) {
+		if (account.pendingPoolId === cfg.sync.poolId) {
+			await store.addSubscription({ ...account, account: '' });
+			await updateConfig(current => ({ ...current, accounts: current.accounts.map(row => {
+				if (row.id !== account.id || row.pendingPoolId !== account.pendingPoolId) return row;
+				const { pendingPoolId: _pending, ...saved } = row;
+				return saved;
+			}) }));
+		}
 		if (!linked.has(account.id) || account.pendingLegacyIds?.length) continue;
 		await store.discoverAccount({
 			id: account.id,
@@ -56,7 +64,7 @@ export async function writePoolAccount(cfg: chachingConfig, account: PrivateAcco
 			id: account.id, provider: account.provider, name: account.name, account: '',
 			tier: account.tier, monthlyUsd: account.monthlyUsd, feeSource: account.feeSource,
 			identityKey: account.identity ? accountIdentityKey(account.provider, account.identity, cfg.sync.poolId) : null
-		});
+		}, false);
 		await store.updateAccountDetails({ ...fields, id, provider: account.provider });
 		const status = await store.status();
 		const remote = status.subscriptions.find(row => row.id === id);
@@ -246,6 +254,30 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 	}
 
 	if (!isConfigured(cfg.sync)) throw new Error('Join or create a sync pool first');
+	const poolId = cfg.sync.poolId;
+	if (action.action === 'add-subscription') {
+		const monthlyUsd = action.monthlyUsd;
+		if (!Number.isFinite(monthlyUsd) || monthlyUsd < 0)
+			throw new Error('Monthly USD must be a non-negative number');
+		const subscription: SyncSubscription = {
+			id: randomUUID(),
+			provider: required(action.provider, 'Provider'),
+			name: required(action.name, 'Account name'),
+			account: '',
+			tier: required(action.tier, 'Tier'),
+			monthlyUsd, feeSource: 'explicit'
+		};
+		await updateConfig(current => {
+			return { ...current, accounts: [...current.accounts, {
+				id: subscription.id, provider: subscription.provider, name: subscription.name,
+				tier: subscription.tier, monthlyUsd, feeSource: 'explicit', identity: null,
+				registrations: [], legacy: false, pendingPoolId: poolId,
+				...(action.account.trim() ? { privateLabel: action.account.trim() } : {})
+			}] };
+		});
+		return await getSyncStatus();
+	}
+
 	const store = new PostgresSyncStore(
 		cfg.sync.databaseUrl,
 		cfg.sync.poolId,
@@ -253,37 +285,28 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 	);
 	try {
 		await store.open();
-		if (action.action === 'add-subscription') {
-			const monthlyUsd = action.monthlyUsd;
-			if (!Number.isFinite(monthlyUsd) || monthlyUsd < 0)
-				throw new Error('Monthly USD must be a non-negative number');
-			const subscription: SyncSubscription = {
-				id: randomUUID(),
-				provider: required(action.provider, 'Provider'),
-				name: required(action.name, 'Subscription name'),
-				account: action.account.trim(),
-				tier: required(action.tier, 'Tier'),
-				monthlyUsd
-			};
-			await store.addSubscription(subscription);
+
+		const machineId = required(action.machineId, 'Machine ID');
+		const provider = required(action.provider, 'Provider');
+		if (machineId !== cfg.sync.machineId) {
+			await store.mapSubscription(machineId, provider, action.subscriptionId);
 		} else {
-			await store.mapSubscription(
-				required(action.machineId, 'Machine ID'),
-				required(action.provider, 'Provider'),
-				action.subscriptionId
-			);
-			if (action.machineId === cfg.sync.machineId) {
-				await updateConfig(current => ({
-					...current,
-					sync: {
-						...current.sync,
-						providerSubscriptions: {
-							...current.sync.providerSubscriptions,
-							[action.provider]: action.subscriptionId
-						}
-					}
-				}));
-			}
+			await updateConfig(async current => {
+				if (current.sync.poolId !== poolId || current.sync.machineId !== machineId || current.sync.databaseUrl !== cfg.sync.databaseUrl) throw new Error('Sync settings changed; retry mapping.');
+				const remote = action.subscriptionId ? (await store.status()).subscriptions.find(account => account.id === action.subscriptionId && account.provider === provider) : null;
+				if (action.subscriptionId && !remote) throw new Error('Account does not exist in this pool for that provider');
+				const existing = remote ? current.accounts.find(account => account.provider === provider &&
+					(account.id === remote.id || (account.identity && remote.identityKey === accountIdentityKey(provider, account.identity, poolId)))) : null;
+				const account: PrivateAccount | null = remote ? {
+					...existing, id: existing?.id ?? remote.id, provider, name: remote.name, tier: remote.tier, monthlyUsd: remote.monthlyUsd,
+					feeSource: remote.feeSource ?? 'explicit', identity: existing?.identity ?? null, registrations: existing?.registrations ?? [], legacy: existing?.legacy ?? false
+				} : null;
+				await store.mapSubscription(machineId, provider, action.subscriptionId);
+				return { ...current,
+					accounts: account ? [...current.accounts.filter(row => row.id !== account.id), account] : current.accounts,
+					providerAccounts: { ...current.providerAccounts, [provider]: account ? [account.id] : [] }
+				};
+			});
 		}
 		await store.heartbeat(cfg.sync.machineName, hostname());
 		return await store.status();

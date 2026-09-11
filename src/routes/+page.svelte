@@ -99,6 +99,7 @@
 		// mappings are used for the very next record. Reconnect to that fresh engine.
 		feed.stop();
 		feed.start();
+		await loadPublicConfig();
 	}
 
 	// Honour prefers-reduced-motion in JS (the count-up must render the final value

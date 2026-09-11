@@ -60,6 +60,8 @@ export interface Account {
 }
 
 export interface PrivateAccount extends Account {
+	privateLabel?: string;
+	pendingPoolId?: string;
 	identity: { accountId: string; userId: string | null } | null;
 	registrations: string[];
 	legacy: boolean;

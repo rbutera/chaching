@@ -56,6 +56,8 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
 			let account = {
 				id: existing?.id ?? randomUUID(), provider, name: name.trim(), tier, monthlyUsd,
 				feeSource: patch.monthlyUsd === undefined && existing ? existing.feeSource : monthlyUsd === null ? 'inferred' as const : 'explicit' as const,
+				...(existing?.pendingPoolId ? { pendingPoolId: existing.pendingPoolId } : {}),
+				...(existing?.privateLabel ? { privateLabel: existing.privateLabel } : {}),
 				identity: existing?.identity ?? null, registrations: existing?.registrations ?? [], legacy: existing?.legacy ?? false,
 				...(existing?.pendingLegacyIds?.length ? { pendingLegacyIds: existing.pendingLegacyIds } : {})
 			};

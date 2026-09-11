@@ -465,6 +465,8 @@ function normalizeAccounts(root: Record<string, unknown>): Pick<chachingConfig, 
 		}
 		accounts.push({ id: account.id, provider: account.provider, name: account.name, tier: account.tier,
 			monthlyUsd: account.monthlyUsd, feeSource: account.feeSource, identity,
+			...(typeof account.pendingPoolId === 'string' && account.pendingPoolId ? { pendingPoolId: account.pendingPoolId } : {}),
+			...(typeof account.privateLabel === 'string' && account.privateLabel ? { privateLabel: account.privateLabel } : {}),
 			registrations: stringArrayOr(account.registrations, []), legacy: account.legacy === true,
 			...(stringArrayOr(account.pendingLegacyIds, []).length ? { pendingLegacyIds: stringArrayOr(account.pendingLegacyIds, []) } : {}) });
 	}

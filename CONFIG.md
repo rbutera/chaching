@@ -209,13 +209,15 @@ Config version 1 stores fees once in `accounts`; `providerAccounts` links this i
 
 Existing provider subscription settings migrate on first load. Migration preserves explicitly configured fees and mapped pooled IDs, allocates other IDs once, and keeps the original file at `config.json.pre-accounts`. Both files use mode `0600`; writes are atomic and migration rereads under a cross-process lock. If a writer is killed, stop all chaching processes before removing the reported `config.json.lock` directory and retrying. Missing fees do not become Corporate $99. A supported known tier may infer a fee; an unknown tier remains unknown. Existing usage history is unchanged, including when history storage is disabled.
 
+Accounts added through sync setup are saved locally before pool publication. The optional `privateLabel` stays on this machine. A temporary `pendingPoolId` lets status refresh retry publication with the same Account ID after an outage or interrupted acknowledgement. Creating an Account or editing its fee does not map it to a machine; mapping and unmapping update `providerAccounts` while retaining the saved Account.
+
 Tokenmaxx discovery creates Accounts by stable provider identity and retains registration aliases after removal. Re-registration reuses the Account. Explicit fees survive discovery; recognized plan IDs infer fees only when no override exists.
 
 Legacy bills match automatically when tier evidence identifies one Account, or when matching bills are economically interchangeable. Conflicting candidates remain pending and fee comparisons stay unavailable. In Settings, match the login to its existing bill (preserving the bill ID and fee), or explicitly keep it separate and retain both fees. Discovery never rewrites machine-attributed usage as individual-login history. Removing a registration does not cancel its saved fee.
 
 Old binaries cannot safely edit this config: upgrade all machines together. New readers reject unsupported config versions and malformed Account records instead of replacing them with defaults.
 
-The dashboard and receipt prorate each relevant Account fee over the selected inclusive dates at `monthlyUsd / 30` per day. An unknown fee makes the combined fee and multiple unavailable. With a known zero fee, positive usage displays `∞ — all of it`; zero usage displays `—`.
+The dashboard, receipt and stats JSON prorate each relevant Account fee over the selected inclusive dates at `monthlyUsd / 30` per day. An unknown fee makes the combined fee and multiple unavailable. With a known zero fee, positive usage displays `∞ — all of it`; zero usage displays `—`.
 
 ## Publish Checklist
 

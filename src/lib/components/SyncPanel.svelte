@@ -83,7 +83,7 @@
 		event.preventDefault();
 		const fee = Number(monthlyUsd);
 		if (!subscriptionName.trim() || !Number.isFinite(fee) || fee < 0) {
-			error = 'Subscription name and a non-negative monthly fee are required.';
+			error = 'Account name and a non-negative monthly fee are required.';
 			return;
 		}
 		const ok = await run({
@@ -148,14 +148,14 @@
 			</div>
 
 			<div>
-				<h3>subscriptions</h3>
+				<h3>Accounts</h3>
 				{#if status.subscriptions.length > 0}
 					<ul class="rows">
 						{#each status.subscriptions as subscription (subscription.id)}
 							<li>
 								<span>
 									<strong>{subscription.name}</strong>
-									<small>{subscription.provider} · {subscription.account || 'no account label'}</small>
+									<small>{syncProviderLabel(subscription.provider)}</small>
 								</span>
 								<span class="money">{subscription.monthlyUsd === null ? 'Fee unknown' : `$${subscription.monthlyUsd}/mo`}</span>
 							</li>
@@ -178,7 +178,7 @@
 		{#if status.managementAllowed !== false}
 			<div class="sync-grid forms">
 			<form onsubmit={addSubscription}>
-				<h3>add subscription</h3>
+				<h3>Add Account</h3>
 				<div class="fields">
 					<label>
 						provider
@@ -191,7 +191,7 @@
 						<input bind:value={subscriptionName} placeholder="Work Claude Max" />
 					</label>
 					<label>
-						account label
+						private label
 						<input bind:value={account} placeholder="name@example.com" />
 					</label>
 					<label>
@@ -203,7 +203,7 @@
 						<input bind:value={monthlyUsd} type="number" min="0" step="0.01" />
 					</label>
 				</div>
-				<button class="primary" type="submit" disabled={busy}>add subscription</button>
+				<button class="primary" type="submit" disabled={busy}>Add Account</button>
 			</form>
 
 			<div>
@@ -286,7 +286,7 @@
 	{:else}
 		<p class="summary">
 			Create one PostgreSQL-backed pool, then join every machine that should contribute. Machines can
-			share a subscription or map to different ones. Subscription and mapping controls appear after
+			share an Account or map to different ones. Account and mapping controls appear after
 			this machine joins.
 		</p>
 

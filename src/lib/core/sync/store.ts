@@ -336,7 +336,7 @@ export class PostgresSyncStore {
 		};
 	}
 
-	async discoverAccount(account: SyncSubscription & { identityKey: string | null }): Promise<string> {
+	async discoverAccount(account: SyncSubscription & { identityKey: string | null }, linkToMachine = true): Promise<string> {
 		const { poolId, machineId } = this.identity();
 		const client = await this.pool.connect();
 		try {
@@ -364,7 +364,7 @@ export class PostgresSyncStore {
 				 fee_source = CASE WHEN saved.fee_source = 'explicit' THEN saved.fee_source ELSE EXCLUDED.fee_source END`,
 				[poolId, id, account.provider, account.name, account.tier, account.monthlyUsd, account.identityKey, account.feeSource ?? 'inferred']
 			);
-			await client.query(
+			if (linkToMachine) await client.query(
 				`INSERT INTO ${SCHEMA}.machine_account (pool_id, machine_id, provider, account_id)
 				 VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`, [poolId, machineId, account.provider, id]
 			);
@@ -390,10 +390,12 @@ export class PostgresSyncStore {
 
 	async addSubscription(subscription: SyncSubscription): Promise<void> {
 		const { poolId } = this.identity();
-		await this.pool.query(
+		const result = await this.pool.query(
 			`INSERT INTO ${SCHEMA}.account
 			 (id, pool_id, provider, name, account, tier, monthly_usd, identity_key, fee_source)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			 ON CONFLICT (pool_id, id) DO UPDATE SET id = EXCLUDED.id
+			 WHERE account.provider = EXCLUDED.provider`,
 			[
 				subscription.id,
 				poolId,
@@ -406,6 +408,7 @@ export class PostgresSyncStore {
 				subscription.feeSource ?? 'explicit'
 			]
 		);
+		if (result.rowCount !== 1) throw new Error('Account ID already belongs to another provider in this pool');
 	}
 
 	/**
