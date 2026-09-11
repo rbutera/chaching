@@ -7,6 +7,7 @@
 	import DetailSheet from '$lib/components/DetailSheet.svelte';
 	import Button from '$lib/components/ds/Button.svelte';
 	import PlanSettings from '$lib/components/PlanSettings.svelte';
+	import DataSettings from '$lib/components/DataSettings.svelte';
 	import SyncPanel from '$lib/components/SyncPanel.svelte';
 	import HeroRegion from '$lib/components/regions/HeroRegion.svelte';
 	import CommandBar from '$lib/components/CommandBar.svelte';
@@ -198,6 +199,13 @@
 	);
 
 	let feeSaving = $state(false);
+	async function saveCutover(cutoverTs: number | null) {
+		const res = await fetch(resolve('/api/config'), {
+			method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cutoverTs })
+		});
+		if (!res.ok) throw new Error(`Could not save the cutover date (${res.status}). Try again.`);
+		config = await res.json();
+	}
 	async function onTierChange(id: string, name: string, tier: string, monthlyUsd: number) {
 		feeSaving = true;
 		try {
@@ -390,6 +398,7 @@
 				</section>
 				<SyncPanel status={syncStatus} onAction={onSyncAction}/>
 				{#if config}
+					<DataSettings snapshot={snap} cutoverTs={config.cutoverTs} onSave={saveCutover}/>
 					<section class="plan-settings" aria-label="Plans and fees">
 						<h3>Plans and fees</h3>
 						{#each config.accounts as account (account.id)}

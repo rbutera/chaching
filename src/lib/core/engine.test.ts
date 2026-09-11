@@ -310,6 +310,24 @@ describe('B1 — sync configured but unreachable falls back to local frozen hist
 });
 
 describe('M5 — sync burst reliability', () => {
+	it('publishes cutover changes immediately, including clearing the date', async () => {
+		const engine = createEngine(disabledConfig());
+		await engine.ensureStarted();
+		const updates: (number | null)[] = [];
+		const unsubscribe = engine.subscribe(delta => {
+			if (delta.replace) updates.push(delta.replace.cutoverTs);
+		});
+		try {
+			const date = Date.parse('2026-09-09T00:00:00Z');
+			engine.setCutover(date);
+			expect(engine.snapshot().cutoverTs).toBe(date);
+			expect(updates.at(-1)).toBe(date);
+			engine.setCutover(null);
+			expect(engine.snapshot().cutoverTs).toBeNull();
+			expect(updates.at(-1)).toBeNull();
+		} finally { unsubscribe(); engine.dispose(); }
+	});
+
 	function loadStub() {
 		return { dayAggregates: [], hourAggregates: [], sessions: [], watermark: null };
 	}

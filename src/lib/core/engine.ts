@@ -1023,6 +1023,10 @@ class Ingestion {
 
 	setCutover(ts: number | null): void {
 		this.rollup.setCutover(ts);
+		this.cursorRollup?.setCutover(ts);
+		if (this.resolvedConfig) this.resolvedConfig = { ...this.resolvedConfig, cutoverTs: ts };
+		const replacement = this.snapshot();
+		for (const fn of this.listeners) fn({ ...replacement, replace: replacement });
 	}
 
 	dispose(): void {
