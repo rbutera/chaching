@@ -13,7 +13,7 @@ const SCHEMA = 'chaching_sync';
 const HOUR_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 /** Bump when the DDL in `migrate()` changes. `open()` runs the DDL only when the recorded
  * schema_version differs, so a status GET no longer re-runs full DDL every call (C9). */
-const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 4;
 /**
  * Incremental peer reads back off the max-watermark by this margin. `updated_at` is stamped at
  * transaction START (`now()`), but a row only becomes visible at COMMIT; a peer whose publish
@@ -132,6 +132,10 @@ export class PostgresSyncStore {
 			// connect attempt after ~5s so callers degrade instead of stalling.
 			connectionTimeoutMillis: 5000
 		});
+	}
+
+	async readSchemaVersion(): Promise<number | null> {
+		return readSchemaVersion(this.pool);
 	}
 
 	async open(): Promise<void> {
@@ -922,12 +926,16 @@ async function migrate(client: PoolClient): Promise<void> {
  * not-yet-created table cannot abort the surrounding migration transaction.
  */
 async function schemaVersionAt(client: PoolClient | Pool, version: number): Promise<boolean> {
-	const exists = await client.query(`SELECT to_regclass('${SCHEMA}.schema_version') AS reg`);
-	if (!exists.rows[0]?.reg) return false;
-	const result = await client.query(`SELECT version FROM ${SCHEMA}.schema_version WHERE id = 1`);
-	const recorded = Number(result.rows[0]?.version);
-	if (recorded > version) throw new Error(`Unsupported pool schema version ${recorded}; this chaching supports ${version}. Upgrade chaching.`);
+	const recorded = await readSchemaVersion(client);
+	if (recorded !== null && recorded > version) throw new Error(`Unsupported pool schema version ${recorded}; this chaching supports ${version}. Upgrade chaching.`);
 	return recorded === version;
+}
+
+async function readSchemaVersion(client: PoolClient | Pool): Promise<number | null> {
+	const exists = await client.query(`SELECT to_regclass('${SCHEMA}.schema_version') AS reg`);
+	if (!exists.rows[0]?.reg) return null;
+	const result = await client.query(`SELECT version FROM ${SCHEMA}.schema_version WHERE id = 1`);
+	return result.rows[0] ? Number(result.rows[0].version) : null;
 }
 
 async function upsertMachine(

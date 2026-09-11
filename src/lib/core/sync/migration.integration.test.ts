@@ -63,6 +63,19 @@ suite('Account schema migration', () => {
 		} finally { await Promise.all(stores.map(store => store.close())); }
 	});
 
+	it('reads incompatible and missing schemas without migrating', async () => {
+		const store = new PostgresSyncStore(url);
+		try {
+			expect(await store.readSchemaVersion()).toBe(3);
+			expect((await db.query("SELECT to_regclass('chaching_sync.subscription') AS old_table")).rows[0].old_table).not.toBeNull();
+			await db.query('UPDATE chaching_sync.schema_version SET version = 5');
+			expect(await store.readSchemaVersion()).toBe(5);
+			await db.query('DROP SCHEMA chaching_sync CASCADE');
+			expect(await store.readSchemaVersion()).toBeNull();
+			expect((await db.query("SELECT to_regnamespace('chaching_sync') AS schema")).rows[0].schema).toBeNull();
+		} finally { await store.close(); }
+	});
+
 	it('enforces provider identity, nullable inferred fees and many-to-many links', async () => {
 		const store = new PostgresSyncStore(url, 'pool', 'one');
 		try {

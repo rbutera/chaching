@@ -372,3 +372,5 @@ attribution dimension.
   staleness in peers' view of this machine.
 
 The legacy CLI spellings `sync subscription add` and `sync map --subscription` remain aliases for `sync account add` and `sync map --account`. Sync JSON uses `accounts` and mapping `accountId`.
+
+`chaching doctor` reads the pool schema version without opening or migrating the sync store. It reports missing, older, newer, and unreachable schemas alongside local Account link, matching, and fee problems. Its provider scan stays local; diagnosis does not publish aggregates or upgrade a pool.

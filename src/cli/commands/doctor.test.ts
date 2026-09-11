@@ -215,3 +215,18 @@ describe('buildDoctorReport — history + pricing', () => {
 		expect(sectionByTitle(report, 'Pricing').status).toBe('OK');
 	});
 });
+
+
+describe('pool schema diagnosis', () => {
+	it.each([
+		[{ version: 4 }, 'OK', 'compatible'],
+		[{ version: 3 }, 'FAIL', 'coordinated upgrade'],
+		[{ version: 5 }, 'FAIL', 'upgrade chaching'],
+		[{ version: null }, 'FAIL', 'missing'],
+		[{ error: true }, 'WARN', 'connectivity']
+	] satisfies [NonNullable<DoctorInput['poolSchema']>, string, string][])('reports %j', (poolSchema, status, message) => {
+		const section = sectionByTitle(buildDoctorReport(baseInput({ poolSchema })), 'Pool schema');
+		expect(section.status).toBe(status);
+		expect(section.lines[0].text).toContain(message);
+	});
+});
