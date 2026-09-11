@@ -73,3 +73,14 @@ describe('coverage marks', () => {
 		expect(coverageSub({ worst: 'missing', states: { partial: 1, missing: 2 } }, true)).toBe('includes today (partial)');
 	});
 });
+
+it('marks observed periods with gaps without claiming all their data is absent', () => {
+	for (const observed of ['frozen', 'partial', 'zero'] as const) {
+		const summary = sum('missing', { [observed]: 1, missing: 6 });
+		expect(barFill(summary)).toBe('hatched');
+		expect(tooltipSuffix(summary)).toBe('gaps in range');
+		expect(ariaProvenance(summary)).toBe('gaps in range');
+	}
+	expect(ariaProvenance(sum('missing', { missing: 7 }))).toBe('no data for this period');
+	expect(barFill(sum('missing', { missing: 7 }))).toBe('dash');
+});
