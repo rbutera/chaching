@@ -75,13 +75,13 @@ describe('receipt --json', () => {
 	});
 });
 
-describe('receipt — default period is this month', () => {
+describe('receipt — default period is the last 30 days', () => {
 	it('bare receipt --json defaults to the monthly period', async () => {
 		const { stdout, code } = await runCli(['receipt', '--json']);
 		expect(code).toBe(0);
 		const parsed = JSON.parse(stdout);
 		expect(parsed.receipt.period).toBe('month');
-		expect(parsed.receipt.periodLabel).toBe('this month');
+		expect(parsed.receipt.periodLabel).toBe('last 30 days');
 	});
 
 	it('--period all opts back into all-time (overrides the monthly default)', async () => {
@@ -93,12 +93,12 @@ describe('receipt — default period is this month', () => {
 		expect(parsed.receipt.periodLabel).toBe('all time');
 	});
 
-	it('--period quarter is accepted and scopes to the quarter', async () => {
+	it('--period quarter is accepted and scopes to the last 90 days', async () => {
 		const { stdout, code } = await runCli(['receipt', '--json', '--period', 'quarter']);
 		expect(code).toBe(0);
 		const parsed = JSON.parse(stdout);
 		expect(parsed.receipt.period).toBe('quarter');
-		expect(parsed.receipt.periodLabel).toBe('this quarter');
+		expect(parsed.receipt.periodLabel).toBe('last 90 days');
 	});
 });
 
@@ -167,4 +167,68 @@ describe('receipt --png', () => {
 		}
 		rmSync(out);
 	}, 45_000);
+});
+
+
+it('accepts repeated and comma-separated model filters and scopes JSON totals', async () => {
+	const { stdout, code } = await runCli(['receipt', '--json', '--model=absent,also-absent', '--model', 'another']);
+	expect(code).toBe(0);
+	const result = JSON.parse(stdout);
+	expect(result.receipt.models).toEqual(['absent', 'also-absent', 'another']);
+	expect(result.receipt.lineItems).toEqual([]);
+	expect(result.totals).toMatchObject({ cost: 0, requests: 0 });
+	const invalid = await runCli(['receipt', '--model', '--json']);
+	expect(invalid.code).not.toBe(0);
+	expect(invalid.stderr).toContain('--model requires a value');
+});
+
+
+it('exports explicit dates consistently in the receipt body and JSON totals', async () => {
+	const day = fx.days.at(-1)!;
+	const { code, stdout } = await runCli(['receipt', '--json', '--from', day, '--to=' + day]);
+	expect(code).toBe(0);
+	const result = JSON.parse(stdout);
+	expect(result.receipt).toMatchObject({ from: day, to: day });
+	expect(result.receipt.totalBurn).toBeGreaterThan(0);
+	expect(result.totals.cost).toBe(result.receipt.totalBurn);
+	for (const args of [['--from', day], ['--from=2026-02-30', '--to', day], ['--from=2026-06-02', '--to=2026-06-01']]) {
+		expect((await runCli(['receipt', '--json', ...args])).code).not.toBe(0);
+	}
+});
+
+
+it('accepts repeated machine scopes in JSON receipts', async () => {
+	const { code, stdout } = await runCli(['receipt', '--json', '--machine=one,two', '--machine', 'three']);
+	expect(code).toBe(0);
+	expect(JSON.parse(stdout).receipt).toMatchObject({ machines: ['one', 'two', 'three'], totalBurn: 0 });
+});
+
+it.each(['receipt', 'stats'])('rejects Account spend filters in %s without emitting misleading totals', async command => {
+	for (const args of [['--account=a,b'], ['--account', 'a']]) {
+		const result = await runCli([command, '--json', ...args]);
+		expect(result.code).not.toBe(0);
+		expect(result.stderr).toContain('historical usage cannot be reliably split by Account');
+		expect(result.stdout).toBe('');
+	}
+});
+
+
+it('keeps stats and receipt JSON usage and fees equal for identical dates and filters', async () => {
+	for (const filters of [[], ['--model=absent'], ['--machine=one']]) {
+		const args = ['--json', '--from', fx.days[0], '--to', fx.days.at(-1)!, '--provider=claude', ...filters];
+		const stats = await runCli(['stats', ...args]);
+		const receipt = await runCli(['receipt', ...args]);
+		expect(stats.code).toBe(0);
+		expect(receipt.code).toBe(0);
+		const stat = JSON.parse(stats.stdout);
+		const rec = JSON.parse(receipt.stdout);
+		expect(stat.totals).toEqual(rec.totals);
+		const { periodLabel, ...subsidy } = rec.receipt.subsidisation;
+		expect(stat.subsidisation).toEqual(subsidy);
+	}
+	for (const args of [['--png'], ['--from=2026-02-30', '--to=2026-03-01'], ['--from=2026-06-01']]) {
+		const invalid = await runCli(['stats', ...args]);
+		expect(invalid.code).not.toBe(0);
+		expect(invalid.stderr).toContain('chaching stats:');
+	}
 });

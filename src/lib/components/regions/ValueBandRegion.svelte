@@ -1,13 +1,12 @@
 <script lang="ts">
+	import { accountFeesByProvider, accountWindowValues } from '$lib/core/accounts';
 	import type { FeedStore } from '$lib/client/feed.svelte';
 	import type { Dashboard } from '$lib/client/dashboard.svelte';
 	import type { PublicchachingConfig } from '$lib/core/config';
 	import type { SyncStatusView } from '$lib/client/sync';
-	import type { SubsidisedProvider } from '$lib/core/subsidisation';
 	import CachePanel from '$lib/components/CachePanel.svelte';
 	import SubsidisationCard from '$lib/components/SubsidisationCard.svelte';
 	import PoolSubsidisationCard from '$lib/components/PoolSubsidisationCard.svelte';
-	import type { PoolSubsidyRow } from '$lib/components/PoolSubsidisationCard.svelte';
 	import { fmtDay } from '$lib/format';
 
 	// `{ feed, dash }` are the core props; `config`, `syncStatus`, and `onTierChange`
@@ -17,14 +16,12 @@
 		feed,
 		dash,
 		config,
-		syncStatus,
-		onTierChange
+		syncStatus
 	}: {
 		feed: FeedStore;
 		dash: Dashboard;
 		config: PublicchachingConfig | null;
 		syncStatus: SyncStatusView | null;
-		onTierChange: (provider: SubsidisedProvider, tier: string, monthlyUsd: number) => void;
 	} = $props();
 
 	let snap = $derived(feed.snapshot);
@@ -40,80 +37,19 @@
 
 	// Subsidisation roll-up — follows the period selector / pinned day; the fee is
 	// pro-rated to the window from a monthlyUsd/30 daily rate.
-	let subsidyConfig = $derived(
-		config
-			? {
-					claude: {
-						enabled: config.providers.claude.enabled,
-						tier: config.providers.claude.subscription.tier,
-						monthlyUsd: config.providers.claude.subscription.monthlyUsd
-					},
-					codex: {
-						enabled: config.providers.codex.enabled,
-						tier: config.providers.codex.subscription.tier,
-						monthlyUsd: config.providers.codex.subscription.monthlyUsd
-					}
-				}
-			: null
-	);
+	let subsidyConfig = $derived(config ? accountFeesByProvider(config) : null);
 	let subsidy = $derived(snap && subsidyConfig ? dash.subsidisation(snap, subsidyConfig) : null);
 
-	// A pooled ledger can contain several subscriptions for the same provider, shared
-	// by any number of machines. Reconcile each subscription exactly once against the
-	// API-priced value attributed to its id; never multiply the fee by machine count.
-	let poolSubsidyRows = $derived.by((): PoolSubsidyRow[] => {
-		if (!snap || !syncStatus?.enabled) return [];
+	let poolValues = $derived.by(() => {
+		if (!snap || !syncStatus || (!syncStatus.enabled && !syncStatus.accounts?.length)) return null;
 		const window = dash.periodWindow(snap);
-		const from = focusedDay ?? window.from;
-		const to = focusedDay ?? window.to;
-		const days =
-			Math.round(
-				(new Date(to + 'T00:00:00Z').getTime() -
-					new Date(from + 'T00:00:00Z').getTime()) /
-					86400000
-			) + 1;
-		const valueBySubscription = new Map<string, number>();
-		for (const row of snap.dayModel) {
-			if (row.day < from || row.day > to) continue;
-			if (dash.machineFilter.size > 0 && (!row.machineId || !dash.machineFilter.has(row.machineId)))
-				continue;
-			if (dash.providerFilter.size > 0 && !dash.providerFilter.has(row.provider)) continue;
-			if (dash.modelFilter.size > 0 && !dash.modelFilter.has(row.model)) continue;
-			const subscriptionId = row.subscriptionId;
-			if (!subscriptionId) continue;
-			valueBySubscription.set(
-				subscriptionId,
-				(valueBySubscription.get(subscriptionId) ?? 0) + row.cost
-			);
-		}
-		const selected = dash.subscriptionFilter;
-		const machineSubscriptions =
-			dash.machineFilter.size === 0
-				? null
-				: new Set(
-						syncStatus.mappings
-							.filter((mapping) => dash.machineFilter.has(mapping.machineId))
-							.flatMap((mapping) => (mapping.subscriptionId ? [mapping.subscriptionId] : []))
-					);
-		return syncStatus.subscriptions
-			.filter((subscription) => selected.size === 0 || selected.has(subscription.id))
-			.filter(
-				(subscription) => machineSubscriptions === null || machineSubscriptions.has(subscription.id)
-			)
-			// A provider filter must drop subscriptions it can't hold value for, otherwise
-			// their full fee counts against a ~$0 value (M6a).
-			.filter(
-				(subscription) =>
-					dash.providerFilter.size === 0 || dash.providerFilter.has(subscription.provider)
-			)
-			.map((subscription) => ({
-				id: subscription.id,
-				name: subscription.name,
-				provider: subscription.provider,
-				account: subscription.account,
-				valueUsd: valueBySubscription.get(subscription.id) ?? 0,
-				feeUsd: subscription.monthlyUsd * (days / 30)
-			}));
+		return accountWindowValues({
+			localAccounts: config?.accounts,
+			grain: snap.dayModel, accounts: syncStatus.accounts, mappings: syncStatus.mappings,
+			from: focusedDay ?? window.from, to: focusedDay ?? window.to,
+			providers: dash.providerFilter, machines: dash.machineFilter,
+			models: dash.modelFilter
+		});
 	});
 
 	// Burn-pace projection ("on pace for ~$X this month") — same month-basis, does-NOT-follow-
@@ -127,14 +63,19 @@
 	{#if cacheBreakdown}
 		<CachePanel breakdown={cacheBreakdown} />
 	{/if}
-	{#if syncStatus?.enabled && poolSubsidyRows.length > 0}
-		<PoolSubsidisationCard
-			rows={poolSubsidyRows}
-			windowLabel={heroLabel}
-			wholePlanFee={dash.machineFilter.size > 0}
-		/>
+	{#if syncStatus?.enabled || poolValues}
+		{#if poolValues && poolValues.rows.length > 0}
+			<PoolSubsidisationCard
+				rows={poolValues.rows}
+				totalValue={poolValues.valueUsd}
+				windowLabel={heroLabel}
+				wholePlanFee={dash.machineFilter.size > 0}
+			/>
+		{:else}
+			<p role="status">{syncStatus?.unreachable ? 'Pool unavailable.' : 'No Accounts in this scope.'}</p>
+		{/if}
 	{:else if subsidy && subsidyConfig}
-		<SubsidisationCard rollup={subsidy} windowLabel={heroLabel} config={subsidyConfig} {onTierChange} burnPace={pace} />
+		<SubsidisationCard rollup={subsidy} windowLabel={heroLabel} burnPace={pace} />
 	{/if}
 </section>
 

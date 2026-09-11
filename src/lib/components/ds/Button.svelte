@@ -56,7 +56,7 @@
 		justify-content: center;
 		gap: 8px;
 		width: auto;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-weight: var(--fw-semibold);
 		letter-spacing: var(--tracking-snug);
 		border-radius: var(--radius-sm);

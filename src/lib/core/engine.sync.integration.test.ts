@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, appendFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SUBSCRIPTION, type chachingConfig } from './config';
+import { type chachingConfig } from './config';
 import { createEngine } from './engine';
 import { Rollup } from './rollup/rollup';
 import type { FrozenAgg } from './rollup/rollup';
@@ -15,6 +15,7 @@ const suite = databaseUrl ? describe : describe.skip;
 
 function baseConfig(poolId: string, machineId: string, over: Partial<chachingConfig['providers']['cursor']> = {}): chachingConfig {
 	return {
+		version: 1, accounts: [], providerAccounts: {},
 		cutoverTs: null,
 		server: { host: '127.0.0.1', port: 5178, origin: '' },
 		// history OFF so the test isolates the pooled overlay path (local-first history is
@@ -27,12 +28,11 @@ function baseConfig(poolId: string, machineId: string, over: Partial<chachingCon
 			poolId,
 			machineId,
 			machineName: 'kinto',
-			providerSubscriptions: {},
 			intervalMinutes: 15
 		},
 		providers: {
-			claude: { enabled: false, roots: [], subscription: { ...DEFAULT_SUBSCRIPTION } },
-			codex: { enabled: false, root: '', subscription: { ...DEFAULT_SUBSCRIPTION } },
+			claude: { enabled: false, roots: [] },
+			codex: { enabled: false, root: '' },
 			cursor: { enabled: false, adminApiToken: '', email: null, pollSeconds: 3600, ...over },
 			opencode: { enabled: false, dbPath: '' },
 			pi: { enabled: false, roots: [] }
@@ -120,27 +120,27 @@ suite('engine PostgreSQL sync mode (v2 aggregate ledger)', () => {
 			expect(snap.sessions[0]?.machineId).toBe(nimbus);
 			expect(snap.totals.cost).toBeCloseTo(1.23);
 			// No subscription mapped yet -> read-time join resolves null.
-			expect(snap.dayModel[0].subscriptionId).toBeNull();
+			expect(snap.dayModel[0].accountId).toBeNull();
 
 			// Map nimbus/codex to a subscription; a burst re-reads mappings and the read-time
 			// join stamps it — no re-scan, no re-import.
-			const subscriptionId = randomUUID();
-			await store.addSubscription({
-				id: subscriptionId,
+			const accountId = randomUUID();
+			await store.addAccount({
+				id: accountId,
 				provider: 'codex',
 				name: 'Shared Codex',
 				account: 'shared@example.com',
 				tier: 'pro',
 				monthlyUsd: 200
 			});
-			await store.mapSubscription(nimbus, 'codex', subscriptionId);
+			await store.mapAccount(nimbus, 'codex', accountId);
 
 			let replaceSeen = false;
 			const unsubscribe = engine.subscribe((delta) => {
 				replaceSeen ||= Boolean(delta.replace);
 			});
-			await (engine as unknown as { runSyncBurst: (c: chachingConfig) => Promise<void> }).runSyncBurst(cfg);
-			expect(engine.snapshot().dayModel[0]?.subscriptionId).toBe(subscriptionId);
+			await (engine as unknown as { runSyncBurst: (c: chachingConfig) => Promise<void>; }).runSyncBurst(cfg);
+			expect(engine.snapshot().dayModel[0]?.accountId).toBe(accountId);
 			expect(replaceSeen).toBe(true);
 			unsubscribe();
 		} finally {
@@ -180,7 +180,7 @@ suite('engine PostgreSQL sync mode (v2 aggregate ledger)', () => {
 				isSidechain: false,
 				cost: 0.75,
 				machineId: undefined,
-				subscriptionId: null
+				accountId: null
 			};
 			const internal = engine as unknown as {
 				cursorRollup: Rollup | null;
@@ -234,7 +234,7 @@ suite('engine PostgreSQL sync mode (v2 aggregate ledger)', () => {
 			await writeFile(sessionFile, `${claudeAssistantLine('msg_cold', day)}\n`);
 
 			const cfg = baseConfig(poolId, kinto);
-			cfg.providers.claude = { enabled: true, roots: [root], subscription: { ...DEFAULT_SUBSCRIPTION } };
+			cfg.providers.claude = { enabled: true, roots: [root] };
 			engine = createEngine(cfg, () => Date.parse('2026-07-17T08:00:00Z'));
 			await engine.ensureStarted(); // cold scan runs, THEN connectSync sets syncStore
 
@@ -254,7 +254,7 @@ suite('engine PostgreSQL sync mode (v2 aggregate ledger)', () => {
 
 			// Two same-key rows would make the single-statement upsert hit its conflict target
 			// twice ("cannot affect row a second time") and fail the burst; one row publishes clean.
-			await (engine as unknown as { runSyncBurst: (c: chachingConfig) => Promise<void> }).runSyncBurst(cfg);
+			await (engine as unknown as { runSyncBurst: (c: chachingConfig) => Promise<void>; }).runSyncBurst(cfg);
 			expect(engine.stats.providerErrors.sync).toBeFalsy();
 		} finally {
 			engine?.dispose();

@@ -6,14 +6,14 @@ import type {
 	SyncMachine,
 	SyncMapping,
 	SyncStatus,
-	SyncSubscription
+	SyncAccount
 } from './types';
 
 const SCHEMA = 'chaching_sync';
 const HOUR_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 /** Bump when the DDL in `migrate()` changes. `open()` runs the DDL only when the recorded
  * schema_version differs, so a status GET no longer re-runs full DDL every call (C9). */
-const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 /**
  * Incremental peer reads back off the max-watermark by this margin. `updated_at` is stamped at
  * transaction START (`now()`), but a row only becomes visible at COMMIT; a peer whose publish
@@ -134,6 +134,10 @@ export class PostgresSyncStore {
 		});
 	}
 
+	async readSchemaVersion(): Promise<number | null> {
+		return readSchemaVersion(this.pool);
+	}
+
 	async open(): Promise<void> {
 		if (this.opened) return;
 		// Fast path (no lock, no DDL): a status GET opens a fresh store on every dashboard load,
@@ -170,19 +174,7 @@ export class PostgresSyncStore {
 
 	/** True when the recorded schema_version already matches SCHEMA_VERSION (no DDL needed). */
 	private async schemaIsCurrent(): Promise<boolean> {
-		try {
-			const exists = await this.pool.query(
-				`SELECT to_regclass('${SCHEMA}.schema_version') AS reg`
-			);
-			if (!exists.rows[0]?.reg) return false;
-			const result = await this.pool.query(
-				`SELECT version FROM ${SCHEMA}.schema_version WHERE id = 1`
-			);
-			return Number(result.rows[0]?.version) === SCHEMA_VERSION;
-		} catch {
-			// Any connection/query failure → fall through to the full open() path.
-			return false;
-		}
+		return schemaVersionAt(this.pool, SCHEMA_VERSION);
 	}
 
 	setIdentity(poolId: string, machineId: string): void {
@@ -277,7 +269,7 @@ export class PostgresSyncStore {
 	async status(): Promise<SyncStatus> {
 		const { poolId, machineId } = this.identity();
 		await this.open();
-		const [poolResult, machineResult, subscriptionResult, mappingResult, quotaResult] = await Promise.all([
+		const [poolResult, machineResult, accountResult, mappingResult, quotaResult] = await Promise.all([
 			this.pool.query(`SELECT id, name FROM ${SCHEMA}.pool WHERE id = $1`, [poolId]),
 			this.pool.query(
 				`SELECT id, name, hostname, last_seen_at, last_published_at
@@ -285,13 +277,13 @@ export class PostgresSyncStore {
 				[poolId]
 			),
 			this.pool.query(
-				`SELECT id, provider, name, account, tier, monthly_usd
-				 FROM ${SCHEMA}.subscription WHERE pool_id = $1 ORDER BY provider, name, id`,
+				`SELECT id, provider, name, account, tier, monthly_usd, identity_key, fee_source
+				 FROM ${SCHEMA}.account WHERE pool_id = $1 ORDER BY provider, name, id`,
 				[poolId]
 			),
 			this.pool.query(
-				`SELECT machine_id, provider, subscription_id
-				 FROM ${SCHEMA}.machine_subscription WHERE pool_id = $1
+				`SELECT machine_id, provider, account_id
+				 FROM ${SCHEMA}.machine_account WHERE pool_id = $1
 				 ORDER BY machine_id, provider`,
 				[poolId]
 			),
@@ -312,21 +304,23 @@ export class PostgresSyncStore {
 			lastPublishedAt: dateString(row.last_published_at),
 			current: String(row.id) === machineId
 		}));
-		const subscriptions: SyncSubscription[] = subscriptionResult.rows.map((row) => ({
+		const accounts: SyncAccount[] = accountResult.rows.map((row) => ({
 			id: String(row.id),
 			provider: String(row.provider),
 			name: String(row.name),
 			account: String(row.account),
 			tier: String(row.tier),
-			monthlyUsd: Number(row.monthly_usd)
+			monthlyUsd: row.monthly_usd === null ? null : Number(row.monthly_usd),
+			identityKey: row.identity_key == null ? null : String(row.identity_key),
+			feeSource: row.fee_source === 'inferred' ? 'inferred' : 'explicit'
 		}));
 		const mappings: SyncMapping[] = mappingResult.rows.map((row) => ({
 			machineId: String(row.machine_id),
 			provider: String(row.provider),
-			subscriptionId: row.subscription_id == null ? null : String(row.subscription_id)
+			accountId: row.account_id == null ? null : String(row.account_id)
 		}));
 		const providerQuotas: ProviderQuotaStatus[] = quotaResult.rows.map((row) => {
-			const payload = jsonObject(row.payload) as { accounts?: ProviderQuotaStatus['accounts'] };
+			const payload = jsonObject(row.payload) as { accounts?: ProviderQuotaStatus['accounts']; };
 			return {
 				machineId: String(row.machine_id),
 				source: String(row.source),
@@ -340,18 +334,72 @@ export class PostgresSyncStore {
 			pool: poolRow,
 			machine: machines.find((machine) => machine.id === machineId) ?? null,
 			machines,
-			subscriptions,
+			accounts,
 			mappings,
 			providerQuotas
 		};
 	}
 
-	async addSubscription(subscription: SyncSubscription): Promise<void> {
+	async discoverAccount(account: SyncAccount & { identityKey: string | null }, linkToMachine = true): Promise<string> {
+		const { poolId, machineId } = this.identity();
+		const client = await this.pool.connect();
+		try {
+			await client.query('BEGIN');
+			// ponytail: serialize discovery per pool; use identity-scoped locks if discovery throughput matters.
+			await client.query(`SELECT id FROM ${SCHEMA}.pool WHERE id = $1 FOR UPDATE`, [poolId]);
+			const machine = await client.query(`SELECT id FROM ${SCHEMA}.machine WHERE pool_id = $1 AND id = $2 FOR UPDATE`, [poolId, machineId]);
+			if (machine.rowCount === 0) throw new Error('Machine does not exist in this pool');
+			const existing = await client.query(
+				`SELECT id, provider, identity_key FROM ${SCHEMA}.account
+				 WHERE pool_id = $1 AND (id = $2 OR (provider = $3 AND identity_key = $4)) FOR UPDATE`,
+				[poolId, account.id, account.provider, account.identityKey]
+			);
+			if (existing.rows.length > 1) throw new Error('Discovered identity matches two Account bills; resolve the Account match before syncing');
+			const row = existing.rows[0];
+			if (row && (row.provider !== account.provider || (account.identityKey && row.identity_key && row.identity_key !== account.identityKey)))
+				throw new Error('Account ID is already bound to a different provider identity');
+			const id = row ? String(row.id) : account.id;
+			await client.query(
+				`INSERT INTO ${SCHEMA}.account AS saved (pool_id, id, provider, name, account, tier, monthly_usd, identity_key, fee_source)
+				 VALUES ($1,$2,$3,$4,'',$5,$6,$7,$8)
+				 ON CONFLICT (pool_id, id) DO UPDATE SET identity_key = COALESCE(EXCLUDED.identity_key, saved.identity_key),
+				 tier = CASE WHEN saved.fee_source = 'explicit' THEN saved.tier ELSE EXCLUDED.tier END,
+				 monthly_usd = CASE WHEN saved.fee_source = 'explicit' THEN saved.monthly_usd ELSE EXCLUDED.monthly_usd END,
+				 fee_source = CASE WHEN saved.fee_source = 'explicit' THEN saved.fee_source ELSE EXCLUDED.fee_source END`,
+				[poolId, id, account.provider, account.name, account.tier, account.monthlyUsd, account.identityKey, account.feeSource ?? 'inferred']
+			);
+			if (linkToMachine) await client.query(
+				`INSERT INTO ${SCHEMA}.machine_account (pool_id, machine_id, provider, account_id)
+				 VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`, [poolId, machineId, account.provider, id]
+			);
+			await client.query('COMMIT');
+			return id;
+		} catch (error) {
+			await client.query('ROLLBACK');
+			throw error;
+		} finally { client.release(); }
+	}
+
+	async updateAccountDetails(account: Pick<SyncAccount, 'id' | 'provider'> & Partial<Pick<SyncAccount, 'name' | 'tier' | 'monthlyUsd' | 'feeSource'>>): Promise<void> {
 		const { poolId } = this.identity();
-		await this.pool.query(
-			`INSERT INTO ${SCHEMA}.subscription
-			 (id, pool_id, provider, name, account, tier, monthly_usd)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		const result = await this.pool.query(
+			`UPDATE ${SCHEMA}.account SET name=COALESCE($3,name), tier=COALESCE($4,tier),
+			 monthly_usd=CASE WHEN $8 THEN $5 ELSE monthly_usd END,
+			 fee_source=CASE WHEN $8 THEN $6 ELSE fee_source END
+			 WHERE pool_id=$1 AND id=$2 AND provider=$7`,
+			[poolId, account.id, account.name, account.tier, account.monthlyUsd, account.feeSource ?? 'explicit', account.provider, account.monthlyUsd !== undefined]
+		);
+		if (result.rowCount !== 1) throw new Error('Account does not exist in this pool for that provider');
+	}
+
+	async addAccount(subscription: SyncAccount): Promise<void> {
+		const { poolId } = this.identity();
+		const result = await this.pool.query(
+			`INSERT INTO ${SCHEMA}.account
+			 (id, pool_id, provider, name, account, tier, monthly_usd, identity_key, fee_source)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			 ON CONFLICT (pool_id, id) DO UPDATE SET id = EXCLUDED.id
+			 WHERE account.provider = EXCLUDED.provider`,
 			[
 				subscription.id,
 				poolId,
@@ -359,79 +407,98 @@ export class PostgresSyncStore {
 				subscription.name,
 				subscription.account,
 				subscription.tier,
-				subscription.monthlyUsd
+				subscription.monthlyUsd,
+				subscription.identityKey ?? null,
+				subscription.feeSource ?? 'explicit'
 			]
 		);
+		if (result.rowCount !== 1) throw new Error('Account ID already belongs to another provider in this pool');
 	}
 
 	/**
 	 * Set (or clear) a machine/provider -> subscription mapping. Attribution is now a
-	 * READ-TIME join (the engine resolves subscriptionId onto every day/session row from
+	 * READ-TIME join (the engine resolves accountId onto every day/session row from
 	 * the mapping when it builds a snapshot), so this is a single idempotent upsert of the
 	 * mapping row — there are no stored per-record subscription columns to sweep, and the
 	 * engine's mapping-fingerprint watch makes a remap retroactive on the next burst.
 	 */
-	async mapSubscription(
+	async mapAccount(
 		targetMachineId: string,
 		provider: string,
-		subscriptionId: string | null
+		accountId: string | null
 	): Promise<void> {
 		const { poolId } = this.identity();
-		if (subscriptionId) {
+		if (accountId) {
 			const match = await this.pool.query(
-				`SELECT 1 FROM ${SCHEMA}.subscription
+				`SELECT 1 FROM ${SCHEMA}.account
 				 WHERE pool_id = $1 AND id = $2 AND provider = $3`,
-				[poolId, subscriptionId, provider]
+				[poolId, accountId, provider]
 			);
 			if (match.rowCount === 0)
 				throw new Error('Subscription does not exist in this pool for that provider');
 		}
+		const client = await this.pool.connect();
+		try {
+			await client.query('BEGIN');
+			const machine = await client.query(`SELECT id FROM ${SCHEMA}.machine WHERE pool_id = $1 AND id = $2 FOR UPDATE`, [poolId, targetMachineId]);
+			if (machine.rowCount === 0) throw new Error('Machine does not exist in this pool');
+			await client.query(`DELETE FROM ${SCHEMA}.machine_account WHERE pool_id = $1 AND machine_id = $2 AND provider = $3`, [poolId, targetMachineId, provider]);
+			if (accountId) await client.query(
+				`INSERT INTO ${SCHEMA}.machine_account (pool_id, machine_id, provider, account_id) VALUES ($1, $2, $3, $4)`,
+				[poolId, targetMachineId, provider, accountId]
+			);
+			await client.query('COMMIT');
+		} catch (error) {
+			await client.query('ROLLBACK');
+			throw error;
+		} finally { client.release(); }
+	}
+
+	async linkAccount(machineId: string, provider: string, accountId: string): Promise<void> {
+		const { poolId } = this.identity();
 		await this.pool.query(
-			`INSERT INTO ${SCHEMA}.machine_subscription
-			 (pool_id, machine_id, provider, subscription_id)
-			 VALUES ($1, $2, $3, $4)
-			 ON CONFLICT (pool_id, machine_id, provider)
-			 DO UPDATE SET subscription_id = EXCLUDED.subscription_id`,
-			[poolId, targetMachineId, provider, subscriptionId]
+			`INSERT INTO ${SCHEMA}.machine_account (pool_id, machine_id, provider, account_id)
+			 VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+			[poolId, machineId, provider, accountId]
 		);
 	}
 
-	async mappedSubscriptions(
+	async mappedAccounts(
 		machineId = this.identity().machineId
 	): Promise<Record<string, string | null>> {
 		const { poolId } = this.identity();
 		const result = await this.pool.query(
-			`SELECT provider, subscription_id FROM ${SCHEMA}.machine_subscription
-			 WHERE pool_id = $1 AND machine_id = $2`,
+			`SELECT provider, CASE WHEN count(*) = 1 THEN min(account_id) ELSE NULL END AS account_id FROM ${SCHEMA}.machine_account
+			 WHERE pool_id = $1 AND machine_id = $2 GROUP BY provider`,
 			[poolId, machineId]
 		);
 		return Object.fromEntries(
 			result.rows.map((row) => [
 				String(row.provider),
-				row.subscription_id == null ? null : String(row.subscription_id)
+				row.account_id == null ? null : String(row.account_id)
 			])
 		);
 	}
 
-	/** All (machineId, provider) -> subscriptionId mappings in the pool, for read-time attribution. */
+	/** All (machineId, provider) -> accountId mappings in the pool, for read-time attribution. */
 	async allMappings(): Promise<SyncMapping[]> {
 		const { poolId } = this.identity();
 		const result = await this.pool.query(
-			`SELECT machine_id, provider, subscription_id FROM ${SCHEMA}.machine_subscription
+			`SELECT machine_id, provider, account_id FROM ${SCHEMA}.machine_account
 			 WHERE pool_id = $1 ORDER BY machine_id, provider`,
 			[poolId]
 		);
 		return result.rows.map((row) => ({
 			machineId: String(row.machine_id),
 			provider: String(row.provider),
-			subscriptionId: row.subscription_id == null ? null : String(row.subscription_id)
+			accountId: row.account_id == null ? null : String(row.account_id)
 		}));
 	}
 
 	async mappingFingerprint(): Promise<string> {
 		const mappings = await this.allMappings();
 		return JSON.stringify(
-			mappings.map((mapping) => [mapping.machineId, mapping.provider, mapping.subscriptionId])
+			mappings.map((mapping) => [mapping.machineId, mapping.provider, mapping.accountId])
 		);
 	}
 
@@ -820,6 +887,29 @@ async function migrate(client: PoolClient): Promise<void> {
 			version integer NOT NULL
 		);
 	`);
+	await client.query(`
+		ALTER TABLE ${SCHEMA}.subscription RENAME TO account;
+		ALTER TABLE ${SCHEMA}.account
+			ALTER COLUMN monthly_usd DROP NOT NULL,
+			ADD COLUMN identity_key text,
+			ADD COLUMN fee_source text NOT NULL DEFAULT 'explicit' CHECK (fee_source IN ('explicit', 'inferred')),
+			ADD CONSTRAINT account_explicit_fee CHECK (fee_source <> 'explicit' OR monthly_usd IS NOT NULL),
+			ADD CONSTRAINT account_provider_key UNIQUE (pool_id, provider, id),
+			ADD CONSTRAINT account_identity_key UNIQUE (pool_id, provider, identity_key);
+		CREATE TABLE ${SCHEMA}.machine_account (
+			pool_id text NOT NULL,
+			machine_id text NOT NULL,
+			provider text NOT NULL,
+			account_id text NOT NULL,
+			PRIMARY KEY (pool_id, machine_id, provider, account_id),
+			FOREIGN KEY (pool_id, machine_id) REFERENCES ${SCHEMA}.machine(pool_id, id) ON DELETE CASCADE,
+			FOREIGN KEY (pool_id, provider, account_id) REFERENCES ${SCHEMA}.account(pool_id, provider, id) ON DELETE CASCADE
+		);
+		INSERT INTO ${SCHEMA}.machine_account (pool_id, machine_id, provider, account_id)
+			SELECT pool_id, machine_id, provider, subscription_id FROM ${SCHEMA}.machine_subscription WHERE subscription_id IS NOT NULL;
+		DROP TABLE ${SCHEMA}.machine_subscription;
+		ALTER TABLE ${SCHEMA}.schema_version ADD CONSTRAINT account_schema_min_version CHECK (version >= 4) NOT VALID;
+	`);
 	// Record the version last, inside the same migration transaction, so the fast path in
 	// open() can skip the DDL entirely next time (C9).
 	await client.query(
@@ -827,6 +917,7 @@ async function migrate(client: PoolClient): Promise<void> {
 		 ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version`,
 		[SCHEMA_VERSION]
 	);
+	await client.query(`ALTER TABLE ${SCHEMA}.schema_version VALIDATE CONSTRAINT account_schema_min_version`);
 }
 
 /**
@@ -834,11 +925,17 @@ async function migrate(client: PoolClient): Promise<void> {
  * Uses `to_regclass` (which returns NULL, never an error, for a missing relation) so probing a
  * not-yet-created table cannot abort the surrounding migration transaction.
  */
-async function schemaVersionAt(client: PoolClient, version: number): Promise<boolean> {
+async function schemaVersionAt(client: PoolClient | Pool, version: number): Promise<boolean> {
+	const recorded = await readSchemaVersion(client);
+	if (recorded !== null && recorded > version) throw new Error(`Unsupported pool schema version ${recorded}; this chaching supports ${version}. Upgrade chaching.`);
+	return recorded === version;
+}
+
+async function readSchemaVersion(client: PoolClient | Pool): Promise<number | null> {
 	const exists = await client.query(`SELECT to_regclass('${SCHEMA}.schema_version') AS reg`);
-	if (!exists.rows[0]?.reg) return false;
+	if (!exists.rows[0]?.reg) return null;
 	const result = await client.query(`SELECT version FROM ${SCHEMA}.schema_version WHERE id = 1`);
-	return Number(result.rows[0]?.version) === version;
+	return result.rows[0] ? Number(result.rows[0].version) : null;
 }
 
 async function upsertMachine(

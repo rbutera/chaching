@@ -2,7 +2,9 @@
 
 import { runOnce } from '../../lib/core/engine.js';
 import { writeSync } from 'node:fs';
-import { loadConfig } from '../../lib/core/config.js';
+import { getReportAccountContext } from '../../lib/core/sync/manager.js';
+import { buildWindowSubsidisation } from '../../lib/core/subsidisation.js';
+import { rollingPeriodRange } from '../receipt/build.js';
 import { getPricingMeta } from '../../lib/core/pricing/cost.js';
 
 // Synchronous stdout write. The launcher force-exits one-shot commands, and a
@@ -28,7 +30,7 @@ import {
 	filterDays,
 	sumGrain
 } from '../../lib/core/aggregate.js';
-import { aggregateProjects, inWindow } from '../../lib/core/view-model.js';
+import { aggregateProjects, inWindow, allSessions, poolGrain, coverageForState } from '../../lib/core/view-model.js';
 import { money, compactTokens, providerLabel, modelLabel, int } from '../../lib/format.js';
 import type { Period, RollupSnapshot } from '../../lib/types.js';
 import {
@@ -38,7 +40,7 @@ import {
 	flourishFor,
 	formatFlourish,
 	DAILY_FLOURISHES,
-	LIFETIME_FLOURISHES,
+	LIFETIME_FLOURISHES
 } from '../theme/personality.js';
 
 const TOP_MODELS = 8;
@@ -47,14 +49,21 @@ const TOP_PROJECTS = 8;
 export interface StatsFlags {
 	period?: Period;
 	providers?: string[];
+	models?: string[];
+	machines?: string[];
+	accountIds?: string[];
+	range?: { from: string; to: string };
 	json?: boolean;
 	/** Suppress ASCII art + decorative copy (--no-art flag or CHACHING_NO_ART env). */
 	noArt?: boolean;
 }
 
 export async function runStats(flags: StatsFlags): Promise<void> {
-	const cfg = await loadConfig();
+	const { config: cfg, fees } = await getReportAccountContext(flags);
 	const snapshot = await runOnce(cfg);
+	const now = Date.now();
+	const range = flags.range ?? rollingPeriodRange(snapshot, flags.period ?? 'all', now);
+	const scoped = statsSnapshot(snapshot, { ...flags, range }, now);
 
 	// --json: emit only the raw snapshot. ZERO art/decoration regardless of flags.
 	// A script that passes --period week --provider codex --json gets scoped data only.
@@ -62,66 +71,55 @@ export async function runStats(flags: StatsFlags): Promise<void> {
 		// _pricing exposes which price snapshot resolved (and confirms it loaded at
 		// all) — useful for scripts and a guard against the cwd/layout resolution bug.
 		const pricing = getPricingMeta();
-		if (flags.period || flags.providers) {
-			const providerFilter = flags.providers && flags.providers.length > 0
-				? new Set(flags.providers)
-				: null;
-			const { from, to } = periodDayRange(flags.period);
-			let grain = filterDays(snapshot.dayModel, from, to);
-			if (providerFilter) {
-				grain = grain.filter((dm) => providerFilter.has(dm.provider));
-			}
-			const scoped: RollupSnapshot = {
-				...snapshot,
-				dayModel: grain
-			};
-			writeStdoutSync(JSON.stringify({ ...scoped, _pricing: pricing }) + '\n');
-		} else {
-			writeStdoutSync(JSON.stringify({ ...snapshot, _pricing: pricing }) + '\n');
-		}
+		const providers = new Set(flags.providers);
+		const subsidy = buildWindowSubsidisation(scoped.dayModel, {
+			claude: { ...fees.claude, enabled: fees.claude.enabled && (!providers.size || providers.has('claude')) },
+			codex: { ...fees.codex, enabled: fees.codex.enabled && (!providers.size || providers.has('codex')) }
+		}, range);
+		writeStdoutSync(JSON.stringify({ ...scoped, subsidisation: {
+			...range, feeUsd: subsidy.combined.windowFeeUsd,
+			apiEquivalentUsd: subsidy.combined.sub.apiEquivalentUsd,
+			netSubsidyUsd: subsidy.combined.sub.netSubsidyUsd,
+			multiple: subsidy.combined.sub.multiple,
+			wholeAccountFee: !!flags.machines?.length
+		}, _pricing: pricing }) + '\n');
 		return;
 	}
 
-	printHuman(snapshot, flags);
+	printHuman(snapshot, scoped, flags, range);
 }
 
-function periodDayRange(period: Period | undefined): { from: string | undefined; to: string | undefined } {
-	if (!period) return { from: undefined, to: undefined };
-	const now = new Date();
-	const todayUTC = now.toISOString().slice(0, 10);
-
-	if (period === 'day') {
-		return { from: todayUTC, to: todayUTC };
-	}
-
-	if (period === 'week') {
-		const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-		const dow = (d.getUTCDay() + 6) % 7; // Mon=0
-		d.setUTCDate(d.getUTCDate() - dow);
-		const from = d.toISOString().slice(0, 10);
-		return { from, to: todayUTC };
-	}
-
-	if (period === 'month') {
-		const from = `${todayUTC.slice(0, 7)}-01`;
-		return { from, to: todayUTC };
-	}
-
-	return { from: undefined, to: undefined };
+export function statsSnapshot(snapshot: RollupSnapshot, flags: StatsFlags, now: number = Date.now()) {
+	if (!flags.period && !flags.range && !flags.providers?.length && !flags.models?.length && !flags.machines?.length && !flags.accountIds?.length) return snapshot;
+	const providers = new Set(flags.providers);
+	const models = new Set(flags.models);
+	const state = { period: flags.period ?? 'all' as const, focusedDay: null,
+		providerFilter: providers, modelFilter: models, machineFilter: new Set(flags.machines), accountFilter: new Set(flags.accountIds) };
+	const { from, to } = flags.range ?? rollingPeriodRange(snapshot, flags.period ?? 'all', now);
+	const grain = filterDays(poolGrain(snapshot.dayModel, state), from, to).filter(row =>
+		(!providers.size || providers.has(row.provider)) && (!models.size || models.has(row.model)));
+	const sessions = allSessions(snapshot, state).filter(row => inWindow(row, from, to));
+	const days = grain.map(row => row.day).sort();
+	const { coverage: _coverage, ...totals } = sumGrain(grain);
+	return {
+		...snapshot,
+		dayModel: grain,
+		totals,
+		sessions,
+		models: aggregateByModel(grain).map(row => row.model),
+		providers: aggregateByProvider(grain).map(row => row.provider),
+		unknownPriceModels: [...new Set(grain.filter(row => row.costUnknownRequests > 0).map(row => row.model))],
+		earliestDay: days[0] ?? null,
+		latestDay: days.at(-1) ?? null,
+		coverage: Object.fromEntries(Object.entries(coverageForState(snapshot, state)).filter(([day]) => (!from || day >= from) && (!to || day <= to))),
+		_scope: { from: from ?? null, to: to ?? null, providers: [...providers], models: [...models], machines: flags.machines ?? [], accountIds: flags.accountIds ?? [], sessionTotals: 'whole overlapping sessions', unscoped: ['blocks', 'localBlocks', 'stats'] }
+	};
 }
 
-function printHuman(snapshot: RollupSnapshot, flags: StatsFlags): void {
+function printHuman(snapshot: RollupSnapshot, scoped: RollupSnapshot, flags: StatsFlags, { from, to }: { from: string; to: string }): void {
 	const isNoArt = flags.noArt ?? resolveNoArt();
-	const providerFilter = flags.providers && flags.providers.length > 0
-		? new Set(flags.providers)
-		: null;
-
-	const { from, to } = periodDayRange(flags.period);
-
-	let grain = filterDays(snapshot.dayModel, from, to);
-	if (providerFilter) {
-		grain = grain.filter((dm) => providerFilter.has(dm.provider));
-	}
+	const providerFilter = flags.providers?.length ? new Set(flags.providers) : null;
+	const grain = scoped.dayModel;
 
 	// If no data at all, friendly empty state
 	if (snapshot.dayModel.length === 0) {
@@ -150,21 +148,13 @@ function printHuman(snapshot: RollupSnapshot, flags: StatsFlags): void {
 	const totals = sumGrain(grain);
 	const byProvider = aggregateByProvider(grain);
 	const byModel = aggregateByModel(grain).slice(0, TOP_MODELS);
-	// By project: window the session index to the SAME period + provider filter the rest of
-	// this command uses (its calendar range, not the dashboard's rolling window), then fold
-	// through the shared aggregator so the attribution matches the web + TUI math (design D4).
-	const scopedSessions = snapshot.sessions.filter((s) => {
-		if (from && to && !inWindow(s, from, to)) return false;
-		if (providerFilter && !providerFilter.has(s.provider)) return false;
-		return true;
-	});
-	const byProject = aggregateProjects(scopedSessions);
+	const byProject = aggregateProjects(scoped.sessions);
 
 	const totalToks = totals.tokens.input + totals.tokens.output
 		+ totals.tokens.cacheCreation + totals.tokens.cacheRead;
 
-	const periodLabel = flags.period
-		? `  period: ${flags.period}${from ? ` (${from} → ${to ?? 'today'})` : ''}`
+	const periodLabel = flags.period || flags.range
+		? `  period: ${flags.period ?? 'selected dates'}${from ? ` (${from} → ${to ?? 'today'})` : ''}`
 		: '';
 	const provLabel = providerFilter
 		? `  provider filter: ${flags.providers?.join(', ')}`

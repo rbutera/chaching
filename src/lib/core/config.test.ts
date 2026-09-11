@@ -1,8 +1,13 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, readFile, writeFile, stat } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { pathToFileURL } from 'node:url';
+import { build } from 'tsup';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { clearConfigCache, configFileMode, configFilePath, defaultConfig, loadConfig, normalizeConfig, publicConfig, saveConfig } from './config';
+import { accountConfigProblems, accountFeesByProvider } from './accounts';
+import { clearConfigCache, configFileMode, configFilePath, defaultConfig, loadConfig, normalizeConfig, publicConfig, updateConfig } from './config';
 
 describe('config', () => {
 	it('builds the config path from XDG_CONFIG_HOME when present', () => {
@@ -38,13 +43,11 @@ describe('config', () => {
 		expect(cfg.server).toEqual({ host: '127.0.0.1', port: 9999, origin: '' });
 		expect(cfg.providers.claude).toEqual({
 			enabled: false,
-			roots: ['~/claude-data'],
-			subscription: { tier: 'corporate', monthlyUsd: 99 }
+			roots: ['~/claude-data']
 		});
 		expect(cfg.providers.codex).toEqual({
 			enabled: true,
-			root: '~/codex-sessions',
-			subscription: { tier: 'corporate', monthlyUsd: 99 }
+			root: '~/codex-sessions'
 		});
 		expect(cfg.providers.cursor).toEqual({
 			enabled: true,
@@ -120,114 +123,119 @@ describe('config', () => {
 			poolId: 'pool-1',
 			machineId: 'machine-1',
 			machineName: 'kinto',
-			providerSubscriptions: { claude: 'work-claude' },
 			intervalMinutes: 15,
 			databaseConfigured: true
 		});
 		expect(JSON.stringify(publicConfig(cfg))).not.toContain('secret@kinto');
 	});
 
-	it('defaults missing subscription to Corporate $99 (old v1.5.0 config loads unchanged)', () => {
-		// A pre-subscription config: claude/codex with no subscription block.
-		const cfg = normalizeConfig({
-			providers: {
-				claude: { enabled: true, roots: ['~/.claude'] },
-				codex: { enabled: true, root: '~/.codex/sessions' }
-			}
-		});
-		expect(cfg.providers.claude.subscription).toEqual({ tier: 'corporate', monthlyUsd: 99 });
-		expect(cfg.providers.codex.subscription).toEqual({ tier: 'corporate', monthlyUsd: 99 });
+	it('does not invent a bill for a provider without configured subscription settings', () => {
+		const config = normalizeConfig({ providers: { claude: { enabled: true } } });
+		expect(config.accounts).toEqual([]);
+		expect(accountFeesByProvider(config).claude.monthlyUsd).toBeNull();
 	});
 
-	it('round-trip normalize is idempotent and preserves a custom subscription', () => {
-		const once = normalizeConfig({
-			providers: {
-				claude: { enabled: true, roots: ['~/.claude'], subscription: { tier: 'custom', monthlyUsd: 250 } },
-				codex: { enabled: true, root: '~/.codex/sessions', subscription: { tier: 'max-5x', monthlyUsd: 100 } }
-			}
+	it('preserves mapped IDs and explicit fees, infers known tiers and keeps unknown fees null', () => {
+		const config = normalizeConfig({
+			sync: { providerSubscriptions: { claude: 'pooled-account' } },
+			providers: { claude: { subscription: { tier: 'custom', monthlyUsd: 250 } }, codex: { subscription: { tier: 'mystery' } } }
 		});
-		const twice = normalizeConfig(once);
-		expect(twice).toEqual(once);
-		expect(twice.providers.claude.subscription).toEqual({ tier: 'custom', monthlyUsd: 250 });
-		expect(twice.providers.codex.subscription).toEqual({ tier: 'max-5x', monthlyUsd: 100 });
+		expect(config.accounts[0]).toMatchObject({ id: 'pooled-account', monthlyUsd: 250, feeSource: 'explicit', legacy: true });
+		expect(config.accounts[1]).toMatchObject({ monthlyUsd: null, feeSource: 'inferred' });
+		expect(config.providerAccounts.claude).toEqual(['pooled-account']);
+		expect(normalizeConfig(config)).toEqual(config);
+		expect(normalizeConfig({ providers: { codex: { subscription: { tier: 'plus' } } } }).accounts[0].monthlyUsd).toBe(20);
+		expect(config.providers.claude).not.toHaveProperty('subscription');
 	});
 
-	it('clamps an invalid monthlyUsd (string / negative / NaN) without throwing; $0 allowed', () => {
-		const fromString = normalizeConfig({
-			providers: { claude: { subscription: { tier: 'pro', monthlyUsd: 'not-a-number' } } }
-		});
-		expect(fromString.providers.claude.subscription.monthlyUsd).toBe(99); // default fee
-		expect(fromString.providers.claude.subscription.tier).toBe('pro'); // tier kept
-
-		const negative = normalizeConfig({
-			providers: { codex: { subscription: { tier: 'go', monthlyUsd: -5 } } }
-		});
-		expect(negative.providers.codex.subscription.monthlyUsd).toBe(99);
-
-		const free = normalizeConfig({
-			providers: { claude: { subscription: { tier: 'free', monthlyUsd: 0 } } }
-		});
-		expect(free.providers.claude.subscription.monthlyUsd).toBe(0); // $0 is valid (Free)
+	it('counts linked Accounts once and marks partial fee knowledge unavailable', () => {
+		const config = normalizeConfig({ providers: { claude: { subscription: { tier: 'custom', monthlyUsd: 100 } } } });
+		const first = config.accounts[0];
+		config.accounts.push({ ...first, id: 'second', monthlyUsd: 50 }, { ...first, id: 'unlinked', monthlyUsd: 900 });
+		config.providerAccounts.claude = [first.id, first.id, 'second'];
+		expect(accountFeesByProvider(config).claude.monthlyUsd).toBe(150);
+		config.accounts[1].monthlyUsd = null;
+		config.accounts[1].feeSource = 'inferred';
+		expect(accountFeesByProvider(config).claude.monthlyUsd).toBeNull();
+		config.providerAccounts.claude = [first.id, 'missing-private-id'];
+		expect(accountFeesByProvider(config).claude.monthlyUsd).toBeNull();
+		const problems = accountConfigProblems(config);
+		expect(problems).toContain('1 broken Account link(s); repair providerAccounts in config.');
+		expect(problems).toContain('1 Account fee(s) unknown; enter monthly fees in Settings.');
+		expect(problems.join(' ')).not.toContain('missing-private-id');
 	});
 
-	it('cursor and opencode never carry a subscription field', () => {
-		const cfg = normalizeConfig({});
-		expect('subscription' in cfg.providers.cursor).toBe(false);
-		expect('subscription' in cfg.providers.opencode).toBe(false);
-	});
-
-	it('subscription survives a save → reload round trip and stays 0600', async () => {
+	it('migrates once with history disabled, backs up the original privately, and retains edits and aliases', async () => {
 		const previous = process.env.XDG_CONFIG_HOME;
-		const dir = await mkdtemp(join(tmpdir(), 'chaching-sub-test-'));
+		const dir = await mkdtemp(join(tmpdir(), 'chaching-account-migration-'));
 		process.env.XDG_CONFIG_HOME = dir;
+		clearConfigCache();
 		try {
-			const cfg = defaultConfig();
-			cfg.providers.claude.subscription = { tier: 'max-20x', monthlyUsd: 200 };
-			await saveConfig(cfg);
-			expect(await configFileMode()).toBe(0o600);
+			const original = JSON.stringify({ history: { enabled: false }, providers: { claude: { subscription: { tier: 'free', monthlyUsd: 0 } } } });
+			await mkdir(join(dir, 'chaching'));
+			await writeFile(configFilePath(), original);
+			const configs = await Promise.all([loadConfig(), loadConfig(), loadConfig()]);
+			expect(configs[1]).toEqual(configs[0]);
+			const config = configs[0];
+			const id = config.accounts[0].id;
+			expect(config.accounts[0]).toMatchObject({ monthlyUsd: 0, feeSource: 'explicit' });
+			expect(config.history.enabled).toBe(false);
+			expect(await readFile(`${configFilePath()}.pre-accounts`, 'utf8')).toBe(original);
+			expect((await stat(`${configFilePath()}.pre-accounts`)).mode & 0o777).toBe(0o600);
+			config.accounts[0] = { ...config.accounts[0], tier: 'unknown', monthlyUsd: null, feeSource: 'inferred', identity: { accountId: 'private-external-id', userId: 'private-user-id' }, registrations: ['retired-registration'] };
+			await updateConfig(() => config);
 			clearConfigCache();
 			const reloaded = await loadConfig();
-			expect(reloaded.providers.claude.subscription).toEqual({ tier: 'max-20x', monthlyUsd: 200 });
+			expect(reloaded.accounts[0]).toEqual(config.accounts[0]);
+			expect(reloaded.providerAccounts.claude).toEqual([id]);
+			expect(await configFileMode()).toBe(0o600);
+			const publicJson = JSON.stringify(publicConfig(reloaded));
+			expect(publicJson).not.toContain('private-external-id');
+			expect(publicJson).not.toContain('private-user-id');
+			expect(publicJson).not.toContain('retired-registration');
+			expect(await readFile(`${configFilePath()}.pre-accounts`, 'utf8')).toBe(original);
 		} finally {
+			clearConfigCache();
 			if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
 			else process.env.XDG_CONFIG_HOME = previous;
 			await rm(dir, { recursive: true, force: true });
 		}
 	});
 
-	it('an additive subscription patch (the /api/config merge) preserves cutover + the other provider', async () => {
-		// Mirrors the POST /api/config merge: load, splice one provider's subscription,
-		// saveConfig. A subscription-only write must not touch cutoverTs or codex.
-		const previous = process.env.XDG_CONFIG_HOME;
-		const dir = await mkdtemp(join(tmpdir(), 'chaching-patch-test-'));
-		process.env.XDG_CONFIG_HOME = dir;
+	it('gives concurrent processes the same migrated Account IDs', async () => {
+		const dir = await mkdtemp(join(tmpdir(), 'chaching-concurrent-config-'));
 		try {
-			const base = defaultConfig();
-			base.cutoverTs = 1_700_000_000_000;
-			base.providers.codex.subscription = { tier: 'plus', monthlyUsd: 20 };
-			await saveConfig(base);
-			clearConfigCache();
+			await mkdir(join(dir, 'chaching'));
+			await writeFile(join(dir, 'chaching/config.json'), JSON.stringify({ providers: { claude: { subscription: { tier: 'custom', monthlyUsd: 173 } } } }));
+			await build({ entry: ['src/lib/core/config.ts'], outDir: join(dir, 'bundle'), format: ['esm'], platform: 'node', silent: true, dts: false, outExtension: () => ({ js: '.mjs' }) });
+			const code = `const config = await import(${JSON.stringify(pathToFileURL(join(dir, 'bundle/config.mjs')).href)}); console.log(JSON.stringify(await config.loadConfig()));`;
+			const results = await Promise.all(Array.from({ length: 8 }, () => promisify(execFile)(process.execPath, ['--input-type=module', '-e', code], { env: { ...process.env, XDG_CONFIG_HOME: dir } })));
+			const stored = JSON.parse(await readFile(join(dir, 'chaching/config.json'), 'utf8'));
+			for (const result of results) expect(JSON.parse(result.stdout)).toEqual(stored);
+			expect(stored.accounts).toHaveLength(1);
+			expect(stored.accounts[0].monthlyUsd).toBe(173);
+			const edit = `const config = await import(${JSON.stringify(pathToFileURL(join(dir, 'bundle/config.mjs')).href)}); await config.loadConfig(); await new Promise(r => setTimeout(r, 100)); await config.updateConfig(current => ({ ...current, cutoverTs: (current.cutoverTs ?? 0) + 1 }));`;
+			await Promise.all(Array.from({ length: 8 }, () => promisify(execFile)(process.execPath, ['--input-type=module', '-e', edit], { env: { ...process.env, XDG_CONFIG_HOME: dir } })));
+			const edited = JSON.parse(await readFile(join(dir, 'chaching/config.json'), 'utf8'));
+			expect(edited.cutoverTs).toBe(8);
+			expect(edited.accounts).toEqual(stored.accounts);
+		} finally { await rm(dir, { recursive: true, force: true }); }
+	}, 30_000);
 
-			const loaded = await loadConfig();
-			const patched = {
-				...loaded,
-				providers: {
-					...loaded.providers,
-					claude: {
-						...loaded.providers.claude,
-						subscription: { tier: 'max-20x', monthlyUsd: 200 }
-					}
-				}
-			};
-			await saveConfig(patched);
-			clearConfigCache();
-
-			const reloaded = await loadConfig();
-			expect(reloaded.providers.claude.subscription).toEqual({ tier: 'max-20x', monthlyUsd: 200 });
-			expect(reloaded.providers.codex.subscription).toEqual({ tier: 'plus', monthlyUsd: 20 });
-			expect(reloaded.cutoverTs).toBe(1_700_000_000_000);
-			expect(await configFileMode()).toBe(0o600);
+	it('rejects future config versions and malformed files without replacing them', async () => {
+		const previous = process.env.XDG_CONFIG_HOME;
+		const dir = await mkdtemp(join(tmpdir(), 'chaching-future-config-'));
+		process.env.XDG_CONFIG_HOME = dir;
+		clearConfigCache();
+		try {
+			await mkdir(join(dir, 'chaching'));
+			for (const original of ['{"version":2}', '{broken']) {
+				await writeFile(configFilePath(), original);
+				await expect(loadConfig()).rejects.toThrow();
+				expect(await readFile(configFilePath(), 'utf8')).toBe(original);
+			}
 		} finally {
+			clearConfigCache();
 			if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
 			else process.env.XDG_CONFIG_HOME = previous;
 			await rm(dir, { recursive: true, force: true });
@@ -239,8 +247,16 @@ describe('config', () => {
 		const dir = await mkdtemp(join(tmpdir(), 'chaching-config-test-'));
 		process.env.XDG_CONFIG_HOME = dir;
 		try {
-			await saveConfig(defaultConfig());
+			await updateConfig(() => defaultConfig());
 			expect(await configFileMode()).toBe(0o600);
+			const before = await readFile(configFilePath(), 'utf8');
+			await expect(updateConfig(async cfg => {
+				cfg.cutoverTs = 123;
+				throw new Error('Pool write failed');
+			})).rejects.toThrow('Pool write failed');
+			expect(await readFile(configFilePath(), 'utf8')).toBe(before);
+			await updateConfig(async cfg => ({ ...cfg, cutoverTs: 456 }));
+			expect((await loadConfig()).cutoverTs).toBe(456);
 		} finally {
 			if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
 			else process.env.XDG_CONFIG_HOME = previous;

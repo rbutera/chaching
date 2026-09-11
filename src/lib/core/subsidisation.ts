@@ -1,11 +1,4 @@
-// Subscription subsidisation — the "how much API value did my flat fee buy me
-// this month" reframe. PURE: it consumes already-computed per-provider burn and a
-// monthly fee; it never touches cost.ts or re-sums tokens (design D6).
-//
-// The basis is MONTHLY and calendar-aligned: the headline compares the current
-// calendar month-to-date API-equivalent burn against the FULL monthly fee, and a
-// labelled "projected" figure scales month-to-date up by the elapsed fraction of
-// the month (design D5). $0 (Free) tiers are handled without divide-by-zero.
+// Shared fee comparisons for calendar-month reports and selected date windows.
 
 import type { DayModelAgg } from '../types';
 import { sumGrain } from './aggregate';
@@ -18,37 +11,29 @@ export interface SubsidisationInput {
 	/** the API-equivalent burn for the slice (per-provider month-to-date, or combined) */
 	apiEquivalentUsd: number;
 	/** the flat monthly fee for the slice */
-	monthlyUsd: number;
+	monthlyUsd: number | null;
 }
 
 export interface Subsidisation {
 	apiEquivalentUsd: number;
-	monthlyUsd: number;
+	monthlyUsd: number | null;
 	/** apiEquivalentUsd − monthlyUsd; negative when the fee exceeds the value used */
-	netSubsidyUsd: number;
-	/**
-	 * apiEquivalentUsd / monthlyUsd, or `null` when monthlyUsd is 0 (Free tier).
-	 * A null multiple is rendered as "∞ — all of it", never Infinity/NaN.
-	 */
+	netSubsidyUsd: number | null;
+	/** Null for unknown or zero fees; subsidyMultipleText distinguishes their display. */
 	multiple: number | null;
 }
 
-/**
- * The core subsidisation computation. $0-tier safe: when `monthlyUsd <= 0` the
- * multiple is `null` (the caller renders "∞ — all of it"); when `monthlyUsd > 0`
- * but burn is 0 the multiple is `0` ("nothing used yet this month").
- */
 export function computeSubsidisation({
 	apiEquivalentUsd,
 	monthlyUsd
 }: SubsidisationInput): Subsidisation {
-	const fee = Number.isFinite(monthlyUsd) && monthlyUsd > 0 ? monthlyUsd : 0;
+	const fee = monthlyUsd === null ? null : Number.isFinite(monthlyUsd) && monthlyUsd >= 0 ? monthlyUsd : null;
 	const burn = Number.isFinite(apiEquivalentUsd) && apiEquivalentUsd > 0 ? apiEquivalentUsd : 0;
 	return {
 		apiEquivalentUsd: burn,
 		monthlyUsd: fee,
-		netSubsidyUsd: burn - fee,
-		multiple: fee > 0 ? burn / fee : null
+		netSubsidyUsd: fee === null ? null : burn - fee,
+		multiple: fee !== null && fee > 0 ? burn / fee : null
 	};
 }
 
@@ -131,7 +116,7 @@ export function monthlyBurn(burnMTD: number, now: Date = new Date()): MonthlyBur
 export interface ProviderSubsidisation {
 	provider: SubsidisedProvider;
 	enabled: boolean;
-	monthlyUsd: number;
+	monthlyUsd: number | null;
 	tier: string;
 	monthly: MonthlyBurn;
 	/** subsidisation on the banked month-to-date burn (the honest headline) */
@@ -144,14 +129,14 @@ export interface ProviderSubsidisation {
 export interface ProviderSubsidisationConfig {
 	enabled: boolean;
 	tier: string;
-	monthlyUsd: number;
+	monthlyUsd: number | null;
 }
 
 export interface SubsidisationRollup {
 	providers: ProviderSubsidisation[];
 	/** combined across ENABLED subsidised providers only */
 	combined: {
-		monthlyUsd: number;
+		monthlyUsd: number | null;
 		monthly: MonthlyBurn;
 		mtd: Subsidisation;
 		projected: Subsidisation;
@@ -204,7 +189,7 @@ export function buildSubsidisation(
 	});
 
 	const enabled = providers.filter((p) => p.enabled);
-	const combinedFee = enabled.reduce((sum, p) => sum + p.monthlyUsd, 0);
+	const combinedFee = sumFees(enabled.map(p => p.monthlyUsd));
 	const combinedBurnMTD = enabled.reduce((sum, p) => sum + p.monthly.burnMTD, 0);
 	const combinedMonthly = monthlyBurn(combinedBurnMTD, now);
 
@@ -241,8 +226,7 @@ export function buildSubsidisation(
 //   month   -> last 30 days' usage  vs fee/30 * 30 (= the monthly fee exactly)
 //   quarter -> last 90 days' usage  vs fee/30 * 90
 //   all     -> full-range usage     vs fee/30 * windowDays
-// A pinned day is a 1-day window. The receipt footer and `chaching wrapped`
-// keep the calendar-month basis (they reconcile a specific month's bill).
+// A pinned day is a 1-day window. Receipts use the same selected-window basis.
 
 /** Daily-rate divisor for pro-rating a monthly fee across a window. */
 export const FEE_PRORATA_DAYS = 30;
@@ -251,15 +235,15 @@ export interface WindowProviderSubsidisation {
 	provider: SubsidisedProvider;
 	enabled: boolean;
 	tier: string;
-	monthlyUsd: number;
+	monthlyUsd: number | null;
 	/** monthlyUsd / 30 * windowDays — the fee share this window carries */
-	windowFeeUsd: number;
+	windowFeeUsd: number | null;
 	sub: Subsidisation;
 }
 
 export interface WindowSubsidisationRollup {
 	providers: WindowProviderSubsidisation[];
-	combined: { monthlyUsd: number; windowFeeUsd: number; sub: Subsidisation };
+	combined: { monthlyUsd: number | null; windowFeeUsd: number | null; sub: Subsidisation };
 	/** inclusive day count of the window */
 	windowDays: number;
 	from: string;
@@ -267,7 +251,7 @@ export interface WindowSubsidisationRollup {
 }
 
 /** Inclusive day count of [from, to] (UTC). */
-function inclusiveDays(from: string, to: string): number {
+export function inclusiveDays(from: string, to: string): number {
 	if (to < from) return 0;
 	const a = new Date(from + 'T00:00:00Z').getTime();
 	const b = new Date(to + 'T00:00:00Z').getTime();
@@ -291,7 +275,7 @@ export function buildWindowSubsidisation(
 		const burn = cfg.enabled
 			? sumGrain(grain, { from, to, providers: new Set([provider]) }).cost
 			: 0;
-		const windowFeeUsd = cfg.enabled ? (cfg.monthlyUsd / FEE_PRORATA_DAYS) * windowDays : 0;
+		const windowFeeUsd = cfg.enabled ? cfg.monthlyUsd === null ? null : (cfg.monthlyUsd / FEE_PRORATA_DAYS) * windowDays : 0;
 		return {
 			provider,
 			enabled: cfg.enabled,
@@ -303,8 +287,8 @@ export function buildWindowSubsidisation(
 	});
 
 	const enabled = providers.filter((p) => p.enabled);
-	const combinedFee = enabled.reduce((s, p) => s + p.monthlyUsd, 0);
-	const combinedWindowFee = enabled.reduce((s, p) => s + p.windowFeeUsd, 0);
+	const combinedFee = sumFees(enabled.map(p => p.monthlyUsd));
+	const combinedWindowFee = sumFees(enabled.map(p => p.windowFeeUsd));
 	const combinedBurn = enabled.reduce((s, p) => s + p.sub.apiEquivalentUsd, 0);
 
 	return {
@@ -318,4 +302,15 @@ export function buildWindowSubsidisation(
 		from,
 		to
 	};
+}
+
+export function sumFees(fees: readonly (number | null)[]): number | null {
+	return fees.some(fee => fee === null) ? null : fees.reduce<number>((sum, fee) => sum + (fee ?? 0), 0);
+}
+
+export function subsidyMultipleText(subsidy: Pick<Subsidisation, 'monthlyUsd' | 'apiEquivalentUsd' | 'multiple'>): string {
+	if (subsidy.monthlyUsd === null) return '—';
+	if (subsidy.monthlyUsd === 0) return subsidy.apiEquivalentUsd > 0 ? '∞ — all of it' : '—';
+	if (subsidy.multiple === null) return '—';
+	return subsidy.multiple >= 100 ? `${Math.round(subsidy.multiple)}×` : `${subsidy.multiple.toFixed(1)}×`;
 }

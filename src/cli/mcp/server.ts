@@ -9,29 +9,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createEngine } from '../../lib/core/engine.js';
-import { loadConfig } from '../../lib/core/config.js';
-import type { ProviderSubsidisationConfig, SubsidisedProvider } from '../../lib/core/subsidisation.js';
-import type { chachingConfig } from '../../lib/core/config.js';
+import { getReportAccountContext } from '../../lib/core/sync/manager.js';
 import { packageVersion } from '../help.js';
 import { registerTools, type ToolContext } from './tools.js';
-
-/** Per-provider subscription slice the subsidy roll-up needs (mirrors receipt/wrapped). */
-function subsidyConfig(
-	cfg: chachingConfig
-): Record<SubsidisedProvider, ProviderSubsidisationConfig> {
-	return {
-		claude: {
-			enabled: cfg.providers.claude.enabled,
-			tier: cfg.providers.claude.subscription.tier,
-			monthlyUsd: cfg.providers.claude.subscription.monthlyUsd
-		},
-		codex: {
-			enabled: cfg.providers.codex.enabled,
-			tier: cfg.providers.codex.subscription.tier,
-			monthlyUsd: cfg.providers.codex.subscription.monthlyUsd
-		}
-	};
-}
 
 /**
  * Start the stdio MCP server. Resolves once connected (like `serve`, whose socket
@@ -39,16 +19,16 @@ function subsidyConfig(
  * launcher must NOT force-exit this command.
  */
 export async function runMcp(): Promise<void> {
-	const cfg = await loadConfig();
+	const { config: cfg } = await getReportAccountContext();
 	const engine = createEngine(cfg);
 	await engine.ensureStarted();
 
 	const server = new McpServer({ name: 'chaching', version: packageVersion() });
 
 	// Fresh context per tool call: the latest snapshot + live provider-health map.
-	const getContext = (): ToolContext => ({
+	const getContext = async (): Promise<ToolContext> => ({
 		snapshot: engine.snapshot(),
-		subsidyConfig: subsidyConfig(cfg),
+		subsidyConfig: (await getReportAccountContext()).fees,
 		providerErrors: engine.stats.providerErrors,
 		now: Date.now()
 	});

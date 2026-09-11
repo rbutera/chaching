@@ -8,19 +8,21 @@ export interface SyncMachine {
 	current?: boolean;
 }
 
-export interface SyncSubscription {
+export interface SyncAccount {
 	id: string;
 	provider: string;
 	name: string;
 	account: string;
 	tier: string;
-	monthlyUsd: number;
+	monthlyUsd: number | null;
+	identityKey?: string | null;
+	feeSource?: 'explicit' | 'inferred';
 }
 
 export interface SyncMapping {
 	machineId: string;
 	provider: string;
-	subscriptionId: string | null;
+	accountId: string | null;
 }
 
 export interface ProviderQuotaWindow {
@@ -31,6 +33,12 @@ export interface ProviderQuotaWindow {
 }
 
 export interface ProviderQuotaAccount {
+	accountId?: string;
+	/** Pool-scoped digest of provider identity; never a registration ID or email. */
+	identityKey?: string;
+	/** Absent on older peers or when Tokenmaxx cannot establish the current selection. */
+	current?: boolean;
+	observedAt?: string | null;
 	label: string;
 	provider: string;
 	plan: string | null;
@@ -41,7 +49,7 @@ export interface ProviderQuotaAccount {
 export interface ProviderQuotaStatus {
 	machineId: string;
 	source: string;
-	observedAt: string;
+	observedAt: string | null;
 	accounts: ProviderQuotaAccount[];
 }
 
@@ -62,7 +70,7 @@ export interface SyncStatus {
 	pool: { id: string; name: string } | null;
 	machine: SyncMachine | null;
 	machines: SyncMachine[];
-	subscriptions: SyncSubscription[];
+	accounts: SyncAccount[];
 	mappings: SyncMapping[];
 	providerQuotas?: ProviderQuotaStatus[];
 	/** False when viewed through a remote/reverse-proxied dashboard. */
@@ -98,7 +106,7 @@ export type SyncAction =
 	  }
 	| { action: 'leave' }
 	| {
-			action: 'add-subscription';
+			action: 'add-account';
 			provider: string;
 			name: string;
 			account: string;
@@ -109,5 +117,5 @@ export type SyncAction =
 			action: 'map';
 			machineId: string;
 			provider: string;
-			subscriptionId: string | null;
+			accountId: string | null;
 	  };

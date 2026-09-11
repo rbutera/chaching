@@ -39,13 +39,17 @@ export function coverageGlyph(state: DayCoverage): string {
 	return GLYPH[state];
 }
 
+function hasObservedDays(summary: CoverageSummary): boolean {
+	return (summary.states.frozen ?? 0) + (summary.states.partial ?? 0) + (summary.states.zero ?? 0) > 0;
+}
+
 /** The fill treatment for a bar given its bucket's coverage summary (drives the SVG). */
 export function barFill(summary: CoverageSummary): BarFill {
 	switch (summary.worst) {
 		case 'partial':
 			return 'hatched';
 		case 'missing':
-			return 'dash';
+			return hasObservedDays(summary) ? 'hatched' : 'dash';
 		case 'zero':
 			return 'zero';
 		case 'frozen':
@@ -65,7 +69,7 @@ export function tooltipSuffix(summary: CoverageSummary, isToday = false): string
 		case 'partial':
 			return isToday ? 'so far today' : 'partial, not final';
 		case 'missing':
-			return 'no data (gap in range)';
+			return hasObservedDays(summary) ? 'gaps in range' : 'no data (gap in range)';
 		case 'zero':
 			return '$0 (no usage)';
 		case 'frozen':
@@ -79,7 +83,7 @@ export function ariaProvenance(summary: CoverageSummary, isToday = false): strin
 		case 'partial':
 			return isToday ? 'partial, so far today' : 'partial, not final';
 		case 'missing':
-			return 'no data for this day';
+			return hasObservedDays(summary) ? 'gaps in range' : (summary.states.missing ?? 0) > 1 ? 'no data for this period' : 'no data for this day';
 		case 'zero':
 			return 'final, no usage';
 		case 'frozen':

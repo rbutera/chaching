@@ -131,6 +131,7 @@ const usd4 = new Intl.NumberFormat('en-US', {
 
 /** Money: big numbers compact-ish, small numbers with cents. */
 export function money(v: number): string {
+	if (v < 0) return `-${money(-v)}`;
 	if (v >= 1000) return usd0.format(v);
 	if (v >= 0.01) return usd2.format(v);
 	if (v > 0) return usd4.format(v);

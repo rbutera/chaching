@@ -1,3 +1,4 @@
+import { subsidyMultipleText } from '../../lib/core/subsidisation';
 // renderReceiptPng — the runtime PNG receipt template.
 //
 // A pixel-faithful 1:1 port of the DesignSync "Till Stack" thermal receipt
@@ -327,7 +328,7 @@ function receiptElement(model: ReceiptModel, markDataUri: string, arrowDataUri: 
 
 	children.push(...header(model, markDataUri, arrowDataUri));
 
-	if (model.empty) {
+	if (model.empty && !model.subsidisation) {
 		children.push(dashedRule());
 		children.push(centerLine('no receipts yet.', { size: SIZE_BASE, color: PAPER.ink, marginTop: px(6) }));
 		children.push(centerLine('run `chaching init` to start.', { size: SIZE_SUB, color: PAPER.muted, marginTop: px(2) }));
@@ -394,19 +395,11 @@ function receiptElement(model: ReceiptModel, markDataUri: string, arrowDataUri: 
 		const s = model.subsidisation;
 		children.push(dashedRule());
 		children.push(centerLine('subscription subsidy', { size: SIZE_SEC, color: PAPER.muted, letterSpacing: ls(10, 0.12), uppercase: true, marginTop: px(2) }));
-		if (s.monthBasis) {
-			// "∞" (U+221E) is tofu in the latin mono subset → spell it.
-			const mult = s.multiple == null ? 'all of it' : `${s.multiple >= 100 ? Math.round(s.multiple) : s.multiple.toFixed(1)}×`;
-			children.push(lineItem(`${s.periodLabel} multiple`, null, mult, { weight: 700, amountWeight: 700, color: PAPER.ink }));
-			children.push(lineItem(`${money(s.apiEquivalentUsd)} value`, null, `for ${money(s.monthlyUsd)} fee`, { color: PAPER.muted }));
-			children.push(
-				s.netSubsidyUsd >= 0
-					? lineItem('net subsidy', null, `+${money(s.netSubsidyUsd)}`, { color: PAPER.green })
-					: lineItem('under-using your plan', null, money(s.netSubsidyUsd), { color: PAPER.muted })
-			);
-		} else {
-			children.push(lineItem(`${s.periodLabel} value`, null, money(s.apiEquivalentUsd), { color: PAPER.muted }));
-			children.push(lineItem('flat monthly fee', null, money(s.monthlyUsd), { color: PAPER.muted }));
+		const mult = subsidyMultipleText({ ...s, monthlyUsd: s.feeUsd }).replace('∞ — ', '');
+		children.push(lineItem(`${s.periodLabel} multiple`, null, mult, { weight: 700, amountWeight: 700, color: PAPER.ink }));
+		children.push(lineItem(`${money(s.apiEquivalentUsd)} value`, null, s.feeUsd === null ? 'fee unknown' : `for ${money(s.feeUsd)} ${s.wholeAccountFee ? 'shared Account ' : ''}fee`, { color: PAPER.muted }));
+		if (s.netSubsidyUsd !== null) {
+			children.push(lineItem('difference', null, `${s.netSubsidyUsd >= 0 ? '+' : ''}${money(s.netSubsidyUsd)}`, { color: s.netSubsidyUsd >= 0 ? PAPER.green : PAPER.muted }));
 		}
 	}
 

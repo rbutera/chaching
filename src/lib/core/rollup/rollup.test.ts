@@ -21,7 +21,7 @@ function record(overrides: Partial<UsageRecord> = {}): UsageRecord {
 		isSidechain: false,
 		cost: 0.5,
 		machineId: 'machine-a',
-		subscriptionId: null,
+		accountId: null,
 		...overrides
 	};
 }

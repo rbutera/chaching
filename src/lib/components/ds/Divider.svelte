@@ -55,7 +55,7 @@
 		flex: 1;
 	}
 	.caption {
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
 		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;

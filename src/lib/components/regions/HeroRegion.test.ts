@@ -3,12 +3,12 @@
 // HeroRegion — cost-honesty of the hero headline figure (hard rule: never fabricate
 // a "$0.00"). A pinned day that is a gap (`missing`) or still landing (`partial`)
 // must render the coverage vocabulary in the figure slot, NOT a dollar headline; a
-// genuine `zero` day and a `frozen` day still headline money. Mirrors the coverage
-// classes SummaryRail.test.ts pins, on the hero surface.
+// genuine `zero` day and a `frozen` day still headline money.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, cleanup } from '@testing-library/svelte';
 import HeroRegion from './HeroRegion.svelte';
+import CommandBar from '../CommandBar.svelte';
 import { FeedStore } from '$lib/client/feed.svelte';
 import { Dashboard } from '$lib/client/dashboard.svelte';
 import type { DayModelAgg, RollupSnapshot, TokenCounts } from '$lib/types';
@@ -115,4 +115,41 @@ describe('HeroRegion coverage honesty', () => {
 		expect(queryByTestId('hero-coverage-mark')).toBeNull();
 		expect(container.textContent).toContain('$40.00');
 	});
+});
+
+
+it('forwards the selected models and date to the receipt', async () => {
+	const feed = new FeedStore();
+	feed.snapshot = snapshot();
+	const dash = new Dashboard();
+	dash.focusedDay = '2026-06-15';
+	dash.modelFilter = new Set(['claude-opus-4-8']);
+	dash.machineFilter = new Set(['one']);
+	const view = render(CommandBar, { props: { feed, dash, syncStatus: null } });
+	const link = view.getByRole('link', { name: 'Open a shareable receipt of the current view in a new tab' });
+	const url = new URL(link.getAttribute('href')!, 'http://localhost');
+	expect(url.searchParams.getAll('model')).toEqual(['claude-opus-4-8']);
+	expect(url.searchParams.getAll('machine')).toEqual(['one']);
+	expect(url.searchParams.getAll('account')).toEqual([]);
+	expect(url.searchParams.get('day')).toBe('2026-06-15');
+});
+
+
+it.each(['accounts', 'subscriptions'])('discards saved %s spend scope while retaining supported filters', (key) => {
+	localStorage.setItem('chaching.ui.v1', JSON.stringify({
+		period: 'month', models: ['claude-opus-4-8'], providers: ['claude'],
+		machines: ['one'], focusedDay: '2026-06-15', quotaView: 'all', [key]: ['unmatched']
+	}));
+	const dash = new Dashboard();
+	const snap = snapshot();
+	snap.dayModel = snap.dayModel.map(row => ({ ...row, machineId: 'one', accountCandidates: ['a', 'b'] }));
+	expect(dash.focusedTotals(snap, dash.focusedDay!).cost).toBe(40);
+	expect([...dash.modelFilter]).toEqual(['claude-opus-4-8']);
+	expect([...dash.providerFilter]).toEqual(['claude']);
+	expect([...dash.machineFilter]).toEqual(['one']);
+	expect(dash.quotaView).toBe('all');
+	dash.setQuotaView('provider');
+	const saved = JSON.parse(localStorage.getItem('chaching.ui.v1')!);
+	expect(saved.accounts).toBeUndefined();
+	expect(saved.subscriptions).toBeUndefined();
 });

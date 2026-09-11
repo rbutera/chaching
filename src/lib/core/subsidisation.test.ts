@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
 	buildSubsidisation,
+	buildWindowSubsidisation,
+	subsidyMultipleText,
 	burnPace,
 	computeSubsidisation,
 	fractionOfMonthElapsed,
@@ -29,6 +31,22 @@ const enabled = (tier: string, monthlyUsd: number): ProviderSubsidisationConfig 
 });
 
 describe('computeSubsidisation', () => {
+	it('keeps unknown fees distinct from free and empty scopes', () => {
+		const unknown = computeSubsidisation({ apiEquivalentUsd: 2000, monthlyUsd: null });
+		expect(unknown).toEqual({ apiEquivalentUsd: 2000, monthlyUsd: null, netSubsidyUsd: null, multiple: null });
+		expect(subsidyMultipleText(unknown)).toBe('—');
+		expect(subsidyMultipleText(computeSubsidisation({ apiEquivalentUsd: 0, monthlyUsd: 0 }))).toBe('—');
+		expect(subsidyMultipleText(computeSubsidisation({ apiEquivalentUsd: 2000, monthlyUsd: 0 }))).toBe('∞ — all of it');
+	});
+
+	it('retains an unknown relevant fee in the combined denominator even without usage', () => {
+		const result = buildWindowSubsidisation([agg('2026-09-01', 'claude', 'model', 2000)], {
+			claude: enabled('max-20x', 200), codex: { enabled: true, tier: 'unknown', monthlyUsd: null }
+		}, { from: '2026-09-01', to: '2026-09-07' });
+		expect(result.combined).toMatchObject({ windowFeeUsd: null, sub: { apiEquivalentUsd: 2000, multiple: null, netSubsidyUsd: null } });
+		expect(result.providers[0].windowFeeUsd).toBeCloseTo(200 * 7 / 30);
+	});
+
 	it('computes the multiple and net subsidy for a paid tier', () => {
 		const s = computeSubsidisation({ apiEquivalentUsd: 9633, monthlyUsd: 99 });
 		expect(s.multiple).toBeCloseTo(9633 / 99, 6);
@@ -131,8 +149,8 @@ describe('buildSubsidisation roll-up', () => {
 		expect(r.combined.mtd.multiple).toBeCloseTo(280 / 119, 6);
 		const sumNet = r.providers
 			.filter((p) => p.enabled)
-			.reduce((s, p) => s + p.mtd.netSubsidyUsd, 0);
-		expect(sumNet).toBeCloseTo(r.combined.mtd.netSubsidyUsd, 6);
+			.reduce((s, p) => s + (p.mtd.netSubsidyUsd ?? NaN), 0);
+		expect(sumNet).toBeCloseTo(r.combined.mtd.netSubsidyUsd ?? NaN, 6);
 	});
 
 	it('a disabled provider is excluded from the combined fee AND burn', () => {

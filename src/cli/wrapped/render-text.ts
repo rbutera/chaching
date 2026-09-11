@@ -1,3 +1,4 @@
+import { subsidyMultipleText } from '../../lib/core/subsidisation';
 // renderWrappedText — fixed-width thermal-receipt layout for `chaching wrapped`.
 //
 // The receipt's fun cousin: same tape width, same brass accent, same ALL-CAPS
@@ -211,16 +212,13 @@ export function renderWrappedText(model: WrappedModel, e: RenderTextEnv = {}): s
 		lines.push('');
 		lines.push(dashRule(noArt));
 		lines.push(C.dim(noArt ? 'SUBSCRIPTION SUBSIDY' : '✦ SUBSCRIPTION SUBSIDY'));
-		const mult =
-			s.multiple == null
-				? '∞ — all of it'
-				: `${s.multiple >= 100 ? Math.round(s.multiple) : s.multiple.toFixed(1)}×`;
+		const mult = subsidyMultipleText(s);
 		lines.push(C.accent(C.bold(row('this month multiple', mult))));
-		lines.push(C.dim(row(`${money(s.apiEquivalentUsd)} value`, `for ${money(s.monthlyUsd)} fee`)));
-		if (s.netSubsidyUsd >= 0) {
-			lines.push(row('net subsidy', `+${money(s.netSubsidyUsd)}`));
+		lines.push(C.dim(row(`${money(s.apiEquivalentUsd)} value`, `for ${(s.monthlyUsd === null ? 'unknown' : money(s.monthlyUsd))} fee`)));
+		if (s.netSubsidyUsd !== null && s.netSubsidyUsd >= 0) {
+			lines.push(row('net subsidy', `+${(s.netSubsidyUsd === null ? '—' : money(s.netSubsidyUsd))}`));
 		} else {
-			lines.push(C.dim(row('under-using your plan', money(s.netSubsidyUsd))));
+			lines.push(C.dim(row('difference', (s.netSubsidyUsd === null ? '—' : money(s.netSubsidyUsd)))));
 		}
 	}
 

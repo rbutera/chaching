@@ -69,3 +69,9 @@ if (typeof window !== 'undefined' && typeof Element !== 'undefined') {
 		return origRect.call(this);
 	};
 }
+
+// jsdom has no modal dialog implementation; native focus/inert behavior is checked in the browser.
+if (typeof HTMLDialogElement !== 'undefined' && !HTMLDialogElement.prototype.showModal) {
+	HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+	HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+}

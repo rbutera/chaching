@@ -67,7 +67,7 @@
 		display: flex;
 		align-items: baseline;
 		gap: 8px;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-sm);
 		font-weight: var(--fw-regular);
 		color: var(--text);

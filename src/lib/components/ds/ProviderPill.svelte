@@ -79,7 +79,7 @@
 		min-height: 34px;
 		padding: 0 12px;
 		border-radius: var(--radius-pill);
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-xs);
 		cursor: pointer;
 

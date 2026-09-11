@@ -155,18 +155,18 @@ export function cacheEfficiency(ctx: ToolContext, period: Period): Record<string
 export function subscriptionHeadroom(ctx: ToolContext): Record<string, unknown> {
 	const roll = buildSubsidisation(ctx.snapshot.dayModel, ctx.subsidyConfig, new Date(ctx.now));
 	const shape = (
-		monthlyUsd: number,
-		mtd: { apiEquivalentUsd: number; netSubsidyUsd: number; multiple: number | null },
+		monthlyUsd: number | null,
+		mtd: { apiEquivalentUsd: number; netSubsidyUsd: number | null; multiple: number | null },
 		projected: { apiEquivalentUsd: number; multiple: number | null }
 	) => ({
 		monthlyUsd,
 		apiEquivalentUsd: money(mtd.apiEquivalentUsd),
-		netSubsidyUsd: money(mtd.netSubsidyUsd),
+		netSubsidyUsd: mtd.netSubsidyUsd === null ? null : money(mtd.netSubsidyUsd),
 		// null multiple = free ($0) tier: "∞ — all of it". Marker crosses the wire intact.
-		multiple: nullableMultiple(mtd.multiple),
-		headroomUsd: money(Math.max(0, monthlyUsd - mtd.apiEquivalentUsd)),
+		multiple: monthlyUsd === null ? null : monthlyUsd === 0 && mtd.apiEquivalentUsd === 0 ? null : nullableMultiple(mtd.multiple),
+		headroomUsd: monthlyUsd === null ? null : money(Math.max(0, monthlyUsd - mtd.apiEquivalentUsd)),
 		projectedApiEquivalentUsd: money(projected.apiEquivalentUsd),
-		projectedMultiple: nullableMultiple(projected.multiple)
+		projectedMultiple: monthlyUsd === null || (monthlyUsd === 0 && projected.apiEquivalentUsd === 0) ? null : nullableMultiple(projected.multiple)
 	});
 	return {
 		advisory: true,
@@ -291,14 +291,14 @@ const periodShape = { period: z.enum(PERIODS).optional() };
  * handler so every tool call reads the latest engine snapshot. Each tool wraps its
  * pure result through `toolResult`, the single content-free serializer.
  */
-export function registerTools(server: McpServer, getContext: () => ToolContext): void {
+export function registerTools(server: McpServer, getContext: () => ToolContext | Promise<ToolContext>): void {
 	server.registerTool(
 		'spend_today',
 		{
 			title: 'Spend today',
 			description: `Total spend for the current UTC day so far, per provider, with its coverage state. ${ADVISORY}`
 		},
-		async () => toolResult(spendToday(getContext()))
+		async () => toolResult(spendToday(await getContext()))
 	);
 
 	server.registerTool(
@@ -308,7 +308,7 @@ export function registerTools(server: McpServer, getContext: () => ToolContext):
 			description: `Spend over a rolling period (day/week/month/quarter/all, default week) anchored at the latest day with data, with the prior-window delta. ${ADVISORY}`,
 			inputSchema: periodShape
 		},
-		async ({ period }) => toolResult(burnSince(getContext(), period ?? 'week'))
+		async ({ period }) => toolResult(burnSince(await getContext(), period ?? 'week'))
 	);
 
 	server.registerTool(
@@ -318,7 +318,7 @@ export function registerTools(server: McpServer, getContext: () => ToolContext):
 			description: `Billed cache read/write tokens and cost, plus modelled saving vs uncached, over the period window (default week). ${ADVISORY}`,
 			inputSchema: periodShape
 		},
-		async ({ period }) => toolResult(cacheEfficiency(getContext(), period ?? 'week'))
+		async ({ period }) => toolResult(cacheEfficiency(await getContext(), period ?? 'week'))
 	);
 
 	server.registerTool(
@@ -327,7 +327,7 @@ export function registerTools(server: McpServer, getContext: () => ToolContext):
 			title: 'Subscription headroom',
 			description: `How much API-equivalent value your flat monthly subscription fee has bought this calendar month to date, per subsidised provider (Claude, Codex), with a projected full-month figure. ${ADVISORY}`
 		},
-		async () => toolResult(subscriptionHeadroom(getContext()))
+		async () => toolResult(subscriptionHeadroom(await getContext()))
 	);
 
 	server.registerTool(
@@ -336,7 +336,7 @@ export function registerTools(server: McpServer, getContext: () => ToolContext):
 			title: 'Provider status',
 			description: `Per-provider ingest health (ok/error), today's data coverage, and models seen with no known price. ${ADVISORY}`
 		},
-		async () => toolResult(providerStatus(getContext()))
+		async () => toolResult(providerStatus(await getContext()))
 	);
 
 	server.registerTool(
@@ -353,7 +353,7 @@ export function registerTools(server: McpServer, getContext: () => ToolContext):
 				cacheWrite: z.number().int().nonnegative().optional()
 			}
 		},
-		async (args) => toolResult(quoteTokens(getContext(), args))
+		async (args) => toolResult(quoteTokens(await getContext(), args))
 	);
 
 	server.registerTool(
@@ -362,6 +362,6 @@ export function registerTools(server: McpServer, getContext: () => ToolContext):
 			title: 'Unknown pricing',
 			description: `Models observed in your usage that have no known price, with their token volumes (cost reported as null, never $0). ${ADVISORY}`
 		},
-		async () => toolResult(unknownPricing(getContext()))
+		async () => toolResult(unknownPricing(await getContext()))
 	);
 }

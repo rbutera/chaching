@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	// The single sticky scope surface. It absorbs every dashboard scope control
 	// that used to live scattered in the controls region — the period switcher,
 	// the day navigator, the provider filter pills, and the pool filters — and
@@ -10,11 +11,10 @@
 	import type { FeedStore } from '$lib/client/feed.svelte';
 	import type { Dashboard } from '$lib/client/dashboard.svelte';
 	import type { SyncStatusView } from '$lib/client/sync';
-	import type { Period } from '$lib/types';
 	import PeriodSwitcher from '$lib/components/PeriodSwitcher.svelte';
-	import DayNavigator from '$lib/components/DayNavigator.svelte';
+	import RangeNavigator from '$lib/components/RangeNavigator.svelte';
 	import PoolFilters from '$lib/components/PoolFilters.svelte';
-	import { money, providerLabel, modelLabel, fmtDay } from '$lib/format';
+	import { providerLabel, modelLabel, fmtDay } from '$lib/format';
 
 	let {
 		feed,
@@ -24,21 +24,13 @@
 
 	let snap = $derived(feed.snapshot);
 	let focusedDay = $derived(dash.focusedDay);
-	let providerTotals = $derived(snap ? dash.providers(snap) : []);
-
-	const PERIOD_LABEL: Record<Period, string> = {
-		day: 'day',
-		week: 'week',
-		month: 'month',
-		quarter: 'quarter',
-		all: 'all time'
-	};
+	let providerChoices = $derived(snap ? [...new Set([
+		...snap.dayModel.map(row => row.provider), ...dash.providerFilter
+	])].sort() : []);
 
 	// Look up a pool machine / subscription display name for its chip.
 	let machineName = $derived((id: string) => syncStatus?.machines.find((m) => m.id === id)?.name ?? id);
-	let subscriptionName = $derived(
-		(id: string) => syncStatus?.subscriptions.find((s) => s.id === id)?.name ?? id
-	);
+
 
 	// One-action bulk clear (restores the old ControlsRegion "clear filter" buttons).
 	// Shown whenever ANY provider/model/pool filter is active; it does NOT touch the
@@ -47,8 +39,7 @@
 	let anyFilterActive = $derived(
 		dash.providerFilter.size +
 			dash.modelFilter.size +
-			dash.machineFilter.size +
-			dash.subscriptionFilter.size >
+			dash.machineFilter.size >
 			0
 	);
 	function clearAllFilters(): void {
@@ -56,6 +47,17 @@
 		dash.clearModelFilter();
 		dash.clearPoolFilters();
 	}
+	let receiptUrl = $derived.by(() => {
+		const qs = new URLSearchParams();
+		qs.set('period', dash.period);
+		if (focusedDay) qs.set('day', focusedDay);
+		else if (snap) { const range = dash.periodWindow(snap); qs.set('from', range.from); qs.set('to', range.to); }
+		for (const p of dash.providerFilter) qs.append('provider', p);
+		for (const model of dash.modelFilter) qs.append('model', model);
+		for (const machine of dash.machineFilter) qs.append('machine', machine);
+		return `${resolve('/api/receipt.png')}?${qs.toString()}`;
+	});
+
 </script>
 
 <!-- REGION 3 → the sticky command bar (dissolved the old controls region). -->
@@ -64,31 +66,22 @@
 		<div class="controls-row">
 			<div class="period-wrap" class:overridden={focusedDay != null}>
 				<PeriodSwitcher value={dash.period} onChange={(p) => dash.setPeriod(p)} />
-				{#if focusedDay != null}<span class="override-note">overridden by focused day</span>{/if}
 			</div>
 
-			<DayNavigator
-				{focusedDay}
-				earliest={snap.earliestDay}
-				latest={snap.latestDay}
-				onStep={(d) => dash.stepFocusedDay(snap, d)}
-				onJump={(day) => dash.setFocusedDay(snap, day)}
-				onClear={() => dash.clearFocusedDay()}
-				onEnter={() => snap.latestDay && dash.setFocusedDay(snap, snap.latestDay)}
-			/>
+			<RangeNavigator {dash} snapshot={snap}/>
+			<a class="receipt-link" href={receiptUrl} target="_blank" rel="noopener" aria-label="Open a shareable receipt of the current view in a new tab">Receipt</a>
 
-			{#if providerTotals.length > 1}
+			{#if providerChoices.length > 1}
 				<div class="pills" aria-label="Provider filter">
-					{#each providerTotals as p (p.provider)}
+					{#each providerChoices as provider (provider)}
 						<button
 							class="provider-pill"
-							class:active={dash.providerFilter.has(p.provider)}
-							aria-pressed={dash.providerFilter.has(p.provider)}
-							style={`--provider:var(--p-${p.provider}, var(--m-other))`}
-							onclick={() => dash.toggleProvider(p.provider)}
+							class:active={dash.providerFilter.has(provider)}
+							aria-pressed={dash.providerFilter.has(provider)}
+							style={`--provider:var(--p-${provider}, var(--m-other))`}
+							onclick={() => dash.toggleProvider(provider)}
 						>
-							<span>{providerLabel(p.provider)}</span>
-							<span class="num">{money(p.cost)}</span>
+							<span>{providerLabel(provider)}</span>
 						</button>
 					{/each}
 				</div>
@@ -97,11 +90,8 @@
 			{#if syncStatus?.enabled}
 				<PoolFilters
 					machines={syncStatus.machines}
-					subscriptions={syncStatus.subscriptions}
 					machineFilter={dash.machineFilter}
-					subscriptionFilter={dash.subscriptionFilter}
 					onMachineToggle={(id) => dash.toggleMachine(id)}
-					onSubscriptionToggle={(id) => dash.toggleSubscription(id)}
 					onClear={() => dash.clearPoolFilters()}
 				/>
 			{/if}
@@ -110,9 +100,8 @@
 		<!-- Active-scope chips: a single legible summary of what the dashboard is
 		     scoped to right now. Each ✕ calls the same Dashboard clear/toggle the
 		     scattered controls called, so state stays single-owned. -->
+		{#if anyFilterActive || focusedDay}
 		<div class="scope-chips" aria-label="Active scope">
-			<span class="chip chip-period">{PERIOD_LABEL[dash.period]}</span>
-
 			{#if focusedDay != null}
 				<span class="chip chip-pin">
 					pinned · {fmtDay(focusedDay)}
@@ -141,13 +130,6 @@
 				</span>
 			{/each}
 
-			{#each [...dash.subscriptionFilter] as id (id)}
-				<span class="chip chip-pool">
-					{subscriptionName(id)}
-					<button class="chip-x" aria-label={`Remove ${subscriptionName(id)} subscription filter`} onclick={() => dash.toggleSubscription(id)}>✕</button>
-				</span>
-			{/each}
-
 			{#if anyFilterActive}
 				<button
 					type="button"
@@ -159,6 +141,7 @@
 				</button>
 			{/if}
 		</div>
+		{/if}
 	</div>
 {/if}
 
@@ -184,6 +167,8 @@
 		gap: 0.75rem;
 		flex-wrap: wrap;
 	}
+	.receipt-link { color: var(--accent); font-size: var(--text-xs); padding: 0.35rem 0; }
+	.receipt-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 	.period-wrap {
 		display: inline-flex;
 		align-items: center;
@@ -191,15 +176,7 @@
 	}
 	.period-wrap.overridden {
 		opacity: 0.7;
-	}
-	.override-note {
-		font-family: var(--font-mono);
-		font-size: 0.66rem;
-		color: var(--text-dim);
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-	}
-	.pills {
+	}	.pills {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
@@ -215,7 +192,7 @@
 		background: color-mix(in srgb, var(--provider) 10%, var(--surface-2));
 		color: var(--text-muted);
 		padding: 0.35rem 0.75rem;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: 0.74rem;
 		transition: background var(--dur-fast) var(--ease-out);
 	}
@@ -242,19 +219,12 @@
 		background: var(--surface-2);
 		color: var(--text-muted);
 		padding: 0.15rem 0.3rem 0.15rem 0.7rem;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
 		letter-spacing: var(--tracking-snug);
 	}
 	/* The period chip is always-on scope with no clearable state, so it carries no
-	   ✕ and reads as a plain label; pad the right edge back to symmetric. */
-	.chip-period {
-		padding-right: 0.7rem;
-		text-transform: uppercase;
-		letter-spacing: var(--tracking-caps);
-		color: var(--text-dim);
-	}
-	.chip-pin {
+	   ✕ and reads as a plain label; pad the right edge back to symmetric. */	.chip-pin {
 		border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
 		background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
 		color: var(--text);

@@ -55,7 +55,7 @@ Usage:
   chaching init          Run the setup wizard (re-runnable)
   chaching provider      Manage providers (add | enable | disable)
   chaching doctor        Diagnose why a provider isn't counting (health, staleness, pricing)
-  chaching sync          Create/join a pooled PostgreSQL ledger, map subscriptions
+  chaching sync          Create/join a pooled PostgreSQL ledger, map accounts
 
 Flags (global):
   --version, -v          Print version and exit
@@ -63,12 +63,17 @@ Flags (global):
   --no-art               Suppress ASCII art and decorative copy
 
 Flags for stats:
-  --period day|week|month  Aggregate by period (default: all time)
+  --period day|week|month|quarter|all  Rolling window (default: all time)
+  --from YYYY-MM-DD --to YYYY-MM-DD  Inclusive date range
+  --model <name> --machine <id>  Repeatable scope filters
   --provider <name>        Filter to provider(s); repeatable or comma-separated
   --json                   Output only the raw JSON snapshot to stdout
 
 Flags for receipt:
-  --period day|week|month|quarter|all  Aggregate by period (default: this month)
+  --machine <id>          Filter usage by machine; retain shared Account fees
+  --from YYYY-MM-DD --to YYYY-MM-DD  Export an inclusive date range
+  --model <name>           Filter usage by model; repeatable or comma-separated
+  --period day|week|month|quarter|all  Aggregate by period (default: last 30 days)
   --provider <name>        Filter to provider(s); repeatable or comma-separated
   --json                   Machine-readable receipt model to stdout (art-free)
   --png [path]             Write a shareable PNG (default: ./chaching-receipt-<period>.png)
@@ -92,17 +97,18 @@ Chaching Sync:
   CHACHING_DATABASE_URL=<url> chaching sync create --name <pool> [--machine <name>]
   CHACHING_DATABASE_URL=<url> chaching sync join --pool <id> [--machine <name>]
   chaching sync status [--json]
+  CHACHING_DATABASE_URL=<url> chaching sync schema [--migrate --clients-stopped]
   chaching sync interval <minutes>   # publish cadence (>=1, default 15; higher = cheaper serverless)
-  chaching sync subscription add --provider <name> --name <label>
+  chaching sync account add --provider <name> --name <label>
       [--account <label>] [--tier <tier>] --monthly-usd <amount>
-  chaching sync map --provider <name> --subscription <id|none> [--machine <id>]
+  chaching sync map --provider <name> --account <id|none> [--machine <id>]
   chaching sync leave
 
 Examples:
   chaching stats --period week --provider codex
   chaching doctor                  # per-provider health + staleness + pricing
   chaching stats --json | jq .totals.cost
-  chaching receipt                 # this month (default)
+  chaching receipt                 # last 30 days (default)
   chaching receipt --period all
   chaching receipt --png receipt.png
   chaching wrapped                 # your month in tokens (month-to-date)

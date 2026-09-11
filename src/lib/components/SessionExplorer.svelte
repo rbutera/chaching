@@ -26,14 +26,21 @@
 	import { isLive } from '$lib/core/view-model';
 	import { untrack } from 'svelte';
 
+	let localSorting = $state<SortingState>([{ id: 'recency', desc: true }]);
 	let {
 		sessions,
 		onOpen,
+		compact = false,
+		search = $bindable(''),
+		sorting = $bindable<SortingState | undefined>(),
 		now = Date.now()
 	}: {
 		/** The sessions to show (already filtered by the caller's selector — all-banked by default). */
 		sessions: SessionSummary[];
 		onOpen: (s: SessionSummary) => void;
+		compact?: boolean;
+		search?: string;
+		sorting?: SortingState;
 		/** Injectable "now" for deterministic live/frozen tests. */
 		now?: number;
 	} = $props();
@@ -68,7 +75,6 @@
 	let rows = $derived(sessions.map(toRow));
 
 	// ---- project search (controlled; lives in the component, survives data deltas) ----
-	let search = $state('');
 	let filtered = $derived(
 		search.trim()
 			? rows.filter((r) => r.project.toLowerCase().includes(search.trim().toLowerCase()))
@@ -91,9 +97,8 @@
 	];
 
 	// default sort = recency, newest first
-	let sorting = $state<SortingState>([{ id: 'recency', desc: true }]);
 
-	const table: Table<typeof features, Row> = createTable<typeof features, Row>({
+	const table: Table<typeof features, Row> = createTable<typeof features, Row, undefined>({
 		features,
 		columns,
 		get data() {
@@ -101,13 +106,15 @@
 		},
 		state: {
 			get sorting() {
-				return sorting;
+				return sorting ?? localSorting;
 			}
 		},
 		onSortingChange: (updater) => {
-			sorting = typeof updater === 'function' ? updater(sorting) : updater;
+			const next = typeof updater === 'function' ? updater(sorting ?? localSorting) : updater;
+			if (sorting === undefined) localSorting = next;
+			else sorting = next;
 		}
-	});
+	}, () => undefined);
 
 	let sortedRows = $derived(table.getRowModel().rows);
 
@@ -120,7 +127,7 @@
 	];
 
 	function ariaSort(id: SortKey): 'ascending' | 'descending' | 'none' {
-		const s = sorting.find((x) => x.id === id);
+		const s = (sorting ?? localSorting).find((x) => x.id === id);
 		if (!s) return 'none';
 		return s.desc ? 'descending' : 'ascending';
 	}
@@ -221,6 +228,7 @@
 </script>
 
 <div class="explorer">
+	{#if !compact}
 	<div class="head">
 		<h2 class="title">Sessions</h2>
 		<div class="searchwrap">
@@ -258,6 +266,7 @@
 		{/each}
 	</div>
 
+	{/if}
 	{#if sortedRows.length === 0}
 		<p class="empty">{search.trim() ? 'No sessions match that project.' : 'No sessions in scope.'}</p>
 	{:else}
@@ -311,7 +320,7 @@
 				{/each}
 			</ul>
 		</div>
-		<p class="count">{sortedRows.length} session{sortedRows.length === 1 ? '' : 's'}{search.trim() ? ' (filtered)' : ''}</p>
+		{#if !compact}<p class="count">{sortedRows.length} session{sortedRows.length === 1 ? '' : 's'}{search.trim() ? ' (filtered)' : ''}</p>{/if}
 	{/if}
 </div>
 

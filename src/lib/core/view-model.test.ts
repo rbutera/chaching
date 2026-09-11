@@ -14,6 +14,7 @@ import {
 	focusedSessions,
 	focusedTotals,
 	heroTotals,
+	headlineTotals,
 	inWindow,
 	isLive,
 	models,
@@ -31,7 +32,7 @@ import {
 } from './view-model';
 import { sumGrain } from './aggregate';
 import type { SessionSummary } from '../types';
-import { attachSubscriptions, buildSubscriptionIndex } from './sync/overlay';
+import { attachAccounts, buildAccountIndex } from './sync/overlay';
 
 function toks(input: number, output = 0, cacheCreation = 0, cacheRead = 0): TokenCounts {
 	return { input, output, cacheCreation, cacheRead };
@@ -601,6 +602,14 @@ describe('clampDay — bounds + step', () => {
 	it('returns null when there is no data range', () => {
 		expect(clampDay(snapFrom([]), '2026-06-16')).toBeNull();
 	});
+	it('allows a quiet current day when the caller supplies a live calendar bound', () => {
+		expect(clampDay(snap, '2026-06-20', '2026-06-20')).toBe('2026-06-20');
+		expect(clampDay(snap, '2026-06-21', '2026-06-20')).toBe('2026-06-20');
+		expect(clampDay(snap, '2026-02-30', '2026-06-20')).toBeNull();
+		expect(clampDay(snapFrom([]), '2026-06-20', '2026-06-20')).toBeNull();
+		const future = snapFrom([dm('2026-06-22', 'codex', 'claude-opus-4-8', 5)]);
+		expect(clampDay(future, '2026-06-20', '2026-06-20')).toBe('2026-06-20');
+	});
 
 	it('stepping via addDaysISO+clamp is a no-op at the bounds', () => {
 		// at earliest, stepping -1 then clamping stays at earliest
@@ -620,7 +629,7 @@ function sess(
 	id: string,
 	firstDay: string,
 	lastDay: string,
-	opts: { provider?: string; models?: string[]; firstTs?: number; lastTs?: number } = {}
+	opts: { provider?: string; models?: string[]; firstTs?: number; lastTs?: number; } = {}
 ): SessionSummary {
 	return {
 		sessionId: id,
@@ -1006,10 +1015,10 @@ describe('projectTotals — period scoping, focusedDay, and filters', () => {
 
 describe('pooled machine and subscription filters', () => {
 	const pooledRows = [
-		{ ...dm('2026-06-19', 'claude', 'claude-opus-4-8', 100), machineId: 'kinto', subscriptionId: 'work-claude' },
-		{ ...dm('2026-06-19', 'claude', 'claude-opus-4-8', 60), machineId: 'nimbus', subscriptionId: 'personal-claude' },
-		{ ...dm('2026-06-19', 'codex', 'gpt-5.6-sol', 40), machineId: 'nimbus', subscriptionId: 'shared-codex' }
-	] satisfies Array<DayModelAgg & { machineId: string; subscriptionId: string }>;
+		{ ...dm('2026-06-19', 'claude', 'claude-opus-4-8', 100), machineId: 'kinto', accountId: 'work-claude' },
+		{ ...dm('2026-06-19', 'claude', 'claude-opus-4-8', 60), machineId: 'nimbus', accountId: 'personal-claude' },
+		{ ...dm('2026-06-19', 'codex', 'gpt-5.6-sol', 40), machineId: 'nimbus', accountId: 'shared-codex' }
+	] satisfies Array<DayModelAgg & { machineId: string; accountId: string }>;
 	const pooled = snapFrom(pooledRows);
 
 	it('scopes every day-grain total by machine', () => {
@@ -1027,12 +1036,12 @@ describe('pooled machine and subscription filters', () => {
 			dm('2026-06-18', 'claude', 'claude-opus-4-8', 100),
 			dm('2026-06-19', 'codex', 'gpt-5.6-sol', 50)
 		]);
-		const attributed = attachSubscriptions(
+		const attributed = attachAccounts(
 			legacy,
-			buildSubscriptionIndex(
+			buildAccountIndex(
 				[
-					{ machineId: 'kinto', provider: 'claude', subscriptionId: 'work-claude' },
-					{ machineId: 'kinto', provider: 'codex', subscriptionId: 'shared-codex' }
+					{ machineId: 'kinto', provider: 'claude', accountId: 'work-claude' },
+					{ machineId: 'kinto', provider: 'codex', accountId: 'shared-codex' }
 				],
 				'kinto'
 			)
@@ -1051,7 +1060,7 @@ describe('pooled machine and subscription filters', () => {
 	it('scopes by a subscription shared independently of machine', () => {
 		const state = {
 			...defaultViewState('day'),
-			subscriptionFilter: new Set(['shared-codex'])
+			accountFilter: new Set(['shared-codex'])
 		};
 		expect(scopedTotals(pooled, state).cost).toBe(40);
 		expect(models(pooled, state).map((item) => item.model)).toEqual(['gpt-5.6-sol']);
@@ -1061,7 +1070,7 @@ describe('pooled machine and subscription filters', () => {
 		const state = {
 			...defaultViewState('day'),
 			machineFilter: new Set(['kinto']),
-			subscriptionFilter: new Set(['shared-codex'])
+			accountFilter: new Set(['shared-codex'])
 		};
 		expect(scopedTotals(pooled, state).cost).toBe(0);
 	});
@@ -1071,12 +1080,12 @@ describe('pooled machine and subscription filters', () => {
 			{
 				...sess('kinto-session', '2026-06-19', '2026-06-19'),
 				machineId: 'kinto',
-				subscriptionId: 'work-claude'
+				accountId: 'work-claude'
 			},
 			{
 				...sess('nimbus-session', '2026-06-19', '2026-06-19'),
 				machineId: 'nimbus',
-				subscriptionId: 'personal-claude'
+				accountId: 'personal-claude'
 			}
 		];
 		const snapshot = { ...pooled, sessions };
@@ -1100,12 +1109,12 @@ describe('pooled machine and subscription filters', () => {
 			{
 				...dm('2026-06-18', 'claude', 'claude-opus-4-8', 20),
 				machineId: 'kinto',
-				subscriptionId: 'work-claude'
+				accountId: 'work-claude'
 			},
 			{
 				...dm('2026-06-19', 'claude', 'claude-opus-4-8', 10),
 				machineId: 'nimbus',
-				subscriptionId: 'personal-claude'
+				accountId: 'personal-claude'
 			}
 		]);
 		const state = {
@@ -1114,4 +1123,70 @@ describe('pooled machine and subscription filters', () => {
 		};
 		expect(byDay(snapshot, state)[0]?.coverage).toBe('partial');
 	});
+});
+
+
+describe('dashboard explicit date windows', () => {
+	it('keeps actual-today headlines independent of historic selection and applies scope to both periods', () => {
+		const snap = snapFrom([
+			dm('2026-09-08', 'codex', 'gpt', 8),
+			dm('2026-09-09', 'codex', 'gpt', 12),
+			dm('2026-09-10', 'codex', 'gpt', 3),
+			dm('2026-09-10', 'claude', 'opus', 90)
+		]);
+		const state = { ...defaultViewState('day'), windowEnd: '2026-09-09', providerFilter: new Set(['codex']) };
+		expect(heroTotals(snap, state).current.cost).toBe(12);
+		expect(heroTotals(snap, state).prior.cost).toBe(8);
+		const headlines = headlineTotals(snap, state, '2026-09-10');
+		expect(headlines.today.current.cost).toBe(3);
+		expect(headlines.today.prior.cost).toBe(12);
+		expect(headlines.all.current.cost).toBe(23);
+		expect(headlines.all.priorHasBaseline).toBe(false);
+	});
+
+	it('does not substitute the last recorded day for a quiet current day', () => {
+		const snap = snapFrom([dm('2026-09-09', 'codex', 'gpt', 12)]);
+		const headlines = headlineTotals(snap, defaultViewState(), '2026-09-10');
+		expect(headlines.today.current.cost).toBe(0);
+		expect(headlines.today.current.coverage.worst).toBe('missing');
+		expect(headlines.today.prior.cost).toBe(12);
+	});
+
+	it('resolves disjoint thirty-day windows across a year boundary', () => {
+		const snap = snapFrom([]);
+		const range = periodWindow(snap, { ...defaultViewState('month'), windowEnd: '2026-01-10' });
+		expect(range).toMatchObject({ from: '2025-12-12', to: '2026-01-10', priorFrom: '2025-11-12', priorTo: '2025-12-11' });
+	});
+});
+
+
+it('keeps a known unsplit Account set in charts and sessions only when the whole set is selected', () => {
+	const original = snapFrom([dm('2026-06-19', 'claude', 'claude-opus-4-8', 100)]);
+	original.sessions = [{ ...sess('shared', '2026-06-19', '2026-06-19'), provider: 'claude', cost: 100 }];
+	const snapshot = attachAccounts(original, buildAccountIndex(['a', 'b', 'a'].map(accountId => ({ machineId: 'one', provider: 'claude', accountId })), 'one'));
+	expect(snapshot.dayModel[0]).toMatchObject({ accountId: null, accountCandidates: ['a', 'b'] });
+	for (const ids of [['a', 'b'], ['a', 'b', 'other']]) {
+		const state = { ...defaultViewState('day'), accountFilter: new Set(ids) };
+		expect(scopedTotals(snapshot, state).cost).toBe(100);
+		expect(scopedSessions(snapshot, state)).toHaveLength(1);
+	}
+	for (const ids of [['a'], ['b'], ['other']]) {
+		const state = { ...defaultViewState('day'), accountFilter: new Set(ids) };
+		expect(scopedTotals(snapshot, state).cost).toBe(0);
+		expect(scopedSessions(snapshot, state)).toHaveLength(0);
+	}
+});
+
+
+it('filters calendar spend by provider and model without clipping navigation to the selected period or day', () => {
+	const snapshot = snapFrom([
+		dm('2026-06-15', 'codex', 'model-a', 10),
+		dm('2026-06-18', 'codex', 'model-a', 20),
+		dm('2026-06-18', 'codex', 'model-b', 30),
+		dm('2026-06-18', 'claude', 'model-a', 40)
+	]);
+	const state = { ...defaultViewState('day'), focusedDay: '2026-06-18', providerFilter: new Set(['codex']), modelFilter: new Set(['model-a']) };
+	expect(byDay(snapshot, state).map(cell => [cell.day, cell.cost])).toEqual([
+		['2026-06-15', 10], ['2026-06-16', 0], ['2026-06-17', 0], ['2026-06-18', 20]
+	]);
 });

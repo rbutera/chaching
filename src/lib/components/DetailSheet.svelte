@@ -4,6 +4,8 @@
 	// input/output/cache split, the cost math, a session timeline / model mix,
 	// and a comparison to the prior equivalent slice. Focus-trapped, ESC + backdrop
 	// dismiss, breadcrumb header.
+	import { onMount } from 'svelte';
+	import { poolGrain, defaultViewState, type ViewState } from '$lib/core/view-model';
 	import type { DrillTarget } from '$lib/client/dashboard.svelte';
 	import type { RollupSnapshot, TokenCounts } from '$lib/types';
 	import TokenSplitBar from './TokenSplitBar.svelte';
@@ -32,14 +34,20 @@
 	let {
 		drill,
 		snapshot,
+		scope = defaultViewState(),
 		onClose
 	}: {
 		drill: DrillTarget;
 		snapshot: RollupSnapshot;
+		scope?: Pick<ViewState, 'providerFilter' | 'modelFilter' | 'machineFilter' | 'accountFilter'>;
 		onClose: () => void;
 	} = $props();
 
-	let panel: HTMLElement | undefined = $state();
+	let panel: HTMLDialogElement | undefined = $state();
+
+	let scopedRows = $derived(poolGrain(snapshot.dayModel, scope).filter(row =>
+		(!scope.providerFilter.size || scope.providerFilter.has(row.provider)) &&
+		(!scope.modelFilter.size || scope.modelFilter.has(row.model))));
 
 	// ---- derive the slice the drill points at ----
 	let slice = $derived.by(() => {
@@ -63,7 +71,7 @@
 		// period
 		const from = drill.from ?? '';
 		const to = drill.to ?? '';
-		const grain = filterDays(snapshot.dayModel, from, to);
+		const grain = filterDays(scopedRows, from, to);
 		const totals = sumGrain(grain);
 		const modelTotals = aggregateByModel(grain);
 		// prior equivalent slice: same span immediately before `from`
@@ -91,7 +99,7 @@
 		const priorFrom = new Date(f - spanDays * 86400000);
 		const pf = isoDay(priorFrom);
 		const pt = isoDay(priorTo);
-		const g = filterDays(snapshot.dayModel, pf, pt);
+		const g = filterDays(scopedRows, pf, pt);
 		const totals = sumGrain(g);
 		if (totals.requests === 0) return null;
 		return { tokens: totals.tokens, cost: totals.cost };
@@ -130,32 +138,31 @@
 		});
 	});
 
-	function onKey(e: KeyboardEvent) {
-		if (e.key === 'Escape') onClose();
+	onMount(() => {
+		const dialog = panel;
+		dialog?.showModal();
+		return () => dialog?.close();
+	});
+
+	function close() {
+		panel?.close();
+		onClose();
 	}
 
-	$effect(() => {
-		panel?.focus();
-	});
+	function closeBackdrop(event: MouseEvent) {
+		if (!panel || event.target !== panel) return;
+		const bounds = panel.getBoundingClientRect();
+		if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) close();
+	}
 </script>
 
-<svelte:window onkeydown={onKey} />
-
-<!-- backdrop -->
-<div
-	class="backdrop"
-	onclick={onClose}
-	role="presentation"
-	aria-hidden="true"
-></div>
-
-<div
+<dialog
 	class="sheet"
-	role="dialog"
-	aria-modal="true"
 	aria-label={`Detail: ${slice.title}`}
 	tabindex="-1"
 	bind:this={panel}
+	oncancel={(event) => { event.preventDefault(); close(); }}
+	onclick={closeBackdrop}
 >
 	<div class="sheet-head">
 		<div>
@@ -163,7 +170,7 @@
 			<h2 class="sheet-title">{slice.title}</h2>
 			<p class="range">{slice.timeRange}</p>
 		</div>
-		<button class="close" onclick={onClose} aria-label="Close detail">✕</button>
+		<button class="close" onclick={close} aria-label="Close detail">✕</button>
 	</div>
 
 	<div class="sheet-body">
@@ -174,8 +181,7 @@
 			</div>
 			{#if delta && slice.prior}
 				<div class="cmp">
-					<span class="cmp-delta {delta.dir}">{delta.text}</span>
-					<span class="cmp-sub">vs prior {money(slice.prior.cost)}</span>
+					<span class="cmp-delta {delta.dir}" title={`Previous window: ${money(slice.prior.cost)}`} aria-label={`${delta.text} compared with previous window, ${money(slice.prior.cost)}`}>{delta.text}</span>
 				</div>
 			{/if}
 		</div>
@@ -276,10 +282,10 @@
 			</section>
 		{/if}
 	</div>
-</div>
+</dialog>
 
 <style>
-	.backdrop {
+	.sheet::backdrop {
 		position: fixed;
 		inset: 0;
 		background: rgba(0, 0, 0, 0.55);
@@ -293,6 +299,12 @@
 		}
 	}
 	.sheet {
+		margin: 0;
+		padding: 0;
+		color: var(--text);
+		width: 100%;
+		max-width: none;
+		top: auto;
 		position: fixed;
 		z-index: 50;
 		background: var(--surface-1);
@@ -320,6 +332,7 @@
 			bottom: 0;
 			right: 0;
 			width: 440px;
+			height: 100dvh;
 			max-height: 100dvh;
 			border-radius: 0;
 			border-right: none;
@@ -404,10 +417,6 @@
 		color: var(--good);
 	}
 	.cmp-delta.flat {
-		color: var(--fg-dim);
-	}
-	.cmp-sub {
-		font-size: 0.72rem;
 		color: var(--fg-dim);
 	}
 	.stat-row {

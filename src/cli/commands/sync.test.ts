@@ -10,22 +10,28 @@ vi.mock('../../lib/core/sync/manager.js', () => ({
 import { getSyncStatus, performSyncAction } from '../../lib/core/sync/manager.js';
 import { runSync } from './sync';
 
-function status(subscriptions: SyncStatus['subscriptions']): SyncStatus {
+function status(accounts: SyncStatus['accounts']): SyncStatus {
 	return {
 		enabled: true,
 		databaseConfigured: true,
 		pool: { id: 'pool-1', name: 'Rai machines' },
 		machine: { id: 'machine-1', name: 'kinto', hostname: 'kinto', lastSeenAt: null },
 		machines: [],
-		subscriptions,
+		accounts,
 		mappings: []
 	};
 }
 
-describe('sync subscription add', () => {
+describe('sync Account commands', () => {
 	beforeEach(() => vi.clearAllMocks());
 
-	it('prints the newly created ID when sorted subscriptions end with an older row', async () => {
+	it.each([[], ['foo'], ['status'], ['--help']])('rejects unsupported Account subcommands %j', async (...args) => {
+		await expect(runSync(['account', ...args])).rejects.toThrow('expected create|join');
+		expect(performSyncAction).not.toHaveBeenCalled();
+		expect(getSyncStatus).not.toHaveBeenCalled();
+	});
+
+	it.each(['account', 'subscription'])('%s add prints the newly created ID', async (command) => {
 		const work = {
 			id: 'work-id',
 			provider: 'claude',
@@ -47,7 +53,7 @@ describe('sync subscription add', () => {
 		const log = vi.spyOn(console, 'log').mockImplementation(() => {});
 
 		await runSync([
-			'subscription',
+			command,
 			'add',
 			'--provider',
 			'claude',
@@ -59,7 +65,23 @@ describe('sync subscription add', () => {
 			'200'
 		]);
 
-		expect(log).toHaveBeenCalledWith('added subscription Nimbus Claude Max (nimbus-id)');
+		expect(performSyncAction).toHaveBeenCalledWith(
+			expect.objectContaining({ action: 'add-account' })
+		);
+		expect(log).toHaveBeenCalledWith('added Account Nimbus Claude Max (nimbus-id)');
+		log.mockRestore();
+	});
+	it.each(['--account', '--subscription'])('maps using %s', async (flag) => {
+		vi.mocked(getSyncStatus).mockResolvedValue(status([]));
+		vi.mocked(performSyncAction).mockResolvedValue(status([]));
+		const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+		await runSync(['map', '--provider', 'claude', flag, 'account-1']);
+		expect(performSyncAction).toHaveBeenCalledWith({
+			action: 'map',
+			machineId: 'machine-1',
+			provider: 'claude',
+			accountId: 'account-1'
+		});
 		log.mockRestore();
 	});
 });

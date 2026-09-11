@@ -1,4 +1,7 @@
 {
+	"version": 1,
+	"accounts": [],
+	"providerAccounts": {},
 	"cutoverTs": null,
 	"server": {
 		"host": "127.0.0.1",
@@ -19,19 +22,19 @@
 		"poolId": null,
 		"machineId": null,
 		"machineName": "",
-		"providerSubscriptions": {},
 		"intervalMinutes": 15
 	},
 	"providers": {
 		"claude": {
 			"enabled": true,
-			"roots": ["~/.claude", "~/.config/claude"],
-			"subscription": { "tier": "corporate", "monthlyUsd": 99 }
+			"roots": [
+				"~/.claude",
+				"~/.config/claude"
+			]
 		},
 		"codex": {
 			"enabled": true,
-			"root": "~/.codex/sessions",
-			"subscription": { "tier": "corporate", "monthlyUsd": 99 }
+			"root": "~/.codex/sessions"
 		},
 		"opencode": {
 			"enabled": true,
@@ -39,7 +42,10 @@
 		},
 		"pi": {
 			"enabled": true,
-			"roots": ["~/.pi/agent/sessions", "~/.omp/agent/sessions"]
+			"roots": [
+				"~/.pi/agent/sessions",
+				"~/.omp/agent/sessions"
+			]
 		},
 		"cursor": {
 			"enabled": false,

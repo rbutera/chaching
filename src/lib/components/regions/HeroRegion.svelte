@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
 	import type { FeedStore } from '$lib/client/feed.svelte';
 	import type { Dashboard } from '$lib/client/dashboard.svelte';
 	import MoneyOdometer from '$lib/components/ds/MoneyOdometer.svelte';
@@ -34,7 +33,7 @@
 	let heroCost = $derived(focusedTotals ? focusedTotals.cost : (hero?.current.cost ?? 0));
 	let heroLabel = $derived(focusedDay ? fmtDay(focusedDay) : (hero?.label ?? '—'));
 
-	// Cost-honesty (hard rule), mirroring SummaryRail's `pinnedMark`: a pinned day
+	// A pinned day
 	// that is a gap (`missing`) or still landing (`partial`) must NOT be headlined as
 	// a dollar figure — `focusedTotals.cost` is 0/incomplete for those, so rolling it
 	// on the odometer would fabricate a final "$0.00". For a single-day window the
@@ -51,24 +50,6 @@
 		}
 		return null;
 	});
-
-	// "Receipt" button → /api/receipt.png reflecting the dashboard's current period,
-	// focused-day pin, and provider filter. (The receipt has no per-MODEL scope — same
-	// as the CLI receipt command — so a model filter isn't forwarded.) Redaction is
-	// OPT-IN (no `redact` param here): it's the user's own local data; add `?redact=1`
-	// when sharing.
-	let receiptUrl = $derived.by(() => {
-		const qs = new URLSearchParams();
-		qs.set('period', dash.period);
-		if (focusedDay) qs.set('day', focusedDay);
-		for (const p of dash.providerFilter) qs.append('provider', p);
-		return `${resolve('/api/receipt.png')}?${qs.toString()}`;
-	});
-
-	function openReceipt(): void {
-		// New tab; noopener for safety. The current view is baked into receiptUrl.
-		window.open(receiptUrl, '_blank', 'noopener');
-	}
 
 	// Hero odometer feed: the figure is rendered by MoneyOdometer (NumberFlow), which
 	// owns the roll animation and the reduced-motion gate. We only decide HOW OFTEN it
@@ -129,31 +110,13 @@
 				<MoneyOdometer amount={displayCost} size="hero" tone="gold" {reducedMotion} />
 			{/if}
 			{#if heroDelta}
-				<span class="delta {heroDelta.dir}">
+				<span class="delta {heroDelta.dir}" title={`Compared with the preceding equal-length window: ${money(hero?.prior.cost ?? 0)}`} aria-label={`${heroDelta.text} compared with the preceding equal-length window`}>
 					{heroDelta.text}
-					<span class="sub">vs prior {money(hero?.prior.cost ?? 0)}</span>
-				</span>
-			{:else if !focusedDay && hero && !hero.priorHasBaseline}
-				<!-- Baseline rule (2026-07-02): gap days count as $0, so the only
-				     unrenderable comparison is a prior window with NO recorded
-				     spend at all (a % of zero is meaningless). Say why. -->
-				<span class="delta none" title="The equal-length window before this one has no recorded spend, so there is nothing to compare against yet.">
-					no prior spend to compare
 				</span>
 			{/if}
 		</div>
 		{#if flourish}<div class="flourish">{flourish}</div>{/if}
-		<div class="hero-actions">
-			<button
-				type="button"
-				class="receipt-btn ka-chunk"
-				onclick={openReceipt}
-				title="Open a shareable receipt PNG of this view in a new tab"
-				aria-label="Open a shareable receipt of the current view in a new tab"
-			>
-				🧾 Receipt
-			</button>
-		</div>
+
 	</div>
 	<div class="hero-spark">
 		{#if heroSpark.length > 1}
@@ -195,7 +158,7 @@
 	}
 	.hero-label {
 		margin: 0 0 0.4rem;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: 0.7rem;
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
@@ -213,13 +176,13 @@
 	/* Coverage mark standing in for the hero money figure on a gap/partial pinned day.
 	   Same figure slot, mono voice, deliberately dimmer than a real total so it never
 	   reads as a dollar amount. `missing` is the most muted (a true gap); `partial`
-	   carries the warn hue (data still landing). Mirrors SummaryRail's `.rail-coverage`. */
+	   carries the warn hue (data still landing). */
 	.hero-coverage {
 		display: inline-flex;
 		align-items: baseline;
 		gap: 0.5rem;
 		margin: 0;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-3xl);
 		font-weight: var(--fw-medium);
 		letter-spacing: var(--tracking-snug);
@@ -245,71 +208,17 @@
 	.delta.down {
 		color: var(--good);
 	}
-	.delta.none {
-		color: var(--text-dim);
-		font-weight: 400;
-	}
 	.delta.flat {
 		color: var(--text-dim);
 	}
-	.delta .sub {
-		font-size: 0.7rem;
-		color: var(--text-dim);
-		font-weight: 400;
-	}
 	.flourish {
 		margin-top: 0.5rem;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: 0.82rem;
 		color: var(--text-muted);
-	}
-	.hero-actions {
-		margin-top: 0.85rem;
-	}
-	.receipt-btn {
-		font-family: var(--font-mono);
-		font-size: var(--text-2xs);
-		letter-spacing: var(--tracking-snug);
-		color: var(--text-on-gold);
-		background: var(--accent);
-		border: 1px solid var(--accent);
-		border-radius: var(--radius-pill);
-		padding: 0.35rem 0.85rem;
-		cursor: pointer;
 	}
 	.hero-spark {
 		flex: 0 0 auto;
 	}
 
-	/* Register "ka-chunk" microinteraction — press scale .97 + darken to gold-600,
-	   hover lift + brighten to gold-400, 2px gold focus ring. CSS-only, on the
-	   --dur-fast/--dur motion tokens; gated by prefers-reduced-motion (the base
-	   reset kills the transition, and the transform only applies when motion is ok). */
-	.ka-chunk {
-		transform: translateY(0) scale(1);
-	}
-	.ka-chunk:focus-visible {
-		outline: 2px solid var(--accent);
-		outline-offset: 2px;
-	}
-	@media (prefers-reduced-motion: no-preference) {
-		.ka-chunk {
-			transition:
-				transform var(--dur-fast) var(--ease-snap),
-				background var(--dur-fast) var(--ease-out),
-				border-color var(--dur-fast) var(--ease-out),
-				color var(--dur-fast) var(--ease-out),
-				box-shadow var(--dur) var(--ease-out);
-		}
-		.ka-chunk:hover:not(:disabled) {
-			transform: translateY(-1px);
-			border-color: var(--gold-400);
-			color: var(--gold-400);
-		}
-		.ka-chunk:active:not(:disabled) {
-			transform: scale(0.97);
-			background: var(--gold-600);
-			border-color: var(--gold-600);
-		}
-	}
 </style>

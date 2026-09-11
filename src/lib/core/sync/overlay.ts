@@ -25,8 +25,9 @@ function mappingKey(machineId: string, provider: string): string {
 }
 
 /** Resolve subscription attribution at read time from the pool's mapping rows. */
-export interface SubscriptionIndex {
+export interface AccountIndex {
 	byMachineProvider: Map<string, string | null>;
+	candidates: Map<string, Set<string>>;
 	ownMachineId: string;
 	/** Pool-level cursor attribution for account-scoped (machineId-less) cursor rows. */
 	cursor: string | null;
@@ -38,26 +39,23 @@ export interface SubscriptionIndex {
  * cursor mapping when it has one, else the lexicographically-first machine's cursor mapping so
  * every machine renders the same value (all machines share one Cursor account).
  */
-export function buildSubscriptionIndex(mappings: readonly SyncMapping[], ownMachineId: string): SubscriptionIndex {
-	const byMachineProvider = new Map<string, string | null>();
-	let ownCursor: string | null | undefined;
-	let peerCursor: string | null = null;
+export function buildAccountIndex(mappings: readonly SyncMapping[], ownMachineId: string): AccountIndex {
+	const candidates = new Map<string, Set<string>>();
 	for (const mapping of mappings) {
-		byMachineProvider.set(mappingKey(mapping.machineId, mapping.provider), mapping.subscriptionId);
-		if (mapping.provider === 'cursor') {
-			if (mapping.machineId === ownMachineId) ownCursor = mapping.subscriptionId;
-			// First peer (mappings arrive machine-id ordered) with a REAL mapping. An own
-			// explicit-null mapping must not suppress this, so peer attribution is the fallback
-			// whenever this machine has no non-null cursor mapping of its own (C11).
-			else if (mapping.subscriptionId != null && peerCursor == null) peerCursor = mapping.subscriptionId;
-		}
+		const key = mappingKey(mapping.machineId, mapping.provider);
+		const ids = candidates.get(key) ?? new Set<string>();
+		if (mapping.accountId !== null) ids.add(mapping.accountId);
+		candidates.set(key, ids);
 	}
-	// Prefer this machine's own non-null cursor mapping; else any peer's non-null mapping; else
-	// null. `ownCursor != null` covers both "no own mapping" (undefined) and "own explicit null".
+	const byMachineProvider = new Map<string, string | null>();
+	for (const [key, ids] of candidates) byMachineProvider.set(key, ids.size === 1 ? [...ids][0] : null);
+	const ownKey = mappingKey(ownMachineId, 'cursor');
+	const peerCursor = mappings.find(mapping => mapping.provider === 'cursor' && mapping.machineId !== ownMachineId && byMachineProvider.get(mappingKey(mapping.machineId, 'cursor')) != null);
 	return {
 		byMachineProvider,
+		candidates,
 		ownMachineId,
-		cursor: ownCursor != null ? ownCursor : peerCursor
+		cursor: (candidates.get(ownKey)?.size ?? 0) > 1 ? null : byMachineProvider.get(ownKey) ?? peerCursor?.accountId ?? null
 	};
 }
 
@@ -184,6 +182,7 @@ export function mergePooledSnapshot(
 		dayModel,
 		sessions,
 		blocks: mergeBlocks(local.blocks, peer.blocks, local.generatedAt),
+		localBlocks: local.localBlocks ?? local.blocks,
 		models,
 		providers,
 		unknownPriceModels: [...new Set([...local.unknownPriceModels, ...peer.unknownPriceModels])],
@@ -198,7 +197,7 @@ export function mergePooledSnapshot(
 	};
 }
 
-function resolve(index: SubscriptionIndex, machineId: string | undefined, provider: string): string | null {
+function resolve(index: AccountIndex, machineId: string | undefined, provider: string): string | null {
 	if (machineId == null) {
 		if (provider === 'cursor') return index.cursor; // account-scoped cursor row
 		// Frozen/local history written before this machine joined a pool has no machine id.
@@ -209,7 +208,7 @@ function resolve(index: SubscriptionIndex, machineId: string | undefined, provid
 }
 
 function resolveMachineId(
-	index: SubscriptionIndex,
+	index: AccountIndex,
 	machineId: string | undefined,
 	provider: string
 ): string | undefined {
@@ -220,17 +219,18 @@ function resolveMachineId(
 }
 
 /**
- * Read-time pool identity join over the merged snapshot: stamp `subscriptionId` onto every
+ * Read-time pool identity join over the merged snapshot: stamp `accountId` onto every
  * row and recover this machine's id on legacy local rows written before the pool join. Runs
  * last so a remap needs only a fresh index, never a re-scan or re-load.
  */
-export function attachSubscriptions(snap: RollupSnapshot, index: SubscriptionIndex): RollupSnapshot {
+export function attachAccounts<T extends Pick<RollupSnapshot, 'dayModel' | 'sessions'>>(snap: T, index: AccountIndex): T {
 	const dayModel: DayModelAgg[] = snap.dayModel.map((dm) => {
 		const machineId = resolveMachineId(index, dm.machineId, dm.provider);
 		return {
 			...dm,
 			machineId,
-			subscriptionId: resolve(index, machineId, dm.provider)
+			accountId: resolve(index, machineId, dm.provider),
+			accountCandidates: machineId ? [...(index.candidates.get(mappingKey(machineId, dm.provider)) ?? [])] : undefined
 		};
 	});
 	const sessions: SessionSummary[] = snap.sessions.map((s) => {
@@ -238,7 +238,8 @@ export function attachSubscriptions(snap: RollupSnapshot, index: SubscriptionInd
 		return {
 			...s,
 			machineId,
-			subscriptionId: resolve(index, machineId, s.provider)
+			accountId: resolve(index, machineId, s.provider),
+			accountCandidates: machineId ? [...(index.candidates.get(mappingKey(machineId, s.provider)) ?? [])] : undefined
 		};
 	});
 	return { ...snap, dayModel, sessions };

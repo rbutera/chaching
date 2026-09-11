@@ -10,11 +10,13 @@
 		models,
 		activeFilter,
 		onToggle,
+		showLegend = true,
 		size = 168
 	}: {
 		models: ModelTotal[];
 		activeFilter: Set<string>;
 		onToggle: (model: string) => void;
+		showLegend?: boolean;
 		size?: number;
 	} = $props();
 
@@ -79,7 +81,7 @@
 		>
 	</svg>
 
-	<ul class="legend" aria-label="Per-model spend; activate to filter">
+	{#if showLegend}<ul class="legend" aria-label="Per-model spend; activate to filter">
 		{#each models.filter((m) => m.cost > 0) as m (m.model)}
 			<li>
 				<button
@@ -95,7 +97,7 @@
 				</button>
 			</li>
 		{/each}
-	</ul>
+	</ul>{/if}
 </div>
 
 <style>

@@ -13,6 +13,7 @@ import type { FrozenAgg, PublishDirtySnapshot } from './rollup/rollup';
 import { DedupSet } from './ingest/dedup';
 import { discoverFiles, resolveProjectsDirs } from './ingest/discover';
 import { ingestRange, type FileState } from './watch/tail';
+import { accountQuotaSnapshot, refreshAccountDiscovery } from './account-discovery';
 import { loadConfig, type chachingConfig, type CursorProviderConfig } from './config';
 import { expandPath, safeMtime } from './fs-utils';
 import { isoDayUTC } from './ingest/parse';
@@ -23,12 +24,12 @@ import { readPiRecords, type PiReadResult } from './providers/pi/local';
 import { readOpenCodeSessions } from './providers/opencode/sqlite';
 import {
 	readTokenmaxxAggregates,
-	readTokenmaxxQuota,
+	readTokenmaxxAccounts,
 	type TokenmaxxQuotaSnapshot
 } from './providers/tokenmaxx/sqlite';
 import { fetchCursorUsageRecords } from './providers/cursor/api';
 import type { RollupDelta, RollupSnapshot, UsageRecord } from '../types';
-import { isConfigured } from './sync/manager';
+import { isConfigured, publishDiscoveredAccounts, localAccountMappings } from './sync/manager';
 import { isPoolGlobalUsage, usageDedupKey } from './sync/record-key';
 import {
 	PostgresSyncStore,
@@ -41,11 +42,11 @@ import {
 } from './sync/store';
 import type { SyncMapping } from './sync/types';
 import {
-	attachSubscriptions,
-	buildSubscriptionIndex,
+	attachAccounts,
+	buildAccountIndex,
 	mergePooledSnapshot,
 	peerContribution,
-	type SubscriptionIndex
+	type AccountIndex
 } from './sync/overlay';
 
 const MTIME_POLL_MS = 4000; // fallback poll cadence
@@ -138,8 +139,9 @@ class Ingestion {
 	/** Incremental peer read watermark: max `updated_at` (ISO) seen so far, null = read all. */
 	private syncWatermark: string | null = null;
 	private syncMappings: readonly SyncMapping[] = [];
-	private syncSubscriptionIndex: SubscriptionIndex = {
+	private syncAccountIndex: AccountIndex = {
 		byMachineProvider: new Map(),
+		candidates: new Map(),
 		ownMachineId: '',
 		cursor: null
 	};
@@ -164,8 +166,11 @@ class Ingestion {
 
 	private async start(): Promise<void> {
 		const t0 = Date.now();
-		const cfg = this.config ?? (await loadConfig());
+		const cfg = this.config ?? (await refreshAccountDiscovery());
 		this.resolvedConfig = cfg;
+		if (!isConfigured(cfg.sync)) {
+			this.syncAccountIndex = buildAccountIndex(localAccountMappings(cfg), cfg.sync.machineId ?? hostname());
+		}
 		this.rollup.setCutover(cfg.cutoverTs);
 
 		// Local-first ALWAYS: seed the rollup with frozen past-day aggregates from local SQLite
@@ -273,8 +278,9 @@ class Ingestion {
 		try {
 			await store.open();
 			await store.heartbeat(cfg.sync.machineName, hostname());
+			await publishDiscoveredAccounts(store, cfg);
 			this.syncStore = store;
-			await this.refreshSubscriptionIndex();
+			await this.refreshAccountIndex();
 			// Full publish on connect: every local day/session (frozen history + live) plus the
 			// last 48h of hour buckets and the account-scoped cursor spend. Idempotent LWW.
 			const published = await this.publishLocal(true);
@@ -337,7 +343,7 @@ class Ingestion {
 		await this.syncStore.publishDayAggregates(scope, days);
 		await this.syncStore.publishHourAggregates(scope, hours);
 		await this.syncStore.publishSessions(scope, sessions);
-		if (this.tokenmaxxQuota) {
+		if (this.tokenmaxxQuota?.observedAt) {
 			await this.syncStore.publishProviderQuota(
 				'tokenmaxx',
 				this.tokenmaxxQuota.observedAt,
@@ -392,11 +398,11 @@ class Ingestion {
 	}
 
 	/** Reload the pool mapping rows and rebuild the read-time subscription index + fingerprint. */
-	private async refreshSubscriptionIndex(): Promise<void> {
+	private async refreshAccountIndex(): Promise<void> {
 		if (!this.syncStore) return;
 		this.syncMappings = await this.syncStore.allMappings();
 		this.syncMappingFingerprint = await this.syncStore.mappingFingerprint();
-		this.syncSubscriptionIndex = buildSubscriptionIndex(
+		this.syncAccountIndex = buildAccountIndex(
 			this.syncMappings,
 			this.resolvedConfig?.sync.machineId ?? ''
 		);
@@ -581,7 +587,9 @@ class Ingestion {
 					correctedProviders.add(aggregate.provider);
 				}
 			}
-			this.tokenmaxxQuota = readTokenmaxxQuota(dbPath);
+			const current = await loadConfig();
+			const accountConfig = expandPath(current.tokenmaxx.dbPath) === dbPath ? await refreshAccountDiscovery() : this.resolvedConfig ?? current;
+			this.tokenmaxxQuota = accountQuotaSnapshot(accountConfig, readTokenmaxxAccounts(dbPath, accountConfig.sync.poolId || undefined));
 			if (this.historyStore && correctedProviders.size > 0) {
 				const frozen = this.rollup.frozenDaySet();
 				const { aggregates, sessions } = this.rollup.freezeCandidates(frozen);
@@ -783,6 +791,10 @@ class Ingestion {
 				if (!this.disposed) this.emitSyncSnapshot();
 				return;
 			}
+			const current = this.config ? cfg : await loadConfig();
+			if (!isConfigured(current.sync) || current.sync.poolId !== cfg.sync.poolId ||
+				current.sync.databaseUrl !== cfg.sync.databaseUrl || current.sync.machineId !== cfg.sync.machineId) return;
+			await publishDiscoveredAccounts(this.syncStore, current);
 			const published = await this.publishLocal(false);
 			// Clear only what was published; keys dirtied during the awaits survive to next burst (C3).
 			this.rollup.clearPublishDirty(published ?? undefined);
@@ -790,7 +802,7 @@ class Ingestion {
 			await this.syncStore.heartbeat(cfg.sync.machineName, hostname());
 			const fingerprint = await this.syncStore.mappingFingerprint();
 			const mappingChanged = fingerprint !== this.syncMappingFingerprint;
-			if (mappingChanged) await this.refreshSubscriptionIndex();
+			if (mappingChanged) await this.refreshAccountIndex();
 			await this.loadPeer();
 			this.providerStatus.clear('sync');
 			// A merged replace after every burst: local live changes since the last emit and any
@@ -827,7 +839,7 @@ class Ingestion {
 			if (agg.partial) peerPartialDays.add(agg.day);
 		}
 		const merged = mergePooledSnapshot(local, peer, today, peerPartialDays);
-		return attachSubscriptions(merged, this.syncSubscriptionIndex);
+		return attachAccounts(merged, this.syncAccountIndex);
 	}
 
 	private emitSyncSnapshot(): void {
@@ -852,7 +864,10 @@ class Ingestion {
 		}
 		if (this.rollup.hasDirty()) {
 			const delta = this.rollup.drainDelta(this.now(), this.coverageInput());
-			if (delta) for (const fn of this.listeners) fn(delta);
+			if (delta) {
+				const attributed = attachAccounts(delta, this.syncAccountIndex);
+				for (const fn of this.listeners) fn(attributed);
+			}
 		}
 	}
 
@@ -1010,11 +1025,15 @@ class Ingestion {
 
 	snapshot(): RollupSnapshot {
 		if (this.syncStore) return this.buildSyncSnapshot();
-		return this.rollup.snapshot(this.now(), this.coverageInput());
+		return attachAccounts(this.rollup.snapshot(this.now(), this.coverageInput()), this.syncAccountIndex);
 	}
 
 	setCutover(ts: number | null): void {
 		this.rollup.setCutover(ts);
+		this.cursorRollup?.setCutover(ts);
+		if (this.resolvedConfig) this.resolvedConfig = { ...this.resolvedConfig, cutoverTs: ts };
+		const replacement = this.snapshot();
+		for (const fn of this.listeners) fn({ ...replacement, replace: replacement });
 	}
 
 	dispose(): void {

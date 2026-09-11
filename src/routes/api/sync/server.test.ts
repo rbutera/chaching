@@ -1,4 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('$lib/core/sync/manager', () => ({ getSyncStatus: vi.fn(), performSyncAction: vi.fn() }));
+vi.mock('$lib/server/service', () => ({ resetService: vi.fn() }));
+
+import { performSyncAction } from '$lib/core/sync/manager';
 import { POST } from './+server';
 
 describe('/api/sync management boundary', () => {
@@ -53,5 +58,25 @@ describe('/api/sync management boundary', () => {
 			getClientAddress: () => '127.0.0.1'
 		} as never);
 		expect(response.status).toBe(403);
+	});
+});
+
+
+describe('/api/sync legacy Account aliases', () => {
+	it.each([
+		[{ action: 'add-subscription', provider: 'claude' }, { action: 'add-account', provider: 'claude' }],
+		[{ action: 'map', subscriptionId: 'old-id' }, { action: 'map', accountId: 'old-id' }],
+		[{ action: 'map', subscriptionId: 'old-id', accountId: null }, { action: 'map', accountId: null }]
+	])('normalizes %j before dispatch', async (body, expected) => {
+		vi.mocked(performSyncAction).mockResolvedValue({ enabled: false, databaseConfigured: false, pool: null, machine: null, machines: [], accounts: [], mappings: [] });
+		const response = await POST({
+			request: new Request('http://localhost/api/sync', {
+				method: 'POST', headers: { 'content-type': 'application/json', host: 'localhost' },
+				body: JSON.stringify(body)
+			}),
+			getClientAddress: () => '127.0.0.1'
+		} as never);
+		expect(response.status).toBe(200);
+		expect(performSyncAction).toHaveBeenLastCalledWith(expect.objectContaining(expected));
 	});
 });

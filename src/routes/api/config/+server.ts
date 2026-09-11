@@ -1,68 +1,80 @@
-// Read/write the optional work/personal cutover timestamp.
-
-import { json } from '@sveltejs/kit';
+import { randomUUID } from 'node:crypto';
+import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { loadConfig, publicConfig, saveConfig, type chachingConfig } from '$lib/core/config';
+import { loadConfig, publicConfig, updateConfig, type chachingConfig } from '$lib/core/config';
+import { getSyncStatus, writePoolAccount } from '$lib/core/sync/manager';
+import { matchLegacyAccount } from '$lib/core/account-discovery';
 import { getService } from '$lib/server/service';
+import { isLocalManagementRequest } from '$lib/server/local-management';
 
 export const GET: RequestHandler = async () => {
+	await getSyncStatus();
 	return json(publicConfig(await loadConfig()));
 };
 
 interface ConfigPatch {
+	match?: { discoveredId?: unknown; legacyId?: unknown };
 	/** existing cutover write (unchanged behaviour) */
 	cutoverTs?: number | null;
-	/** additive subscription write for one subsidised provider */
-	provider?: 'claude' | 'codex';
-	subscription?: { tier?: unknown; monthlyUsd?: unknown };
+	/** Update a canonical Account, or create one when id is absent. */
+	account?: { id?: unknown; provider?: unknown; name?: unknown; tier?: unknown; monthlyUsd?: unknown };
 }
 
-/**
- * POST handles two INDEPENDENT, additive patches (both optional):
- *   1. `cutoverTs` — the work/personal cutover (existing behaviour).
- *   2. `{ provider, subscription }` — merge a per-provider subscription block.
- * Whichever keys are present are applied; absent keys are left untouched. The
- * merged config is persisted via saveConfig (atomic, 0600) and normalizeConfig
- * clamps any out-of-range subscription value, so the write is always safe.
- */
-export const POST: RequestHandler = async ({ request }) => {
-	const body = (await request.json().catch(() => ({}))) as ConfigPatch;
-	const cfg = await loadConfig();
-	let next: chachingConfig = cfg;
+export const POST: RequestHandler = async ({ request, getClientAddress }) => {
+	const parsed: unknown = await request.json().catch(() => null);
+	if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return json({ error: 'Expected a config patch.' }, { status: 400 });
+	const body = parsed as ConfigPatch;
+	if ((body.account || body.match) && !isLocalManagementRequest(request, getClientAddress))
+		return json({ error: 'Account settings are local-only. Open Chaching on its host to edit them.' }, { status: 403 });
+	const next = await updateConfig(async cfg => {
+		let next: chachingConfig = cfg;
+		if (body.match) {
+			if (typeof body.match.discoveredId !== 'string' || (body.match.legacyId !== null && typeof body.match.legacyId !== 'string')) error(400, 'Choose an Account to match.');
+			try { next = matchLegacyAccount(next, body.match.discoveredId, body.match.legacyId); }
+			catch (cause) { error(400, cause instanceof Error ? cause.message : 'Invalid Account match.'); }
+		}
 
-	// 1. cutover (only when the key is present in the body, so a subscription-only
-	//    POST does not silently clear an existing cutover).
-	let cutoverChanged = false;
-	let cutoverTs = cfg.cutoverTs;
-	if ('cutoverTs' in body) {
-		cutoverTs = typeof body.cutoverTs === 'number' ? body.cutoverTs : null;
-		next = { ...next, cutoverTs };
-		cutoverChanged = true;
-	}
+		let cutoverTs = cfg.cutoverTs;
+		if ('cutoverTs' in body) {
+			cutoverTs = typeof body.cutoverTs === 'number' ? body.cutoverTs : null;
+			next = { ...next, cutoverTs };
+		}
 
-	// 2. subscription patch for one provider (additive; normalizeConfig clamps).
-	if ((body.provider === 'claude' || body.provider === 'codex') && body.subscription) {
-		const provider = body.provider;
-		const tier =
-			typeof body.subscription.tier === 'string' && body.subscription.tier.length > 0
-				? body.subscription.tier
-				: next.providers[provider].subscription.tier;
-		const monthlyUsd =
-			typeof body.subscription.monthlyUsd === 'number' &&
-			Number.isFinite(body.subscription.monthlyUsd) &&
-			body.subscription.monthlyUsd >= 0
-				? body.subscription.monthlyUsd
-				: next.providers[provider].subscription.monthlyUsd;
-		next = {
-			...next,
-			providers: {
-				...next.providers,
-				[provider]: { ...next.providers[provider], subscription: { tier, monthlyUsd } }
+		if (body.account) {
+			const patch = body.account;
+			const existing = next.accounts.find(account => account.id === patch.id);
+			if (patch.id !== undefined && !existing) error(404, 'Account not found.');
+			const provider = existing?.provider ?? patch.provider;
+			if (provider !== 'claude' && provider !== 'codex') error(400, 'Unsupported provider.');
+			const name = patch.name ?? existing?.name;
+			const tier = patch.tier ?? existing?.tier;
+			const monthlyUsd = patch.monthlyUsd === undefined ? existing?.monthlyUsd : patch.monthlyUsd;
+			if (typeof name !== 'string' || !name.trim() || typeof tier !== 'string' || !tier ||
+				(monthlyUsd !== null && (typeof monthlyUsd !== 'number' || !Number.isFinite(monthlyUsd) || monthlyUsd < 0))) {
+				error(400, 'Enter an Account name, plan and nonnegative fee.');
 			}
-		};
-	}
+			let account = {
+				id: existing?.id ?? randomUUID(), provider, name: name.trim(), tier, monthlyUsd,
+				feeSource: patch.monthlyUsd === undefined && existing ? existing.feeSource : monthlyUsd === null ? 'inferred' as const : 'explicit' as const,
+				...(existing?.pendingPoolId ? { pendingPoolId: existing.pendingPoolId } : {}),
+				...(existing?.privateLabel ? { privateLabel: existing.privateLabel } : {}),
+				identity: existing?.identity ?? null, registrations: existing?.registrations ?? [], legacy: existing?.legacy ?? false,
+				...(existing?.pendingLegacyIds?.length ? { pendingLegacyIds: existing.pendingLegacyIds } : {})
+			};
+			if (existing) account = await writePoolAccount(next, account, {
+				...(patch.name !== undefined ? { name: account.name } : {}),
+				...(patch.tier !== undefined ? { tier: account.tier } : {}),
+				...(patch.monthlyUsd !== undefined ? { monthlyUsd: account.monthlyUsd, feeSource: account.feeSource } : {})
+			});
+			next = {
+				...next,
+				accounts: existing ? next.accounts.map(item => item.id === account.id ? account : item) : [...next.accounts, account],
+				providerAccounts: { ...next.providerAccounts, [provider]: [...new Set([...(next.providerAccounts[provider] ?? []), account.id])] }
+			};
+		}
 
-	await saveConfig(next);
-	if (cutoverChanged) getService().setCutover(cutoverTs);
+		return next;
+	});
+	if ('cutoverTs' in body) getService().setCutover(next.cutoverTs);
 	return json(publicConfig(next));
 };

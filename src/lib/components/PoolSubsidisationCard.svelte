@@ -1,35 +1,29 @@
 <script lang="ts">
 	import { money } from '$lib/format';
+	import { sumFees, computeSubsidisation, subsidyMultipleText } from '$lib/core/subsidisation';
 
-	export interface PoolSubsidyRow {
-		id: string;
-		name: string;
-		provider: string;
-		account: string;
-		valueUsd: number;
-		feeUsd: number;
-	}
+	import type { AccountValueRow } from '$lib/core/accounts';
 
 	interface Props {
-		rows: PoolSubsidyRow[];
+		rows: AccountValueRow[];
+		totalValue: number;
 		windowLabel: string;
 		/** A machine filter is active: the fee shown is the whole shared-plan fee, not per-machine. */
 		wholePlanFee?: boolean;
 	}
 
-	let { rows, windowLabel, wholePlanFee = false }: Props = $props();
-	let totalValue = $derived(rows.reduce((sum, row) => sum + row.valueUsd, 0));
-	let totalFee = $derived(rows.reduce((sum, row) => sum + row.feeUsd, 0));
-	let multiple = $derived(totalFee > 0 ? totalValue / totalFee : null);
+	let { rows, windowLabel, wholePlanFee = false, totalValue }: Props = $props();
+	let totalFee = $derived(sumFees(rows.map(row => row.feeUsd)));
+	let multiple = $derived(subsidyMultipleText(computeSubsidisation({ apiEquivalentUsd: totalValue, monthlyUsd: totalFee })));
 </script>
 
 <section class="pool-subsidy" aria-labelledby="pool-subsidy-heading">
 	<div class="head">
 		<div>
-			<p class="eyebrow">pool subscriptions</p>
+			<p class="eyebrow">{`Across ${rows.length} Accounts`}</p>
 			<h2 id="pool-subsidy-heading">{windowLabel}</h2>
 		</div>
-		<strong class="multiple">{multiple == null ? '—' : `${multiple.toFixed(1)}×`}</strong>
+		<strong class="multiple">{multiple}</strong>
 	</div>
 
 	<ul>
@@ -40,8 +34,7 @@
 					<small>{row.provider}{row.account ? ` · ${row.account}` : ''}</small>
 				</span>
 				<span class="figures">
-					<strong>{money(row.valueUsd)}</strong>
-					<small>for {money(row.feeUsd)} fee</small>
+					<strong>{row.feeUsd === null ? 'Fee unknown' : money(row.feeUsd)}</strong>
 				</span>
 			</li>
 		{/each}
@@ -50,13 +43,10 @@
 	<p class="total">
 		<span>API-priced value</span>
 		<strong>{money(totalValue)}</strong>
-		<span>pro-rated fees</span>
-		<strong>{money(totalFee)}</strong>
+		<span>{wholePlanFee ? 'shared Account fee' : 'Account fees'}</span>
+		<strong>{totalFee === null ? 'Unknown' : money(totalFee)}</strong>
 	</p>
 
-	{#if wholePlanFee}
-		<p class="fee-note">Fees shown are the whole shared-plan fee, not a per-machine share.</p>
-	{/if}
 </section>
 
 <style>
@@ -79,7 +69,7 @@
 	h2,
 	li,
 	.total {
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 	}
 	.eyebrow {
 		margin: 0;
@@ -133,11 +123,5 @@
 	.total strong {
 		color: var(--text);
 		text-align: right;
-	}
-	.fee-note {
-		margin: 0.5rem 0 0;
-		font-family: var(--font-mono);
-		font-size: var(--text-2xs);
-		color: var(--text-dim);
 	}
 </style>

@@ -13,7 +13,10 @@ import { join } from 'node:path';
 import { request } from 'node:http';
 
 import { createEngine } from '../../lib/core/engine.js';
-import { loadConfig, type chachingConfig } from '../../lib/core/config.js';
+import { PostgresSyncStore, SCHEMA_VERSION } from '../../lib/core/sync/store.js';
+import { accountConfigProblems } from '../../lib/core/accounts.js';
+import type { chachingConfig } from '../../lib/core/config.js';
+import { refreshAccountDiscovery } from '../../lib/core/account-discovery.js';
 import { expandPath, safeMtime } from '../../lib/core/fs-utils.js';
 import { isoDayUTC } from '../../lib/core/ingest/parse.js';
 import { discoverFiles, resolveProjectsDirs } from '../../lib/core/ingest/discover.js';
@@ -78,6 +81,8 @@ export interface DoctorServerInput {
 }
 
 export interface DoctorInput {
+	poolSchema?: { version: number | null } | { error: true };
+	accountConfig?: { version: number; problems: string[] };
 	todayUTC: string;
 	providers: DoctorProviderInput[];
 	history: DoctorHistoryInput;
@@ -258,6 +263,29 @@ export function buildDoctorReport(input: DoctorInput): DoctorReport {
 		sections.push({ title: 'Pricing coverage', status, lines });
 	}
 
+	if (input.accountConfig) {
+		const { version, problems } = input.accountConfig;
+		sections.push({ title: 'Accounts', status: problems.length ? 'WARN' : 'OK', lines: [
+			{ status: 'OK', text: `config version ${version}` },
+			...problems.map(text => ({ status: 'WARN' as const, text }))
+		] });
+	}
+
+	if (input.poolSchema) {
+		const schema = input.poolSchema;
+		const status = 'error' in schema ? 'WARN' : schema.version === SCHEMA_VERSION ? 'OK' : 'FAIL';
+		const text = 'error' in schema
+			? 'Pool schema could not be read; check connectivity, credentials and database permissions.'
+			: schema.version === SCHEMA_VERSION
+				? `pool schema ${schema.version} is compatible`
+				: schema.version === null
+					? 'Pool schema is missing; check the configured database before creating or joining a pool.'
+					: schema.version > SCHEMA_VERSION
+						? `pool schema ${schema.version} is newer than supported ${SCHEMA_VERSION}; upgrade chaching.`
+						: `pool schema ${schema.version} requires a coordinated upgrade to ${SCHEMA_VERSION}; stop old clients before upgrading all machines.`;
+		sections.push({ title: 'Pool schema', status, lines: [{ status, text }] });
+	}
+
 	const overall = sections.reduce<Health>((acc, s) => worst(acc, s.status), 'OK');
 	return { sections, overall, hasFail: overall === 'FAIL', staleness };
 }
@@ -271,7 +299,7 @@ export interface DoctorFlags {
 
 export async function runDoctor(argv: string[]): Promise<void> {
 	const flags = parseDoctorFlags(argv);
-	const cfg = await loadConfig();
+	const cfg = await refreshAccountDiscovery();
 	const input = await gatherDoctorInput(cfg);
 	const report = buildDoctorReport(input);
 
@@ -306,7 +334,7 @@ async function gatherDoctorInput(cfg: chachingConfig): Promise<DoctorInput> {
 	// Fresh cold scan. createEngine() gives us both the snapshot AND the captured
 	// ProviderStatus errors (runOnce() discards the engine, so we keep it here and
 	// dispose immediately — timers are unref'd so nothing lingers).
-	const engine = createEngine(cfg);
+	const engine = createEngine({ ...cfg, sync: { ...cfg.sync, enabled: false } });
 	let snapshot: RollupSnapshot;
 	let providerErrors: Record<string, string>;
 	try {
@@ -488,7 +516,17 @@ async function gatherDoctorInput(cfg: chachingConfig): Promise<DoctorInput> {
 	// Optional: is a chaching server already listening on the configured port?
 	const reachable = await probeServer(cfg.server.port);
 
+	let poolSchema: DoctorInput['poolSchema'];
+	if (cfg.sync.enabled) {
+		const store = new PostgresSyncStore(cfg.sync.databaseUrl);
+		try { poolSchema = { version: await store.readSchemaVersion() }; }
+		catch { poolSchema = { error: true }; }
+		finally { await store.close(); }
+	}
+
 	return {
+		poolSchema,
+		accountConfig: { version: cfg.version, problems: accountConfigProblems(cfg) },
 		todayUTC,
 		providers,
 		history,

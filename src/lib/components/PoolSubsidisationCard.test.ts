@@ -6,16 +6,26 @@ import PoolSubsidisationCard from './PoolSubsidisationCard.svelte';
 afterEach(cleanup);
 
 describe('PoolSubsidisationCard', () => {
+	it('shows combined value without inventing individual Account values', () => {
+		const { container } = render(PoolSubsidisationCard, {
+			windowLabel: 'Last 30 days', totalValue: 2000,
+			rows: ['a', 'b'].map(id => ({ id, name: id, provider: 'claude', account: '', feeUsd: 200 }))
+		});
+		expect(container.textContent).toContain('Across 2 Accounts');
+		expect(container.textContent).toContain('5.0×');
+		expect(container.textContent).toContain('$2,000');
+		expect(container.textContent).not.toContain('$1,000');
+	});
+
 	it('counts a shared subscription fee once while combining its pooled value', () => {
 		const { container } = render(PoolSubsidisationCard, {
-			windowLabel: 'Last 30 days',
+			windowLabel: 'Last 30 days', totalValue: 2400,
 			rows: [
 				{
 					id: 'shared-codex',
 					name: 'Shared ChatGPT Pro',
 					provider: 'codex',
 					account: 'shared@example.com',
-					valueUsd: 2400,
 					feeUsd: 200
 				}
 			]
@@ -28,29 +38,31 @@ describe('PoolSubsidisationCard', () => {
 		expect(text.match(/Shared ChatGPT Pro/g)).toHaveLength(1);
 	});
 
-	it('renders an em dash, never ∞, when the total fee is zero', () => {
+	it.each([
+		[0, '—'],
+		[40, '∞ — all of it']
+	])('renders the zero-fee multiple for %s usage', (valueUsd, multiple) => {
 		const { container } = render(PoolSubsidisationCard, {
-			windowLabel: 'Last 30 days',
+			windowLabel: 'Last 30 days', totalValue: valueUsd,
 			rows: [
 				{
 					id: 'free-plan',
 					name: 'Free tier',
 					provider: 'claude',
 					account: '',
-					valueUsd: 40,
 					feeUsd: 0
 				}
 			]
 		});
 
 		const text = container.textContent ?? '';
-		expect(text).toContain('—');
-		expect(text).not.toContain('∞');
+		expect(text).toContain(multiple);
+		if (valueUsd === 0) expect(text).not.toContain('∞');
 	});
 
 	it('annotates the fee as a whole-plan fee when a machine filter is active', () => {
 		const { container } = render(PoolSubsidisationCard, {
-			windowLabel: 'Last 30 days',
+			windowLabel: 'Last 30 days', totalValue: 800,
 			wholePlanFee: true,
 			rows: [
 				{
@@ -58,30 +70,28 @@ describe('PoolSubsidisationCard', () => {
 					name: 'Shared ChatGPT Pro',
 					provider: 'codex',
 					account: '',
-					valueUsd: 800,
 					feeUsd: 200
 				}
 			]
 		});
 
-		expect(container.textContent).toContain('whole shared-plan fee');
+		expect(container.textContent).toContain('shared Account fee');
 	});
 
 	it('omits the whole-plan annotation without a machine filter', () => {
 		const { container } = render(PoolSubsidisationCard, {
-			windowLabel: 'Last 30 days',
+			windowLabel: 'Last 30 days', totalValue: 800,
 			rows: [
 				{
 					id: 'shared-codex',
 					name: 'Shared ChatGPT Pro',
 					provider: 'codex',
 					account: '',
-					valueUsd: 800,
 					feeUsd: 200
 				}
 			]
 		});
 
-		expect(container.textContent).not.toContain('whole shared-plan fee');
+		expect(container.textContent).not.toContain('shared Account fee');
 	});
 });

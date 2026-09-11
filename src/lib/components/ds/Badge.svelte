@@ -52,7 +52,7 @@
 		height: 22px;
 		padding: 0 9px;
 		border-radius: var(--radius-pill);
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
 		font-weight: var(--fw-medium);
 		letter-spacing: var(--tracking-wide);

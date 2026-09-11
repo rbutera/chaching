@@ -2,7 +2,7 @@
 // Surface: chaching [stats|receipt|serve|mcp|init|provider|doctor|--version|--help]
 // Unknown subcommands → usage + exit(1).
 
-import { runStats, type StatsFlags } from './commands/stats.js';
+import { runStats } from './commands/stats.js';
 import { runReceipt, type ReceiptFlags } from './commands/receipt.js';
 import { runWrapped, type WrappedFlags } from './commands/wrapped.js';
 import { runWhatif, type WhatifFlags } from './commands/whatif.js';
@@ -16,6 +16,8 @@ import { printUsage, printVersion } from './help.js';
 import { configFilePath } from '../lib/core/config.js';
 import { existsSync } from 'node:fs';
 import { noArt } from './tui/theme.js';
+import { ACCOUNT_SPEND_FILTER_UNAVAILABLE } from '../lib/core/accounts.js';
+import { isCalendarDay } from '../lib/core/view-model.js';
 
 /** Known global flags that may appear before the subcommand token. */
 const GLOBAL_FLAGS = new Set(['--no-art', '--no-color']);
@@ -55,12 +57,12 @@ export async function run(argv: string[]): Promise<void> {
 
 		case 'stats':
 			// Merge global flags (like --no-art) that appeared before the subcommand
-			await runStats(parseStatsFlags([...globalArgs, ...rest]));
+			await runStats(parseReportFlags([...globalArgs, ...rest], 'stats'));
 			return;
 
 		case 'receipt':
 			// Same global-flag merge as stats (--no-art / --no-color before the subcommand).
-			await runReceipt(parseReceiptFlags([...globalArgs, ...rest]));
+			await runReceipt(parseReportFlags([...globalArgs, ...rest], 'receipt'));
 			return;
 
 		case 'wrapped':
@@ -119,74 +121,6 @@ async function runDefault(rest: string[]): Promise<void> {
 
 	const { runDashboard } = await import('./tui/index.js');
 	await runDashboard({ argv: rest });
-}
-
-function parseStatsFlags(argv: string[]): StatsFlags {
-	const flags: StatsFlags = {};
-	const providers: string[] = [];
-
-	// Resolve no-art from the full argv + env (consistent with the TUI path).
-	flags.noArt = noArt(argv);
-
-	for (let i = 0; i < argv.length; i++) {
-		const arg = argv[i];
-
-		if (arg === '--json') {
-			flags.json = true;
-		} else if (arg === '--no-art') {
-			// already handled above via noArt(); skip so it doesn't fall through to unknown flag
-		} else if (arg === '--period') {
-			const p = argv[i + 1];
-			if (!p || p.startsWith('--')) {
-				console.error(`chaching stats: --period requires a value (day|week|month)`);
-				process.exit(1);
-			}
-			i++;
-			if (p === 'day' || p === 'week' || p === 'month') {
-				flags.period = p;
-			} else {
-				console.error(`chaching stats: unknown period '${p}' (must be day|week|month)`);
-				process.exit(1);
-			}
-		} else if (arg.startsWith('--period=')) {
-			const p = arg.slice('--period='.length);
-			if (!p) {
-				console.error(`chaching stats: --period requires a value (day|week|month)`);
-				process.exit(1);
-			}
-			if (p === 'day' || p === 'week' || p === 'month') {
-				flags.period = p;
-			} else {
-				console.error(`chaching stats: unknown period '${p}' (must be day|week|month)`);
-				process.exit(1);
-			}
-		} else if (arg === '--provider') {
-			const raw = argv[i + 1];
-			if (!raw || raw.startsWith('--')) {
-				console.error(`chaching stats: --provider requires a value`);
-				process.exit(1);
-			}
-			i++;
-			// Repeatable; also accept comma-sep
-			providers.push(...raw.split(',').map((s) => s.trim()).filter(Boolean));
-		} else if (arg.startsWith('--provider=')) {
-			const raw = arg.slice('--provider='.length);
-			if (!raw) {
-				console.error(`chaching stats: --provider requires a value`);
-				process.exit(1);
-			}
-			providers.push(...raw.split(',').map((s) => s.trim()).filter(Boolean));
-		} else if (arg.startsWith('-')) {
-			// Unknown flag
-			console.error(`chaching stats: unknown flag '${arg}'`);
-			console.error(`Run \`chaching --help\` for usage.`);
-			process.exit(1);
-		}
-	}
-
-	if (providers.length > 0) flags.providers = providers;
-
-	return flags;
 }
 
 /**
@@ -341,14 +275,13 @@ function parseWhatifFlags(argv: string[]): WhatifFlags {
 	return flags;
 }
 
-/**
- * Parse `chaching receipt` flags. Mirrors parseStatsFlags' period/provider
- * handling and adds --png [path], --reveal/--no-redact, --json. Unknown flag →
- * error + nonzero exit (same discipline as stats).
- */
-function parseReceiptFlags(argv: string[]): ReceiptFlags {
+function parseReportFlags(argv: string[], command: 'stats' | 'receipt'): ReceiptFlags {
 	const flags: ReceiptFlags = {};
 	const providers: string[] = [];
+	const models: string[] = [];
+	const machines: string[] = [];
+	let from: string | undefined;
+	let to: string | undefined;
 
 	flags.noArt = noArt(argv);
 
@@ -360,7 +293,7 @@ function parseReceiptFlags(argv: string[]): ReceiptFlags {
 			flags.period = p;
 		} else {
 			console.error(
-				`chaching receipt: unknown period '${p}' (must be day|week|month|quarter|all)`
+				`chaching ${command}: unknown period '${p}' (must be day|week|month|quarter|all)`
 			);
 			process.exit(1);
 		}
@@ -368,6 +301,11 @@ function parseReceiptFlags(argv: string[]): ReceiptFlags {
 
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i];
+		if (command === 'stats' && ['--png', '--redact', '--reveal', '--no-redact'].some(flag => arg === flag || arg.startsWith(flag + '='))) {
+			console.error(`chaching stats: unknown flag '${arg}'`);
+			process.exit(1);
+		}
+
 
 		if (arg === '--json') {
 			flags.json = true;
@@ -394,7 +332,7 @@ function parseReceiptFlags(argv: string[]): ReceiptFlags {
 		} else if (arg === '--period') {
 			const p = argv[i + 1];
 			if (!p || p.startsWith('--')) {
-				console.error(`chaching receipt: --period requires a value (day|week|month|quarter|all)`);
+				console.error(`chaching ${command}: --period requires a value (day|week|month|quarter|all)`);
 				process.exit(1);
 			}
 			i++;
@@ -402,14 +340,14 @@ function parseReceiptFlags(argv: string[]): ReceiptFlags {
 		} else if (arg.startsWith('--period=')) {
 			const p = arg.slice('--period='.length);
 			if (!p) {
-				console.error(`chaching receipt: --period requires a value (day|week|month|quarter|all)`);
+				console.error(`chaching ${command}: --period requires a value (day|week|month|quarter|all)`);
 				process.exit(1);
 			}
 			setPeriod(p);
 		} else if (arg === '--provider') {
 			const raw = argv[i + 1];
 			if (!raw || raw.startsWith('--')) {
-				console.error(`chaching receipt: --provider requires a value`);
+				console.error(`chaching ${command}: --provider requires a value`);
 				process.exit(1);
 			}
 			i++;
@@ -417,18 +355,49 @@ function parseReceiptFlags(argv: string[]): ReceiptFlags {
 		} else if (arg.startsWith('--provider=')) {
 			const raw = arg.slice('--provider='.length);
 			if (!raw) {
-				console.error(`chaching receipt: --provider requires a value`);
+				console.error(`chaching ${command}: --provider requires a value`);
 				process.exit(1);
 			}
 			providers.push(...raw.split(',').map((s) => s.trim()).filter(Boolean));
+		} else if (arg === '--account' || arg.startsWith('--account=')) {
+			console.error(`chaching ${command}: ${ACCOUNT_SPEND_FILTER_UNAVAILABLE}`);
+			process.exit(1);
+		} else if (['--model', '--machine'].some(flag => arg === flag || arg.startsWith(flag + '='))) {
+			const flag = arg.split('=')[0];
+			const raw = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : argv[++i];
+			if (!raw || raw.startsWith('--') || !raw.split(',').some((value) => value.trim())) {
+				console.error(`chaching ${command}: ${flag} requires a value`);
+				process.exit(1);
+			}
+			const values = flag === '--model' ? models : machines;
+			values.push(...raw.split(',').map((value) => value.trim()).filter(Boolean));
+		} else if (arg === '--from' || arg.startsWith('--from=') || arg === '--to' || arg.startsWith('--to=')) {
+			const key = arg.startsWith('--from') ? 'from' : 'to';
+			const value = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : argv[++i];
+			if (!value || !isCalendarDay(value)) {
+				console.error(`chaching ${command}: --${key} requires a date in YYYY-MM-DD`);
+				process.exit(1);
+			}
+			if (key === 'from') from = value;
+			else to = value;
 		} else if (arg.startsWith('-')) {
-			console.error(`chaching receipt: unknown flag '${arg}'`);
+			console.error(`chaching ${command}: unknown flag '${arg}'`);
 			console.error(`Run \`chaching --help\` for usage.`);
 			process.exit(1);
 		}
 	}
 
 	if (providers.length > 0) flags.providers = providers;
+	if (models.length > 0) flags.models = models;
+	if (machines.length > 0) flags.machines = machines;
+
+	if (from !== undefined || to !== undefined) {
+		if (!from || !to || from > to) {
+			console.error(`chaching ${command}: --from and --to must both be supplied in date order`);
+			process.exit(1);
+		}
+		flags.range = { from, to };
+	}
 
 	return flags;
 }

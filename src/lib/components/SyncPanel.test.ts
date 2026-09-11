@@ -12,11 +12,27 @@ const localStatus: SyncStatusView = {
 	pool: null,
 	machine: null,
 	machines: [],
-	subscriptions: [],
+	accounts: [],
 	mappings: []
 };
 
 describe('SyncPanel', () => {
+	it('shows multiple linked accounts without selecting one arbitrarily and permits clearing them', async () => {
+		const onAction = vi.fn(async () => {});
+		const status: SyncStatusView = {
+			...localStatus, enabled: true,
+			pool: { id: 'pool', name: 'Pool' },
+			machine: { id: 'machine', name: 'Machine', hostname: 'machine', lastSeenAt: null },
+			accounts: ['one', 'two'].map(id => ({ id, provider: 'claude', name: id, account: '', tier: 'unknown', monthlyUsd: null, feeSource: 'inferred' })),
+			mappings: ['one', 'two'].map(accountId => ({ machineId: 'machine', provider: 'claude', accountId }))
+		};
+		const view = render(SyncPanel, { status, onAction });
+		expect(view.getByRole('option', { name: '2 accounts' })).toHaveProperty('selected', true);
+		expect(view.container.textContent).toContain('Fee unknown');
+		await fireEvent.change(view.getByLabelText('claude'), { target: { value: '' } });
+		expect(onAction).toHaveBeenCalledWith({ action: 'map', machineId: 'machine', provider: 'claude', accountId: null });
+	});
+
 	it('creates a pool without rendering the database password back into the page', async () => {
 		const onAction = vi.fn(async () => {});
 		const { getByRole, getByLabelText, container } = render(SyncPanel, {
@@ -68,7 +84,7 @@ describe('SyncPanel', () => {
 					lastSeenAt: '2026-07-17T07:59:00Z'
 				}
 			],
-			subscriptions: [
+			accounts: [
 				{
 					id: 'sub-codex',
 					provider: 'codex',
@@ -90,7 +106,7 @@ describe('SyncPanel', () => {
 			action: 'map',
 			machineId: 'machine-kinto',
 			provider: 'codex',
-			subscriptionId: 'sub-codex'
+			accountId: 'sub-codex'
 		});
 	});
 
@@ -114,7 +130,7 @@ describe('SyncPanel', () => {
 				current: true
 			}
 		],
-		subscriptions: [],
+		accounts: [],
 		mappings: []
 	};
 
@@ -127,7 +143,7 @@ describe('SyncPanel', () => {
 			pool: null,
 			machine: null,
 			machines: [],
-			subscriptions: [],
+			accounts: [],
 			mappings: [],
 			error: 'connect ECONNREFUSED 100.64.0.1:5432'
 		};

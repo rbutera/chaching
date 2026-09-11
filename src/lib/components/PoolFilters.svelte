@@ -1,32 +1,27 @@
 <script lang="ts">
-	import type { SyncMachineView, SyncSubscriptionView } from '$lib/client/sync';
+	import type { SyncMachineView } from '$lib/client/sync';
 
 	interface Props {
 		machines: SyncMachineView[];
-		subscriptions: SyncSubscriptionView[];
 		machineFilter: Set<string>;
-		subscriptionFilter: Set<string>;
 		onMachineToggle: (id: string) => void;
-		onSubscriptionToggle: (id: string) => void;
 		onClear: () => void;
 	}
 
 	let {
 		machines,
-		subscriptions,
 		machineFilter,
-		subscriptionFilter,
 		onMachineToggle,
-		onSubscriptionToggle,
 		onClear
 	}: Props = $props();
 </script>
 
-{#if machines.length > 1 || subscriptions.length > 1}
+{#if machines.length > 1}
 	<div class="pool-filters" aria-label="Pool filters">
 		{#if machines.length > 1}
-			<div class="filter-group" aria-label="Machine filter">
-				<span class="filter-label">machines</span>
+			<details name="scope-filters">
+				<summary>Machines{machineFilter.size ? ` · ${machineFilter.size}` : ''}</summary>
+				<div class="filter-group" aria-label="Machine filter">
 				{#each machines as machine (machine.id)}
 					<button
 						type="button"
@@ -37,54 +32,22 @@
 						{machine.name}
 					</button>
 				{/each}
-			</div>
+				</div>
+			</details>
 		{/if}
 
-		{#if subscriptions.length > 1}
-			<div class="filter-group" aria-label="Subscription filter">
-				<span class="filter-label">subscriptions</span>
-				{#each subscriptions as subscription (subscription.id)}
-					<button
-						type="button"
-						class:active={subscriptionFilter.has(subscription.id)}
-						aria-pressed={subscriptionFilter.has(subscription.id)}
-						onclick={() => onSubscriptionToggle(subscription.id)}
-					>
-						{subscription.name}
-					</button>
-				{/each}
-			</div>
-		{/if}
-
-		{#if machineFilter.size > 0 || subscriptionFilter.size > 0}
-			<button type="button" class="clear" onclick={onClear}>clear pool filters ✕</button>
+		{#if machineFilter.size > 0}
+			<button type="button" class="clear" onclick={onClear}>clear machine filters ✕</button>
 		{/if}
 	</div>
 {/if}
 
 <style>
-	.pool-filters,
-	.filter-group {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 0.45rem;
-	}
-	.pool-filters {
-		flex-basis: 100%;
-		padding-top: 0.2rem;
-	}
-	.filter-group {
-		padding-right: 0.4rem;
-		border-right: 1px solid var(--border);
-	}
-	.filter-label {
-		color: var(--text-dim);
-		font-family: var(--font-mono);
-		font-size: var(--text-2xs);
-		text-transform: uppercase;
-		letter-spacing: var(--tracking-caps);
-	}
+	.pool-filters {position:relative;display:flex;align-items:center;flex-wrap:wrap;gap:8px;flex-basis:100%;padding-top:3px}
+	summary {cursor:pointer;min-height:32px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-pill);font:var(--type-label);color:var(--text-muted)}
+	summary:focus-visible {outline:2px solid var(--accent);outline-offset:2px}
+	.filter-group {position:absolute;top:100%;left:0;z-index:20;width:min(100%,380px);max-height:240px;overflow:auto;padding:8px;background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;gap:4px}
+	.filter-group button {text-align:left;flex-shrink:0}
 	button {
 		min-height: 32px;
 		border: 1px solid var(--border);
@@ -92,7 +55,7 @@
 		background: var(--surface-2);
 		color: var(--text-muted);
 		padding: 0.3rem 0.7rem;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
 		cursor: pointer;
 	}

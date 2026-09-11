@@ -14,6 +14,15 @@
 
 const STORAGE_KEY = 'chaching.noArt';
 
+export function setWebSuppressArt(suppressed: boolean): void {
+	window.localStorage.setItem(STORAGE_KEY, suppressed ? '1' : '0');
+	if (!suppressed) {
+		const url = new URL(window.location.href);
+		url.searchParams.delete('no-art');
+		window.history.replaceState(window.history.state, '', url);
+	}
+}
+
 /** True when the web should suppress personality copy + extra motion. */
 export function webSuppressArt(): boolean {
 	if (typeof window === 'undefined') return false;

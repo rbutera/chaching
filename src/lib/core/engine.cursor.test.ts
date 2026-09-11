@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_SUBSCRIPTION, type chachingConfig } from './config';
+import { type chachingConfig } from './config';
 import type { UsageRecord } from '../types';
 
 // A cursor Admin API poll returns a COMPLETE rolling 30-day window every time. Mock it to a
@@ -22,7 +22,7 @@ const cursorRecords: UsageRecord[] = [
 		isSidechain: false,
 		cost: 0.5,
 		machineId: undefined,
-		subscriptionId: null
+		accountId: null
 	},
 	{
 		key: 'cursor:evt-2',
@@ -40,7 +40,7 @@ const cursorRecords: UsageRecord[] = [
 		isSidechain: false,
 		cost: 0.25,
 		machineId: undefined,
-		subscriptionId: null
+		accountId: null
 	}
 ];
 
@@ -53,6 +53,7 @@ import type { Rollup } from './rollup/rollup';
 
 function pooledCursorConfig(): chachingConfig {
 	return {
+		version: 1, accounts: [], providerAccounts: {},
 		cutoverTs: null,
 		server: { host: '127.0.0.1', port: 5178, origin: '' },
 		history: { enabled: false, dbPath: '' },
@@ -65,12 +66,11 @@ function pooledCursorConfig(): chachingConfig {
 			poolId: randomUUID(),
 			machineId: randomUUID(),
 			machineName: 'kinto',
-			providerSubscriptions: {},
 			intervalMinutes: 15
 		},
 		providers: {
-			claude: { enabled: false, roots: [], subscription: { ...DEFAULT_SUBSCRIPTION } },
-			codex: { enabled: false, root: '', subscription: { ...DEFAULT_SUBSCRIPTION } },
+			claude: { enabled: false, roots: [] },
+			codex: { enabled: false, root: '' },
 			// email set + a token so the engine's cursor ingest path runs; the fetch is mocked.
 			cursor: {
 				enabled: true,

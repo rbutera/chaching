@@ -15,10 +15,12 @@
 // reflects the dashboard's active period/scope because the button forwards the live
 // query.
 
+import { ACCOUNT_SPEND_FILTER_UNAVAILABLE } from '$lib/core/accounts';
 import { error } from '@sveltejs/kit';
+import { isCalendarDay } from '$lib/core/view-model';
 import type { RequestHandler } from './$types';
 import { getService } from '$lib/server/service';
-import { loadConfig } from '$lib/core/config';
+import { getReportAccountContext } from '$lib/core/sync/manager';
 import { buildReceipt } from '../../../cli/receipt/build';
 import { redactReceipt, currentAccount } from '../../../cli/receipt/redact';
 import { receiptFooter } from '../../../cli/theme/personality';
@@ -38,10 +40,10 @@ function parsePeriod(raw: string | null): Period {
 	return 'month';
 }
 
-const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export const GET: RequestHandler = async ({ url }) => {
 	const params = url.searchParams;
+	if (params.has('account')) throw error(400, ACCOUNT_SPEND_FILTER_UNAVAILABLE);
 
 	const period = parsePeriod(params.get('period'));
 	const redact = ((): boolean => {
@@ -54,10 +56,15 @@ export const GET: RequestHandler = async ({ url }) => {
 	// silently widen the scope back to the full period — that would show MORE than the
 	// caller asked for, which matters now redaction is opt-in).
 	const day = params.get('day');
-	if (day !== null && !DAY_RE.test(day)) {
+	if (day !== null && !isCalendarDay(day)) {
 		throw error(400, `invalid day '${day}' (expected YYYY-MM-DD)`);
 	}
-	const range = day ? { from: day, to: day } : undefined;
+	const from = params.get('from');
+	const to = params.get('to');
+	if ((from !== null || to !== null) && (!from || !to || !isCalendarDay(from) || !isCalendarDay(to) || from > to)) {
+		throw error(400, 'invalid date range (expected from and to in YYYY-MM-DD order)');
+	}
+	const range = day ? { from: day, to: day } : from && to ? { from, to } : undefined;
 
 	// Provider filter (repeatable or comma-separated), mirroring the CLI.
 	const providers = params
@@ -66,29 +73,23 @@ export const GET: RequestHandler = async ({ url }) => {
 		.map((s) => s.trim())
 		.filter(Boolean);
 
+	const models = params.getAll('model').flatMap((value) => value.split(',')).map((value) => value.trim()).filter(Boolean);
+
+	const machines = params.getAll('machine').flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean);
+
 	const service = getService();
 	await service.ensureStarted();
 	const snapshot = service.snapshot();
 
 	// Per-provider subscription config for the subsidisation footer — built from the
 	// persisted config, exactly like the CLI receipt command.
-	const cfg = await loadConfig();
-	const subscription = {
-		claude: {
-			enabled: cfg.providers.claude.enabled,
-			tier: cfg.providers.claude.subscription.tier,
-			monthlyUsd: cfg.providers.claude.subscription.monthlyUsd
-		},
-		codex: {
-			enabled: cfg.providers.codex.enabled,
-			tier: cfg.providers.codex.subscription.tier,
-			monthlyUsd: cfg.providers.codex.subscription.monthlyUsd
-		}
-	};
+	const { fees: subscription } = await getReportAccountContext({ machines });
 
 	const model = buildReceipt(snapshot, {
 		period,
 		providers: providers.length > 0 ? providers : undefined,
+		models,
+		machines,
 		range,
 		footer: receiptFooter(),
 		subscription,

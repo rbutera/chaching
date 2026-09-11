@@ -15,7 +15,7 @@ import {
 	select,
 	text
 } from '@clack/prompts';
-import { loadConfig, saveConfig, clearConfigCache, type chachingConfig } from '../lib/core/config.js';
+import { loadConfig, updateConfig, type chachingConfig } from '../lib/core/config.js';
 import { parseIntervalMinutes, performSyncAction } from '../lib/core/sync/manager.js';
 import { hostname } from 'node:os';
 import { noArt, accent } from './theme/personality.js';
@@ -161,14 +161,9 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 		// Silently write the default config and return — no interactive prompts.
 		// Match the interactive default: enable everything EXCEPT Cursor (which is
 		// off in the default config and needs an admin token to do anything useful).
-		const base = await loadConfig();
-		const updated = applySelectionToConfig(base, {
-			enabled: KNOWN_PROVIDERS.filter((p) => !DEFAULT_OFF.includes(p)),
-			secrets: {}
-		});
-		clearConfigCache();
-		await saveConfig(updated);
-		return updated;
+		return updateConfig(base => applySelectionToConfig(base, {
+			enabled: KNOWN_PROVIDERS.filter((p) => !DEFAULT_OFF.includes(p)), secrets: {}
+		}));
 	}
 
 	// ── Branded, paced first-run intro ─────────────────────────────────────────
@@ -259,9 +254,7 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 
 	// ── Step 3: build + write config ─────────────────────────────────────────
 
-	const updated = applySelectionToConfig(base, { enabled: enabledProviders, secrets });
-	clearConfigCache();
-	await saveConfig(updated);
+	const updated = await updateConfig(current => applySelectionToConfig(current, { enabled: enabledProviders, secrets }));
 
 	// ── Step 4: optional pooled ledger ────────────────────────────────────────
 	const ledger = await select({
@@ -299,9 +292,7 @@ export async function runWizard(opts: WizardOptions = {}): Promise<chachingConfi
 		if (isCancel(intervalAnswer)) return updated;
 		const intervalMinutes = parseWizardInterval(String(intervalAnswer), base.sync.intervalMinutes);
 		// Persist the interval BEFORE create/join so the action's config write carries it.
-		synced = { ...updated, sync: { ...updated.sync, intervalMinutes } };
-		clearConfigCache();
-		await saveConfig(synced);
+		synced = await updateConfig(current => ({ ...current, sync: { ...current.sync, intervalMinutes } }));
 		if (ledger === 'create') {
 			const poolName = await text({ message: 'Pool name:', placeholder: 'My machines' });
 			if (isCancel(poolName)) return synced;

@@ -1,4 +1,5 @@
 import { hostname } from 'node:os';
+import { PostgresSyncStore, SCHEMA_VERSION } from '../../lib/core/sync/store.js';
 import {
 	getSyncStatus,
 	performSyncAction,
@@ -8,6 +9,23 @@ import type { SyncStatus } from '../../lib/core/sync/types.js';
 
 export async function runSync(argv: string[]): Promise<void> {
 	const [command = 'status', ...rest] = argv;
+	if (command === 'schema') {
+		if (rest.some(arg => arg !== '--migrate' && arg !== '--clients-stopped'))
+			throw new Error('usage: CHACHING_DATABASE_URL=<url> chaching sync schema [--migrate --clients-stopped]');
+		if (rest.includes('--migrate') && !rest.includes('--clients-stopped'))
+			throw new Error('Stop every client sharing this database and complete the rollout backups before using --migrate --clients-stopped.');
+		const store = new PostgresSyncStore(databaseUrl([]));
+		try {
+			const before = await store.readSchemaVersion();
+			if (rest.includes('--migrate')) {
+				if (before !== 2 && before !== 3 && before !== SCHEMA_VERSION)
+					throw new Error(`Schema migration requires version 2, 3 or ${SCHEMA_VERSION}; found ${before ?? 'missing'}.`);
+				await store.open();
+			}
+			console.log(JSON.stringify({ before, version: await store.readSchemaVersion(), target: SCHEMA_VERSION }));
+		} finally { await store.close(); }
+		return;
+	}
 	if (command === 'status') {
 		const status = await getSyncStatus();
 		if (rest.includes('--json')) console.log(JSON.stringify(status, null, 2));
@@ -56,19 +74,19 @@ export async function runSync(argv: string[]): Promise<void> {
 		);
 		return;
 	}
-	if (command === 'subscription' && rest[0] === 'add') {
+	if ((command === 'account' || command === 'subscription') && rest[0] === 'add') {
 		const args = rest.slice(1);
-		const existingIds = new Set((await getSyncStatus()).subscriptions.map(({ id }) => id));
+		const existingIds = new Set((await getSyncStatus()).accounts.map(({ id }) => id));
 		const status = await performSyncAction({
-			action: 'add-subscription',
+			action: 'add-account',
 			provider: requiredFlag(args, '--provider'),
 			name: requiredFlag(args, '--name'),
 			account: flag(args, '--account') ?? '',
 			tier: flag(args, '--tier') ?? 'custom',
 			monthlyUsd: numberFlag(args, '--monthly-usd')
 		});
-		const added = status.subscriptions.find(({ id }) => !existingIds.has(id));
-		console.log(`added subscription ${added?.name ?? ''} (${added?.id ?? 'created'})`);
+		const added = status.accounts.find(({ id }) => !existingIds.has(id));
+		console.log(`added Account ${added?.name ?? ''} (${added?.id ?? 'created'})`);
 		return;
 	}
 	if (command === 'map') {
@@ -78,13 +96,16 @@ export async function runSync(argv: string[]): Promise<void> {
 			action: 'map',
 			machineId: flag(rest, '--machine') ?? status.machine.id,
 			provider: requiredFlag(rest, '--provider'),
-			subscriptionId: nullableFlag(rest, '--subscription')
+			accountId: nullableFlag(rest,
+				rest.some((arg) => arg === '--account' || arg.startsWith('--account='))
+					? '--account'
+					: '--subscription')
 		});
-		console.log('subscription mapping saved');
+		console.log('Account mapping saved');
 		return;
 	}
 	throw new Error(
-		'chaching sync: expected create|join|status|leave|interval|subscription add|map (run chaching --help)'
+		'chaching sync: expected create|join|status|schema|leave|interval|account add|map (run chaching --help)'
 	);
 }
 
@@ -102,7 +123,7 @@ function printStatus(status: SyncStatus): void {
 	console.log(`Chaching Sync: ${status.pool.name} (${status.pool.id})`);
 	console.log(`This machine: ${status.machine.name} (${status.machine.id})`);
 	console.log(`Machines: ${status.machines.map((machine) => machine.name).join(', ') || 'none'}`);
-	console.log(`Subscriptions: ${status.subscriptions.map((sub) => sub.name).join(', ') || 'none'}`);
+	console.log(`Accounts: ${status.accounts.map((sub) => sub.name).join(', ') || 'none'}`);
 	if (typeof status.intervalMinutes === 'number') {
 		console.log(`Publish interval: ${status.intervalMinutes} min (peers refresh at most this often)`);
 	}

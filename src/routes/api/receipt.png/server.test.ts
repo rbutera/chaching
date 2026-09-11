@@ -32,12 +32,9 @@ vi.mock('$lib/server/service', () => ({
 	})
 }));
 
-vi.mock('$lib/core/config', () => ({
-	loadConfig: vi.fn().mockResolvedValue({
-		providers: {
-			claude: { enabled: true, subscription: { tier: 'corporate', monthlyUsd: 99 } },
-			codex: { enabled: false, subscription: { tier: 'corporate', monthlyUsd: 0 } }
-		}
+vi.mock('$lib/core/sync/manager', () => ({
+	getReportAccountContext: vi.fn().mockResolvedValue({
+		fees: { claude: { enabled: true, tier: 'corporate', monthlyUsd: 99 }, codex: { enabled: false, tier: 'unknown', monthlyUsd: null } }
 	})
 }));
 
@@ -60,6 +57,8 @@ vi.mock('../../../cli/receipt/render-png', () => ({
 }));
 
 import { GET } from './+server';
+import { getReportAccountContext } from '$lib/core/sync/manager';
+import { renderReceiptPng } from '../../../cli/receipt/render-png';
 
 function call(query: string) {
 	const url = new URL(`http://localhost/api/receipt.png${query}`);
@@ -99,4 +98,40 @@ describe('/api/receipt.png', () => {
 		const res = await call('?day=2026-06-10');
 		expect(res.status).toBe(200);
 	});
+});
+
+
+it('exports the explicit historical window instead of the latest period', async () => {
+	await call('?period=week&from=2026-06-01&to=2026-06-07');
+	expect(vi.mocked(renderReceiptPng).mock.calls.at(-1)?.[0]).toMatchObject({ from: '2026-06-01', to: '2026-06-07', lineItems: [] });
+	await call('?period=week&from=2026-06-08&to=2026-06-14');
+	const receipt = vi.mocked(renderReceiptPng).mock.calls.at(-1)?.[0];
+	expect(receipt).toMatchObject({ from: '2026-06-08', to: '2026-06-14' });
+	expect(receipt?.lineItems.length).toBeGreaterThan(0);
+});
+
+it('rejects incomplete, reversed and impossible date ranges', async () => {
+	for (const query of ['?from=2026-06-01', '?from=2026-06-10&to=2026-06-01', '?from=2026-02-30&to=2026-03-01', '?day=2026-02-30']) {
+		await expect(call(query)).rejects.toMatchObject({ status: 400 });
+	}
+});
+
+
+it('keeps fees when model filtering excludes all usage', async () => {
+	await call('?from=2026-06-01&to=2026-06-30&model=absent,also-absent&model=another');
+	expect(vi.mocked(renderReceiptPng).mock.calls.at(-1)?.[0]).toMatchObject({
+		models: ['absent', 'also-absent', 'another'], lineItems: [], totalBurn: 0,
+		subsidisation: { feeUsd: 99, apiEquivalentUsd: 0 }
+	});
+});
+
+
+it('uses the same machine scope for fees and receipt usage', async () => {
+	await call('?from=2026-06-01&to=2026-06-30&machine=one,two');
+	expect(getReportAccountContext).toHaveBeenLastCalledWith({ machines: ['one', 'two'] });
+	expect(vi.mocked(renderReceiptPng).mock.calls.at(-1)?.[0]).toMatchObject({ machines: ['one', 'two'], totalBurn: 0 });
+});
+
+it.each(['?account=a', '?account='])('rejects unsupported Account scope with HTTP 400: %s', async query => {
+	await expect(call(query)).rejects.toMatchObject({ status: 400, body: { message: expect.stringContaining('historical usage cannot be reliably split by Account') } });
 });

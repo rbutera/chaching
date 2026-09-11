@@ -43,18 +43,21 @@ interface PersistedUI {
 	models: string[];
 	providers: string[];
 	machines?: string[];
-	subscriptions?: string[];
 	/** the pinned single-day focus (YYYY-MM-DD), or absent/null for rolling-period mode */
 	focusedDay?: string | null;
+	windowEnd?: string | null;
+	quotaView?: 'current' | 'all' | 'provider';
 }
 
 export class Dashboard {
-	period = $state<Period>('week');
+	period = $state<Period>('month');
+	today = $state(vm.todayUTC());
+	windowEnd = $state<string | null>(null);
+	quotaView = $state<'current' | 'all' | 'provider'>('current');
 	/** empty = all models; otherwise scope the whole dashboard to these models */
 	modelFilter = $state<Set<string>>(new Set());
 	providerFilter = $state<Set<string>>(new Set());
 	machineFilter = $state<Set<string>>(new Set());
-	subscriptionFilter = $state<Set<string>>(new Set());
 	drill = $state<DrillTarget | null>(null);
 	/**
 	 * The zoomed-in single-day pin (design D5). `null` = rolling-period mode (default).
@@ -73,11 +76,11 @@ export class Dashboard {
 					if (Array.isArray(p.models)) this.modelFilter = new Set(p.models);
 					if (Array.isArray(p.providers)) this.providerFilter = new Set(p.providers);
 					if (Array.isArray(p.machines)) this.machineFilter = new Set(p.machines);
-					if (Array.isArray(p.subscriptions))
-						this.subscriptionFilter = new Set(p.subscriptions);
 					// Hydrate the pinned day; clamping against a (possibly shrunk) data range
 					// happens once the snapshot lands, via reconcileFocusedDay().
-					if (typeof p.focusedDay === 'string') this.focusedDay = p.focusedDay;
+					if (typeof p.focusedDay === 'string' && vm.isCalendarDay(p.focusedDay)) this.focusedDay = p.focusedDay;
+					if (typeof p.windowEnd === 'string' && vm.isCalendarDay(p.windowEnd)) this.windowEnd = p.windowEnd > this.today ? this.today : p.windowEnd;
+					if (p.quotaView === 'current' || p.quotaView === 'all' || p.quotaView === 'provider') this.quotaView = p.quotaView;
 				}
 			} catch {
 				/* ignore */
@@ -93,8 +96,9 @@ export class Dashboard {
 				models: [...this.modelFilter],
 				providers: [...this.providerFilter],
 				machines: [...this.machineFilter],
-				subscriptions: [...this.subscriptionFilter],
-				focusedDay: this.focusedDay
+				focusedDay: this.focusedDay,
+				windowEnd: this.windowEnd,
+				quotaView: this.quotaView
 			};
 			localStorage.setItem(LS_KEY, JSON.stringify(data));
 		} catch {
@@ -109,9 +113,32 @@ export class Dashboard {
 			modelFilter: this.modelFilter,
 			providerFilter: this.providerFilter,
 			machineFilter: this.machineFilter,
-			subscriptionFilter: this.subscriptionFilter,
-			focusedDay: this.focusedDay
+			focusedDay: this.focusedDay,
+			windowEnd: this.windowEnd ?? this.today
 		};
+	}
+
+	setQuotaView(view: 'current' | 'all' | 'provider'): void {
+		this.quotaView = view;
+		this.persist();
+	}
+
+	setWindowEnd(day: string | null): void {
+		if (day !== null && !vm.isCalendarDay(day)) return;
+		this.windowEnd = day === null || day >= this.today ? null : day;
+		this.focusedDay = null;
+		this.persist();
+	}
+
+	stepWindow(snap: RollupSnapshot, direction: -1 | 1): void {
+		const span = vm.periodSpan(this.period);
+		if (span === null || (direction < 0 && snap.earliestDay && this.periodWindow(snap).from <= snap.earliestDay)) return;
+		const next = vm.addDaysISO(this.windowEnd ?? this.today, direction * span);
+		this.setWindowEnd(next);
+	}
+
+	headlines(snap: RollupSnapshot) {
+		return vm.headlineTotals(snap, this.state(), this.today);
 	}
 
 	setPeriod(p: Period): void {
@@ -125,15 +152,19 @@ export class Dashboard {
 
 	/** Pin the dashboard to a single day, clamped to `[earliestDay, latestDay]` (design D5/D8). */
 	setFocusedDay(snap: RollupSnapshot, day: string): void {
-		this.focusedDay = vm.clampDay(snap, day);
+		if (!vm.isCalendarDay(day)) return;
+		this.focusedDay = vm.clampDay(snap, day, this.today);
+		const range = this.periodWindow(snap);
+		if (this.focusedDay && (this.focusedDay < range.from || this.focusedDay > range.to)) {
+			this.windowEnd = this.focusedDay === this.today ? null : this.focusedDay;
+		}
 		this.persist();
 	}
 
 	/** Step the pinned day by ±n calendar days, clamped (no wrap, no-op at the bounds). */
 	stepFocusedDay(snap: RollupSnapshot, delta: number): void {
 		if (this.focusedDay == null) return;
-		this.focusedDay = vm.clampDay(snap, vm.addDaysISO(this.focusedDay, delta));
-		this.persist();
+		this.setFocusedDay(snap, vm.addDaysISO(this.focusedDay, delta));
 	}
 
 	/** Exit pinned mode, back to the rolling-period view. */
@@ -149,7 +180,7 @@ export class Dashboard {
 	 */
 	reconcileFocusedDay(snap: RollupSnapshot): void {
 		if (this.focusedDay == null) return;
-		const clamped = vm.clampDay(snap, this.focusedDay);
+		const clamped = vm.clampDay(snap, this.focusedDay, this.today);
 		if (clamped !== this.focusedDay) {
 			this.focusedDay = clamped;
 			this.persist();
@@ -190,17 +221,8 @@ export class Dashboard {
 		this.persist();
 	}
 
-	toggleSubscription(subscriptionId: string): void {
-		const next = new Set(this.subscriptionFilter);
-		if (next.has(subscriptionId)) next.delete(subscriptionId);
-		else next.add(subscriptionId);
-		this.subscriptionFilter = next;
-		this.persist();
-	}
-
 	clearPoolFilters(): void {
 		this.machineFilter = new Set();
-		this.subscriptionFilter = new Set();
 		this.persist();
 	}
 
@@ -259,7 +281,7 @@ export class Dashboard {
 	}
 
 	/** Current-period and prior-period totals for the hero + delta. */
-	heroTotals(snap: RollupSnapshot): { current: Totals; prior: Totals; label: string; priorHasBaseline: boolean } {
+	heroTotals(snap: RollupSnapshot): { current: Totals; prior: Totals; label: string; priorHasBaseline: boolean; } {
 		return vm.heroTotals(snap, this.state());
 	}
 

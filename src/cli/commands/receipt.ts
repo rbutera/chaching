@@ -9,8 +9,9 @@
 
 import { writeSync } from 'node:fs';
 import { runOnce } from '../../lib/core/engine.js';
-import { loadConfig } from '../../lib/core/config.js';
+import { getReportAccountContext } from '../../lib/core/sync/manager.js';
 import { getPricingMeta } from '../../lib/core/pricing/cost.js';
+import { poolGrain } from '../../lib/core/view-model.js';
 import { sumGrain, filterDays } from '../../lib/core/aggregate.js';
 import type { Period } from '../../lib/types.js';
 import { noArt as resolveNoArt, receiptFooter } from '../theme/personality.js';
@@ -37,6 +38,10 @@ function writeStdoutSync(text: string): void {
 export interface ReceiptFlags {
 	period?: Period;
 	providers?: string[];
+	models?: string[];
+	machines?: string[];
+	accountIds?: string[];
+	range?: { from: string; to: string };
 	json?: boolean;
 	/** --png present; value is the path (or undefined → default path). */
 	png?: boolean;
@@ -50,21 +55,14 @@ export interface ReceiptFlags {
 }
 
 export async function runReceipt(flags: ReceiptFlags): Promise<void> {
-	const cfg = await loadConfig();
+	const { config: cfg, fees: subscription } = await getReportAccountContext(flags);
 	const snapshot = await runOnce(cfg);
 
 	const noArt = flags.noArt ?? resolveNoArt();
 
-	// The receipt defaults to THIS MONTH when no `--period` is given (a monthly
-	// statement is the natural framing). An explicit `--period all` opts back into
-	// all-time; day/week/quarter override as before. Everything downstream reads
-	// `period`, so resolve the default here once.
+	// Match the dashboard default, a rolling 30-day window.
 	const period: Period = flags.period ?? 'month';
 
-	// Pin ONE clock for the whole command. The line items / TOTAL BURN now scope
-	// through the ROLLING window (anchored at snap.latestDay) so the receipt total
-	// matches the dashboard hero; `now` is still passed to buildReceipt for the
-	// deterministic ref/barcode seed and the calendar-MTD subsidisation footer.
 	const now = new Date();
 
 	// Footer copy comes from personality (never under --json, never under --no-art).
@@ -72,22 +70,14 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 
 	// Pass the per-provider subscription config so the receipt can render the
 	// subsidisation footer. Built additively from the (already loaded) config.
-	const subscription = {
-		claude: {
-			enabled: cfg.providers.claude.enabled,
-			tier: cfg.providers.claude.subscription.tier,
-			monthlyUsd: cfg.providers.claude.subscription.monthlyUsd
-		},
-		codex: {
-			enabled: cfg.providers.codex.enabled,
-			tier: cfg.providers.codex.subscription.tier,
-			monthlyUsd: cfg.providers.codex.subscription.monthlyUsd
-		}
-	};
 
 	const model = buildReceipt(snapshot, {
 		period,
 		providers: flags.providers,
+		models: flags.models,
+		machines: flags.machines,
+		accountIds: flags.accountIds,
+		range: flags.range,
 		noArt: noArt || !!flags.json,
 		footer,
 		subscription,
@@ -103,11 +93,13 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 	if (flags.json) {
 		// Same ROLLING window buildReceipt scoped the body through, so the --json
 		// totals == the receipt body == the dashboard hero for this period.
-		const { from, to } = rollingPeriodRange(snapshot, period);
+		const { from, to } = flags.range ?? rollingPeriodRange(snapshot, period, now.getTime());
 		const providerFilter =
 			flags.providers && flags.providers.length > 0 ? new Set(flags.providers) : null;
-		let grain = filterDays(snapshot.dayModel, from, to);
+		let grain = filterDays(poolGrain(snapshot.dayModel, { machineFilter: new Set(flags.machines), accountFilter: new Set(flags.accountIds) }), from, to);
 		if (providerFilter) grain = grain.filter((dm) => providerFilter.has(dm.provider));
+		const modelFilter = new Set(flags.models);
+		if (modelFilter.size) grain = grain.filter((dm) => modelFilter.has(dm.model));
 		const totals = sumGrain(grain);
 		const payload: ReceiptJson = {
 			receipt: redacted,

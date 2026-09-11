@@ -1,16 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { expandPath } from '../fs-utils';
-import { readTokenmaxxQuota } from '../providers/tokenmaxx/sqlite';
+import { accountIdentityKey, readTokenmaxxAccounts, type TokenmaxxQuotaSnapshot } from '../providers/tokenmaxx/sqlite';
+import { accountQuotaSnapshot, refreshAccountDiscovery } from '../account-discovery';
+import type { PrivateAccount } from '../accounts';
+import { reportAccountFees, ACCOUNT_SPEND_FILTER_UNAVAILABLE } from '../accounts';
 import {
-	clearConfigCache,
 	loadConfig,
-	saveConfig,
+	updateConfig,
 	type chachingConfig,
 	type SyncConfig
 } from '../config';
 import { PostgresSyncStore } from './store';
-import type { SyncAction, SyncStatus, SyncSubscription } from './types';
+import type { SyncAction, SyncStatus, SyncAccount, SyncMapping } from './types';
 
 export function localSyncStatus(error: string | null = null): SyncStatus {
 	return {
@@ -19,18 +21,82 @@ export function localSyncStatus(error: string | null = null): SyncStatus {
 		pool: null,
 		machine: null,
 		machines: [],
-		subscriptions: [],
+		accounts: [],
 		mappings: [],
 		providerQuotas: [],
 		error
 	};
 }
 
-export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus> {
-	const cfg = config ?? (await loadConfig());
-	let localQuota: ReturnType<typeof readTokenmaxxQuota> = null;
+export function localAccountMappings(cfg: chachingConfig): SyncMapping[] {
+	return Object.entries(cfg.providerAccounts).filter(([provider]) => !cfg.accounts.some(account =>
+		account.provider === provider && account.pendingLegacyIds?.length)).flatMap(([provider, ids]) => ids
+		.filter(id => cfg.accounts.some(account => account.id === id && account.provider === provider && !account.pendingLegacyIds?.length))
+		.map(accountId => ({ machineId: cfg.sync.machineId ?? hostname(), provider, accountId })));
+}
+
+export async function publishDiscoveredAccounts(store: PostgresSyncStore, cfg: chachingConfig): Promise<void> {
+	if (!cfg.sync.poolId) return;
+	const linked = new Set(Object.values(cfg.providerAccounts).flat());
+	for (const account of cfg.accounts) {
+		if (account.pendingPoolId === cfg.sync.poolId) {
+			await store.addAccount({ ...account, account: '' });
+			await updateConfig(current => ({ ...current, accounts: current.accounts.map(row => {
+				if (row.id !== account.id || row.pendingPoolId !== account.pendingPoolId) return row;
+				const { pendingPoolId: _pending, ...saved } = row;
+				return saved;
+			}) }));
+		}
+		if (!linked.has(account.id) || account.pendingLegacyIds?.length) continue;
+		await store.discoverAccount({
+			id: account.id,
+			provider: account.provider,
+			name: account.name,
+			tier: account.tier,
+			monthlyUsd: account.monthlyUsd,
+			feeSource: account.feeSource,
+			account: '',
+			identityKey: account.identity ? accountIdentityKey(account.provider, account.identity, cfg.sync.poolId) : null
+		});
+	}
+}
+
+export async function writePoolAccount(cfg: chachingConfig, account: PrivateAccount,
+	fields: Partial<Pick<PrivateAccount, 'name' | 'tier' | 'monthlyUsd' | 'feeSource'>> = account): Promise<PrivateAccount> {
+	if (!isConfigured(cfg.sync) || account.pendingLegacyIds?.length) return account;
+	const store = new PostgresSyncStore(cfg.sync.databaseUrl, cfg.sync.poolId, cfg.sync.machineId);
 	try {
-		localQuota = cfg.tokenmaxx.enabled ? readTokenmaxxQuota(expandPath(cfg.tokenmaxx.dbPath)) : null;
+		await store.open();
+		const id = await store.discoverAccount({
+			id: account.id, provider: account.provider, name: account.name, account: '',
+			tier: account.tier, monthlyUsd: account.monthlyUsd, feeSource: account.feeSource,
+			identityKey: account.identity ? accountIdentityKey(account.provider, account.identity, cfg.sync.poolId) : null
+		}, false);
+		await store.updateAccountDetails({ ...fields, id, provider: account.provider });
+		const status = await store.status();
+		const remote = status.accounts.find(row => row.id === id);
+		if (!remote) throw new Error('Account disappeared from the pool after saving');
+		return { ...account, name: remote.name, tier: remote.tier, monthlyUsd: remote.monthlyUsd, feeSource: remote.feeSource ?? 'explicit' };
+	} finally { await store.close(); }
+}
+
+export function applyPoolAccountDetails(cfg: chachingConfig, status: SyncStatus): chachingConfig {
+	const poolId = cfg.sync.poolId;
+	if (!poolId || status.pool?.id !== poolId) return cfg;
+	return { ...cfg, accounts: cfg.accounts.map(account => {
+		if (account.pendingLegacyIds?.length) return account;
+		const key = account.identity ? accountIdentityKey(account.provider, account.identity, poolId) : null;
+		const remote = status.accounts.find(row => row.provider === account.provider &&
+			(key && row.identityKey ? row.identityKey === key : row.id === account.id));
+		return remote ? { ...account, name: remote.name, tier: remote.tier, monthlyUsd: remote.monthlyUsd, feeSource: remote.feeSource ?? 'explicit' } : account;
+	}) };
+}
+
+export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus> {
+	const cfg = config ?? (await refreshAccountDiscovery());
+	let localQuota: TokenmaxxQuotaSnapshot | null = null;
+	try {
+		localQuota = accountQuotaSnapshot(cfg, cfg.tokenmaxx.enabled ? readTokenmaxxAccounts(expandPath(cfg.tokenmaxx.dbPath), cfg.sync.poolId || undefined) : []);
 	} catch {
 		// Quota display is supplementary; token reconciliation reports ingest failures separately.
 	}
@@ -48,7 +114,10 @@ export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus
 			...localSyncStatus(),
 			databaseConfigured: cfg.sync.databaseUrl.length > 0,
 			intervalMinutes,
-			providerQuotas: localProviderQuotas
+			providerQuotas: localProviderQuotas,
+			accounts: cfg.accounts.map(account => ({ id: account.id, provider: account.provider, name: account.name,
+				account: '', tier: account.tier, monthlyUsd: account.monthlyUsd, feeSource: account.feeSource })),
+			mappings: localAccountMappings(cfg)
 		};
 	}
 	const store = new PostgresSyncStore(
@@ -59,7 +128,17 @@ export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus
 	try {
 		await store.open();
 		await store.heartbeat(cfg.sync.machineName, hostname());
+		await publishDiscoveredAccounts(store, cfg);
 		const status = await store.status();
+		if (!config) await updateConfig(current => {
+			if (current.sync.poolId !== cfg.sync.poolId || current.sync.databaseUrl !== cfg.sync.databaseUrl) return current;
+			const hydrated = applyPoolAccountDetails(current, status);
+			return { ...current, accounts: hydrated.accounts.map(account => {
+				const before = cfg.accounts.find(row => row.id === account.id);
+				const now = current.accounts.find(row => row.id === account.id);
+				return now && JSON.stringify(now) !== JSON.stringify(before) ? now : account;
+			}) };
+		});
 		const remoteQuotas = (status.providerQuotas ?? []).filter((quota) =>
 			!localProviderQuotas.some((local) => local.machineId === quota.machineId && local.source === quota.source)
 		);
@@ -85,22 +164,26 @@ export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus
 	}
 }
 
+export async function getReportAccountContext(scope: Parameters<typeof reportAccountFees>[2] = {}) {
+	if (scope.accountIds?.length) throw new Error(ACCOUNT_SPEND_FILTER_UNAVAILABLE);
+	const status = await getSyncStatus();
+	const config = await loadConfig();
+	return { config, status, fees: reportAccountFees(config, status, scope) };
+}
+
 export async function performSyncAction(action: SyncAction): Promise<SyncStatus> {
 	let cfg = await loadConfig();
 
 	if (action.action === 'leave') {
-		const next = {
-			...cfg,
+		await updateConfig(current => ({
+			...current,
 			sync: {
-				...cfg.sync,
+				...current.sync,
 				enabled: false,
 				databaseUrl: '',
-				poolId: null,
-				providerSubscriptions: {}
+				poolId: null
 			}
-		};
-		clearConfigCache();
-		await saveConfig(next);
+		}));
 		return localSyncStatus();
 	}
 
@@ -110,9 +193,9 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 		const databaseUrl = required(action.databaseUrl, 'Database URL');
 		const poolName = required(action.poolName, 'Pool name');
 		const machineName = required(action.machineName, 'Machine name');
-		const identity = await ensureMachineIdentity(cfg);
+		const identity = await ensureMachineIdentity();
 		cfg = identity.config;
-		const pendingPool = await ensurePendingPoolIdentity(cfg);
+		const pendingPool = await ensurePendingPoolIdentity();
 		cfg = pendingPool.config;
 		const poolId = pendingPool.poolId;
 		const machineId = identity.machineId;
@@ -127,17 +210,14 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 			});
 			// No history import: a machine simply publishes all its local days on the next engine
 			// burst (its rollup already merges frozen history + live), so joining loses nothing.
-			const next = withSync(cfg, {
+			await updateConfig(current => withSync(current, {
 				enabled: true,
 				databaseUrl,
 				poolId,
 				machineId,
 				machineName,
-				providerSubscriptions: {},
-				intervalMinutes: cfg.sync.intervalMinutes
-			});
-			clearConfigCache();
-			await saveConfig(next);
+				intervalMinutes: current.sync.intervalMinutes
+			}));
 			return await store.status();
 		} catch (cause) {
 			throw describeSyncFailure(cause);
@@ -152,7 +232,7 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 		const databaseUrl = required(action.databaseUrl, 'Database URL');
 		const poolId = required(action.poolId, 'Pool ID');
 		const machineName = required(action.machineName, 'Machine name');
-		const identity = await ensureMachineIdentity(cfg);
+		const identity = await ensureMachineIdentity();
 		cfg = identity.config;
 		const machineId = identity.machineId;
 		const store = new PostgresSyncStore(databaseUrl);
@@ -165,17 +245,14 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 			});
 			// No history import (see create): the engine publishes this machine's local days on
 			// its next burst, so there is nothing to migrate at join time.
-			const next = withSync(cfg, {
+			await updateConfig(current => withSync(current, {
 				enabled: true,
 				databaseUrl,
 				poolId,
 				machineId,
 				machineName,
-				providerSubscriptions: {},
-				intervalMinutes: cfg.sync.intervalMinutes
-			});
-			clearConfigCache();
-			await saveConfig(next);
+				intervalMinutes: current.sync.intervalMinutes
+			}));
 			return await store.status();
 		} catch (cause) {
 			throw describeSyncFailure(cause);
@@ -185,6 +262,30 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 	}
 
 	if (!isConfigured(cfg.sync)) throw new Error('Join or create a sync pool first');
+	const poolId = cfg.sync.poolId;
+	if (action.action === 'add-account') {
+		const monthlyUsd = action.monthlyUsd;
+		if (!Number.isFinite(monthlyUsd) || monthlyUsd < 0)
+			throw new Error('Monthly USD must be a non-negative number');
+		const subscription: SyncAccount = {
+			id: randomUUID(),
+			provider: required(action.provider, 'Provider'),
+			name: required(action.name, 'Account name'),
+			account: '',
+			tier: required(action.tier, 'Tier'),
+			monthlyUsd, feeSource: 'explicit'
+		};
+		await updateConfig(current => {
+			return { ...current, accounts: [...current.accounts, {
+				id: subscription.id, provider: subscription.provider, name: subscription.name,
+				tier: subscription.tier, monthlyUsd, feeSource: 'explicit', identity: null,
+				registrations: [], legacy: false, pendingPoolId: poolId,
+				...(action.account.trim() ? { privateLabel: action.account.trim() } : {})
+			}] };
+		});
+		return await getSyncStatus();
+	}
+
 	const store = new PostgresSyncStore(
 		cfg.sync.databaseUrl,
 		cfg.sync.poolId,
@@ -192,39 +293,28 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 	);
 	try {
 		await store.open();
-		if (action.action === 'add-subscription') {
-			const monthlyUsd = action.monthlyUsd;
-			if (!Number.isFinite(monthlyUsd) || monthlyUsd < 0)
-				throw new Error('Monthly USD must be a non-negative number');
-			const subscription: SyncSubscription = {
-				id: randomUUID(),
-				provider: required(action.provider, 'Provider'),
-				name: required(action.name, 'Subscription name'),
-				account: action.account.trim(),
-				tier: required(action.tier, 'Tier'),
-				monthlyUsd
-			};
-			await store.addSubscription(subscription);
+
+		const machineId = required(action.machineId, 'Machine ID');
+		const provider = required(action.provider, 'Provider');
+		if (machineId !== cfg.sync.machineId) {
+			await store.mapAccount(machineId, provider, action.accountId);
 		} else {
-			await store.mapSubscription(
-				required(action.machineId, 'Machine ID'),
-				required(action.provider, 'Provider'),
-				action.subscriptionId
-			);
-			if (action.machineId === cfg.sync.machineId) {
-				const next = {
-					...cfg,
-					sync: {
-						...cfg.sync,
-						providerSubscriptions: {
-							...cfg.sync.providerSubscriptions,
-							[action.provider]: action.subscriptionId
-						}
-					}
+			await updateConfig(async current => {
+				if (current.sync.poolId !== poolId || current.sync.machineId !== machineId || current.sync.databaseUrl !== cfg.sync.databaseUrl) throw new Error('Sync settings changed; retry mapping.');
+				const remote = action.accountId ? (await store.status()).accounts.find(account => account.id === action.accountId && account.provider === provider) : null;
+				if (action.accountId && !remote) throw new Error('Account does not exist in this pool for that provider');
+				const existing = remote ? current.accounts.find(account => account.provider === provider &&
+					(account.id === remote.id || (account.identity && remote.identityKey === accountIdentityKey(provider, account.identity, poolId)))) : null;
+				const account: PrivateAccount | null = remote ? {
+					...existing, id: existing?.id ?? remote.id, provider, name: remote.name, tier: remote.tier, monthlyUsd: remote.monthlyUsd,
+					feeSource: remote.feeSource ?? 'explicit', identity: existing?.identity ?? null, registrations: existing?.registrations ?? [], legacy: existing?.legacy ?? false
+				} : null;
+				await store.mapAccount(machineId, provider, action.accountId);
+				return { ...current,
+					accounts: account ? [...current.accounts.filter(row => row.id !== account.id), account] : current.accounts,
+					providerAccounts: { ...current.providerAccounts, [provider]: account ? [account.id] : [] }
 				};
-				clearConfigCache();
-				await saveConfig(next);
-			}
+			});
 		}
 		await store.heartbeat(cfg.sync.machineName, hostname());
 		return await store.status();
@@ -247,9 +337,7 @@ export function parseIntervalMinutes(raw: string | number): number {
 /** Persist the sync publish cadence (minutes). Validates via parseIntervalMinutes. */
 export async function setSyncInterval(minutes: number): Promise<number> {
 	const intervalMinutes = parseIntervalMinutes(minutes);
-	const cfg = await loadConfig();
-	clearConfigCache();
-	await saveConfig({ ...cfg, sync: { ...cfg.sync, intervalMinutes } });
+	await updateConfig(cfg => ({ ...cfg, sync: { ...cfg.sync, intervalMinutes } }));
 	return intervalMinutes;
 }
 
@@ -322,25 +410,21 @@ function describeSyncFailure(cause: unknown): Error {
 	);
 }
 
-async function ensureMachineIdentity(
-	cfg: chachingConfig
-): Promise<{ config: chachingConfig; machineId: string }> {
-	if (cfg.sync.machineId) return { config: cfg, machineId: cfg.sync.machineId };
-	const machineId = randomUUID();
-	const config = { ...cfg, sync: { ...cfg.sync, machineId } };
-	// Persist before any PostgreSQL side effect. A retry after a crash or config
-	// write failure then reuses one identity and one idempotent history import.
-	await saveConfig(config);
+async function ensureMachineIdentity(): Promise<{ config: chachingConfig; machineId: string; }> {
+	let machineId = '';
+	const config = await updateConfig(current => {
+		machineId = current.sync.machineId ?? randomUUID();
+		return { ...current, sync: { ...current.sync, machineId } };
+	});
 	return { config, machineId };
 }
 
-async function ensurePendingPoolIdentity(
-	cfg: chachingConfig
-): Promise<{ config: chachingConfig; poolId: string }> {
-	if (cfg.sync.poolId) return { config: cfg, poolId: cfg.sync.poolId };
-	const poolId = randomUUID();
-	const config = { ...cfg, sync: { ...cfg.sync, poolId } };
-	await saveConfig(config);
+async function ensurePendingPoolIdentity(): Promise<{ config: chachingConfig; poolId: string; }> {
+	let poolId = '';
+	const config = await updateConfig(current => {
+		poolId = current.sync.poolId ?? randomUUID();
+		return { ...current, sync: { ...current.sync, poolId } };
+	});
 	return { config, poolId };
 }
 

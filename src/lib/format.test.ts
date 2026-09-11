@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { modelColor, modelFamily, modelLabel, providerLabel, hueOf } from './format.js';
+import { money, modelColor, modelFamily, modelLabel, providerLabel, hueOf } from './format.js';
 import { tokens } from './brand/tokens.js';
 
 describe('modelFamily', () => {
@@ -48,4 +48,11 @@ describe('family-anchor parity', () => {
 			expect(diff).toBeLessThan(8);
 		});
 	}
+});
+
+it('keeps negative currency signs at every display precision', () => {
+	expect(money(-50)).toBe('-$50.00');
+	expect(money(-1500)).toBe('-$1,500');
+	expect(money(-0.005)).toBe('-$0.0050');
+	expect(money(-0)).toBe('$0.00');
 });

@@ -10,7 +10,7 @@
 // data constants), so a dropped feature shows up as a missing region/control.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, cleanup } from '@testing-library/svelte';
+import { render, cleanup, fireEvent, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import Page from './+page.svelte';
 import type { DayModelAgg, RollupSnapshot, TokenCounts, SessionSummary } from '$lib/types';
@@ -92,6 +92,15 @@ class FakeEventSource {
 }
 
 beforeEach(() => {
+	// jsdom has no layout observation; responsive geometry is checked in the browser.
+	vi.stubGlobal('ResizeObserver', class {
+		observe() {}
+		unobserve() {}
+		disconnect() {}
+	});
+	vi.useFakeTimers({ toFake: ['Date'] });
+	vi.setSystemTime(new Date('2026-06-19T12:00:00Z'));
+	localStorage.clear();
 	vi.stubGlobal('EventSource', FakeEventSource as unknown as typeof EventSource);
 	// jsdom has no matchMedia; default to motion-allowed (the reduced-motion test overrides).
 	vi.stubGlobal(
@@ -112,10 +121,12 @@ beforeEach(() => {
 			if (String(url).startsWith('/api/config'))
 				return new Response(
 					JSON.stringify({
-						providers: {
-							claude: { enabled: true, subscription: { tier: 'max20', monthlyUsd: 200 } },
-							codex: { enabled: true, subscription: { tier: 'plus', monthlyUsd: 20 } }
-						}
+						accounts: [
+							{ id: 'claude', provider: 'claude', name: 'Claude Code', tier: 'max20', monthlyUsd: 200, feeSource: 'explicit' },
+							{ id: 'codex', provider: 'codex', name: 'Codex', tier: 'plus', monthlyUsd: 20, feeSource: 'explicit' }
+						],
+						providerAccounts: { claude: ['claude'], codex: ['codex'] },
+						providers: { claude: { enabled: true }, codex: { enabled: true } }
 					}),
 					{ status: 200, headers: { 'content-type': 'application/json' } }
 				);
@@ -133,6 +144,7 @@ afterEach(() => {
 	snapshotToEmit = null;
 	syncStatusToReturn = {};
 	vi.unstubAllGlobals();
+	vi.useRealTimers();
 });
 
 // Let the fake EventSource emit (macrotask), the config fetch settle, then flush
@@ -167,50 +179,144 @@ describe('dashboard route — landmarks + structure (a11y, layout adoption)', ()
 		expect(container.querySelector('main header, main main, header main')).toBeNull();
 	});
 
-	it('renders the dashboard in order with the counterfactual lab last', async () => {
+	it('puts spend before charts and recent sessions without the what-if calculator', async () => {
 		snapshotToEmit = richSnap();
-		const { container } = render(Page);
+		const { container, getByRole } = render(Page);
 		await flush();
-		const main = container.querySelector('main')!;
-		// Main's direct children are the named zone wrappers in document order.
-		const order = [...main.children].map((el) => el.className.split(/\s+/)[0]);
-		const idx = (c: string) => order.findIndex((x) => x === c);
-		expect(idx('slot-cmd')).toBeGreaterThanOrEqual(0);
-		expect(idx('slot-rail')).toBe(-1);
-		expect(idx('slot-cmd')).toBeLessThan(idx('zone-now'));
-		expect(idx('zone-now')).toBeLessThan(idx('zone-money'));
-		expect(idx('zone-money')).toBeLessThan(idx('zone-history'));
-		expect(idx('zone-history')).toBeLessThan(idx('zone-pool'));
-		expect(idx('zone-pool')).toBeLessThan(idx('zone-ledger'));
-		expect(idx('zone-ledger')).toBeLessThan(idx('zone-lab'));
+		const overview = getByRole('region', { name: 'Spend overview' });
+		const sessions = getByRole('region', { name: 'Recent sessions' });
+		const chart = getByRole('region', { name: /^Spend$/ });
+		const quotas = getByRole('region', { name: 'Account quotas' });
+		expect(chart.nextElementSibling).toBe(quotas);
+		expect(quotas.compareDocumentPosition(sessions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(overview.compareDocumentPosition(sessions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(container.querySelector('.whatif')).toBeNull();
+		expect(container.querySelector('.summary-rail')).toBeNull();
 	});
 
-	it('places the primary regions without the redundant rail or honesty box', async () => {
+	it('keeps exploration and real sync controls reachable from the shared navigation', async () => {
 		snapshotToEmit = richSnap();
-		const { container } = render(Page);
+		const { getByRole, container } = render(Page);
 		await flush();
-		expect(container.querySelector('.zone-now .hero')).toBeTruthy();
-		expect(container.querySelector('.zone-now .stat-grid')).toBeTruthy();
-		expect(container.querySelector('.zone-money .value-grid')).toBeTruthy();
-		expect(container.querySelector('.zone-history .heatmap-sec')).toBeTruthy();
-		expect(container.querySelector('.zone-history .grid2')).toBeTruthy();
-		expect(container.querySelector('.zone-ledger .sessions-sec')).toBeTruthy();
-		expect(container.querySelector('.zone-lab .whatif')).toBeTruthy();
-		expect(container.querySelector('.summary-rail')).toBeNull();
-		expect(container.querySelector('footer.honesty')).toBeNull();
-		// The command bar owns the scope controls (period tabs + provider pills).
-		expect(container.querySelector('.slot-cmd .command-bar')).toBeTruthy();
-		expect(container.querySelector('.slot-cmd [role="tablist"]')).toBeTruthy();
+		await fireEvent.click(getByRole('button', { name: 'Explore' }));
+		expect(container.querySelector('[data-heatmap-grid]')).toBeTruthy();
+		expect(container.querySelector('.sessions-sec')).toBeTruthy();
+		await fireEvent.click(getByRole('button', { name: 'Settings' }));
+		expect(getByRole('heading', { name: 'Settings' })).toBeTruthy();
+		expect(container.querySelector('[data-heatmap-grid]')).toBeNull();
 	});
+
 });
 
 describe('dashboard route — behavior contracts', () => {
+	it('marks unpriced model and project totals as unknown rather than free', async () => {
+		const snap = richSnap();
+		snap.dayModel.push({ ...dm('2026-06-19', 'claude', 'unpriced-model', 0), costUnknownRequests: 1 });
+		snap.sessions.push(session({ sessionId: 'unpriced', project: '/unpriced-project', models: ['unpriced-model'], cost: 0, requests: 1, costUnknownRequests: 1 }));
+		snapshotToEmit = snap;
+		const { getByRole } = render(Page);
+		await flush();
+		await fireEvent.click(getByRole('button', { name: 'Explore' }));
+		for (const label of ['Models', 'Projects']) {
+			const table = getByRole('table', { name: label });
+			expect(table).toHaveTextContent('Unknown');
+			expect(table).toHaveTextContent('Partial');
+		}
+	});
+
+	it('keeps Explore search and sorting across views while View all opens recent scoped sessions', async () => {
+		const snap = richSnap();
+		snap.sessions.push(session({ sessionId: 'old', project: '/old-project', firstTs: Date.parse('2026-05-01'), lastTs: Date.parse('2026-05-01'), cost: 999 }));
+		snap.earliestDay = '2026-05-01';
+		snapshotToEmit = snap;
+		const { getByRole, getByLabelText, queryByLabelText, queryByText } = render(Page);
+		await flush();
+		expect(queryByLabelText('Search sessions by project')).toBeNull();
+		await fireEvent.click(getByRole('button', { name: 'Explore' }));
+		expect(queryByText('old-project')).toBeNull();
+		await fireEvent.input(getByLabelText('Search sessions by project'), { target: { value: 'orca' } });
+		await fireEvent.click(getByRole('button', { name: /^Sort by Cost/ }));
+		await fireEvent.click(getByRole('button', { name: 'Dashboard' }));
+		await fireEvent.click(getByRole('button', { name: 'Explore' }));
+		expect(getByLabelText('Search sessions by project')).toHaveValue('orca');
+		expect(getByRole('button', { name: /^Sort by Cost, descending/ })).toHaveAttribute('aria-pressed', 'true');
+		await fireEvent.click(getByRole('button', { name: 'Dashboard' }));
+		await fireEvent.click(getByRole('button', { name: /^View all/ }));
+		expect(getByLabelText('Search sessions by project')).toHaveValue('');
+		expect(getByRole('button', { name: /^Sort by Last active, descending/ })).toHaveAttribute('aria-pressed', 'true');
+		expect(queryByText('old-project')).toBeNull();
+		await fireEvent.click(getByRole('tab', { name: 'All' }));
+		expect(getByRole('button', { name: /^old-project,.*Open session detail/ })).toBeTruthy();
+	});
+
+	it('steps full windows and stops once the first recorded day is included', async () => {
+		snapshotToEmit = { ...richSnap(), earliestDay: '2026-05-15' };
+		const view = render(Page);
+		await flush();
+		expect(view.getByRole('button', { name: 'Previous window' })).not.toBeDisabled();
+		await fireEvent.click(view.getByRole('button', { name: 'Previous window' }));
+		expect(view.getByLabelText('Window ending date')).toHaveValue('2026-05-20');
+		expect(view.getByRole('button', { name: 'Previous window' })).toBeDisabled();
+		await fireEvent.click(view.getByRole('button', { name: 'Next window' }));
+		expect(view.getByLabelText('Window ending date')).toHaveValue('2026-06-19');
+	});
+
+	it('navigates through quiet today and preserves day focus when choosing a date', async () => {
+		vi.setSystemTime(new Date('2026-06-20T12:00:00Z'));
+		snapshotToEmit = richSnap();
+		const { getByRole, getByLabelText } = render(Page);
+		await flush();
+		await fireEvent.click(getByRole('button', { name: /^20 Jun.*Open the day's detail/ }));
+		expect(getByLabelText('Window ending date')).toHaveValue('2026-06-20');
+		expect(getByRole('button', { name: 'Next window' })).toBeDisabled();
+		await fireEvent.click(getByRole('button', { name: 'Previous window' }));
+		expect(getByLabelText('Window ending date')).toHaveValue('2026-06-19');
+		await fireEvent.change(getByLabelText('Window ending date'), { target: { value: '2026-06-18' } });
+		const saved = JSON.parse(localStorage.getItem('chaching.ui.v1')!);
+		expect(saved.focusedDay).toBe('2026-06-18');
+		expect(saved.period).toBe('month');
+		await fireEvent.click(getByRole('button', { name: 'Latest' }));
+		expect(getByLabelText('Window ending date')).toHaveValue('2026-06-20');
+		expect(JSON.parse(localStorage.getItem('chaching.ui.v1')!).focusedDay).toBeNull();
+	});
+
+	it('does not let a pending quota refresh restore a pool after leaving it', async () => {
+		vi.useFakeTimers();
+		snapshotToEmit = richSnap();
+		const machine = { id: 'machine', name: 'Test machine', hostname: 'test', lastSeenAt: null };
+		const joined = { enabled: true, databaseConfigured: true, pool: { id: 'pool', name: 'Old pool' }, machine, machines: [machine], accounts: [], mappings: [], providerQuotas: [] };
+		const left = { ...joined, enabled: false, databaseConfigured: false, pool: null, machine: null, machines: [] };
+		const originalFetch = fetch;
+		let reads = 0;
+		let resolveStale: (response: Response) => void = () => { throw new Error('Refresh did not start'); };
+		vi.stubGlobal('fetch', (url: RequestInfo | URL, init?: RequestInit) => {
+			if (String(url) !== '/api/sync') return originalFetch(url, init);
+			if (init?.method === 'POST') return Promise.resolve(Response.json(left));
+			if (++reads === 1) return Promise.resolve(Response.json(joined));
+			return new Promise<Response>(resolve => { resolveStale = resolve; });
+		});
+		const { getByRole, queryByRole } = render(Page);
+		await vi.advanceTimersByTimeAsync(0);
+		await tick();
+		await fireEvent.click(getByRole('button', { name: 'Settings' }));
+		await vi.advanceTimersByTimeAsync(30_000);
+		expect(reads).toBe(2);
+		await fireEvent.click(getByRole('button', { name: 'leave pool' }));
+		await fireEvent.click(getByRole('button', { name: 'confirm leave' }));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(queryByRole('button', { name: 'leave pool' })).toBeNull();
+		resolveStale(Response.json(joined));
+		await vi.advanceTimersByTimeAsync(0);
+		await tick();
+		expect(queryByRole('button', { name: 'leave pool' })).toBeNull();
+	});
+
 	it('P1: shows all five period keys incl. Quarter + All', async () => {
 		snapshotToEmit = richSnap();
 		const { getByRole } = render(Page);
 		await flush();
 		// PeriodSwitcher is a tablist of D/W/M/Q/All
-		for (const label of ['Day', 'Week', 'Month', 'Quarter', 'All'])
+		for (const label of ['1d', '7d', '30d', '90d', 'All'])
 			expect(getByRole('tab', { name: label })).toBeTruthy();
 	});
 
@@ -225,8 +331,9 @@ describe('dashboard route — behavior contracts', () => {
 
 	it('P4 + P3: renders the calendar heatmap grid with per-day cells', async () => {
 		snapshotToEmit = richSnap();
-		const { container } = render(Page);
+		const { container, getByRole } = render(Page);
 		await flush();
+		await fireEvent.click(getByRole('button', { name: 'Explore' }));
 		expect(container.querySelector('[data-heatmap-grid]')).toBeTruthy();
 	});
 
@@ -243,18 +350,20 @@ describe('dashboard route — behavior contracts', () => {
 
 	it('P12: by-model breakdown renders and the panel is present', async () => {
 		snapshotToEmit = richSnap();
-		const { container } = render(Page);
+		const { container, getByRole } = render(Page);
 		await flush();
+		await fireEvent.click(getByRole('button', { name: 'Explore' }));
 		expect(container.querySelector('.by-model')).toBeTruthy();
-		expect((container.textContent ?? '').toLowerCase()).toContain('by model');
+		expect(getByRole('table', { name: 'Models' })).toBeTruthy();
 	});
 
 	it('P13: 5h API-cost panel + recent blocks render', async () => {
 		snapshotToEmit = richSnap();
-		const { container } = render(Page);
+		const { container, getByRole } = render(Page);
 		await flush();
+		await fireEvent.click(getByRole('button', { name: 'Explore' }));
 		expect(container.querySelector('.cap-panel')).toBeTruthy();
-		expect((container.textContent ?? '').toLowerCase()).toContain('api-cost window');
+		expect((container.textContent ?? '').toLowerCase()).toContain('5h spend');
 		expect(container.querySelectorAll('.recent-blocks li').length).toBeGreaterThan(0);
 	});
 
@@ -266,7 +375,7 @@ describe('dashboard route — behavior contracts', () => {
 			pool: { id: 'pool', name: 'Test pool' },
 			machine: null,
 			machines: [],
-			subscriptions: [],
+			accounts: [],
 			mappings: [],
 			providerQuotas: [{
 				machineId: 'nimbus',
@@ -281,20 +390,26 @@ describe('dashboard route — behavior contracts', () => {
 				}))
 			}]
 		};
-		const { container } = render(Page);
+		const { container, getByRole, getAllByRole } = render(Page);
 		await flush();
+		expect(container.textContent).toContain('Selection unavailable for some providers');
+		expect(getAllByRole('meter')).toHaveLength(3);
+		expect(getByRole('button', { name: 'Selected' }).getAttribute('title')).toContain('Selected in Tokenmaxx');
+		await fireEvent.click(getByRole('button', { name: /^All accounts$/ }));
 		const text = container.textContent ?? '';
-		expect(text).toContain('Anthropic quota');
+		expect(text).toContain('Accounts');
 		expect(text).toContain('Claude account 1');
-		expect(text).toContain('90%');
-		expect(text).toContain('91%');
-		expect(text).toContain('88%');
+		expect(getAllByRole('meter').map(meter => meter.getAttribute('aria-valuenow'))).toEqual(['10', '9', '12']);
+		await fireEvent.click(getByRole('button', { name: /^By provider$/ }));
+		expect(getAllByRole('meter')).toHaveLength(3);
+		expect(JSON.parse(localStorage.getItem('chaching.ui.v1')!).quotaView).toBe('provider');
 	});
 
 	it('P7: cross-day session browser renders rows', async () => {
 		snapshotToEmit = richSnap();
-		const { container } = render(Page);
+		const { container, getByRole } = render(Page);
 		await flush();
+		await fireEvent.click(getByRole('button', { name: 'Explore' }));
 		expect(container.querySelector('.sessions-sec')).toBeTruthy();
 		// session project names appear somewhere in the explorer
 		expect(container.textContent ?? '').toMatch(/orca|chaching/);
@@ -302,13 +417,13 @@ describe('dashboard route — behavior contracts', () => {
 
 	it('P10: subsidisation card renders (fed off /api/config, month-basis)', async () => {
 		snapshotToEmit = richSnap();
-		const { container } = render(Page);
+		const { container, getByRole, getAllByRole } = render(Page);
 		await flush();
 		expect(container.querySelector('.value-grid')).toBeTruthy();
-		// the SubsidisationCard itself survived (heading + at least one tier control),
-		// not just *something* in the value band.
 		expect(container.querySelector('#subsidy-heading')).toBeTruthy();
-		expect(container.querySelectorAll('.value-grid select, .value-grid button, .value-grid input').length).toBeGreaterThan(0);
+		expect(container.querySelector('[aria-label="combined subsidy multiple"]')?.textContent).toContain('×');
+		await fireEvent.click(getByRole('button', { name: 'Settings' }));
+		expect(getAllByRole('combobox', { name: 'Plan' })).toHaveLength(2);
 	});
 
 	it('M6: pooled subsidy card renders per-subscription value (shared fee counted once)', async () => {
@@ -320,7 +435,7 @@ describe('dashboard route — behavior contracts', () => {
 			machines: [
 				{ id: 'm-kinto', name: 'kinto', hostname: 'kinto', lastSeenAt: null, current: true }
 			],
-			subscriptions: [
+			accounts: [
 				{
 					id: 'sub-codex',
 					provider: 'codex',
@@ -336,7 +451,7 @@ describe('dashboard route — behavior contracts', () => {
 		// Attribute the codex spend to the shared subscription so the card has value.
 		for (const row of snap.dayModel)
 			if (row.provider === 'codex')
-				(row as DayModelAgg & { subscriptionId?: string }).subscriptionId = 'sub-codex';
+				(row as DayModelAgg & { accountId?: string }).accountId = 'sub-codex';
 		snapshotToEmit = snap;
 
 		const { container } = render(Page);
@@ -348,17 +463,136 @@ describe('dashboard route — behavior contracts', () => {
 		expect(container.textContent).toContain('Shared ChatGPT Pro');
 	});
 
+	it.each([false, true])('does not substitute local fees for an empty pool scope, unreachable=%s', async unreachable => {
+		snapshotToEmit = richSnap();
+		syncStatusToReturn = { enabled: true, databaseConfigured: true, unreachable, pool: null, machine: null, machines: [], accounts: [], mappings: [], providerQuotas: [] };
+		const { container } = render(Page);
+		await flush();
+		expect(container.querySelector('#subsidy-heading')).toBeNull();
+		expect(container.textContent).toContain(unreachable ? 'Pool unavailable.' : 'No Accounts in this scope.');
+	});
+
 	it('P2 + hero: renders the brass register total figure', async () => {
 		snapshotToEmit = richSnap();
 		const { container } = render(Page);
 		await flush();
 		// the hero MoneyFigure renders a $ figure
-		const hero = container.querySelector('.hero')!;
+		const hero = container.querySelector('[aria-label="Spend overview"]')!;
 		expect((hero.textContent ?? '')).toMatch(/\$/);
 	});
 });
 
 describe('dashboard route — motion (reduced-motion contract)', () => {
+	it('retains an unsaved sibling plan while another provider saves', async () => {
+		snapshotToEmit = richSnap();
+		const view = render(Page);
+		await flush();
+		await fireEvent.click(view.getByRole('button', { name: 'Settings' }));
+		const codex = within(view.getByRole('form', { name: 'Codex plan' }));
+		await fireEvent.input(codex.getByRole('spinbutton'), { target: { value: '88' } });
+		const claude = within(view.getByRole('form', { name: 'Claude Code plan' }));
+		await fireEvent.click(claude.getByRole('button', { name: 'Save' }));
+		await flush();
+		expect(claude.getByRole('status').textContent).toBe('Saved');
+		expect(codex.getByRole('spinbutton')).toHaveProperty('value', '88');
+		expect(codex.getByRole('combobox')).toHaveProperty('value', 'custom');
+	});
+
+	it('includes the session detail sheet in application-level motion suppression', async () => {
+		localStorage.setItem('chaching.reducedMotion', '1');
+		snapshotToEmit = richSnap();
+		const view = render(Page);
+		await flush();
+		await fireEvent.click(view.getAllByRole('button', { name: /Open session detail/ })[0]);
+		expect(view.getByRole('dialog').closest('.still')).toBeTruthy();
+	});
+
+	it('saves plan settings through the endpoint, reports failures, and retains the saved fee on reload', async () => {
+		const saved = { accounts: [{ id: 'claude', provider: 'claude', name: 'Claude', tier: 'corporate', monthlyUsd: 99, feeSource: 'explicit' }], providerAccounts: { claude: ['claude'] }, providers: { claude: { enabled: true }, codex: { enabled: false } } };
+		let fail = true;
+		vi.mocked(fetch).mockImplementation(async (input, init) => {
+			if (String(input).startsWith('/api/config')) {
+				if (init?.method === 'POST') {
+					if (fail) return new Response('unavailable', { status: 503 });
+					saved.accounts[0] = { ...saved.accounts[0], tier: 'custom', monthlyUsd: 275.50 };
+				}
+				return Response.json(saved);
+			}
+			return Response.json({});
+		});
+		snapshotToEmit = richSnap();
+		let view = render(Page);
+		await flush();
+		expect(view.queryByRole('spinbutton')).toBeNull();
+		await fireEvent.click(view.getByRole('button', { name: 'Settings' }));
+		await fireEvent.change(view.getByRole('combobox', { name: 'Plan' }), { target: { value: 'max-5x' } });
+		expect(view.getByRole('spinbutton')).toHaveProperty('value', '100');
+		await fireEvent.input(view.getByRole('spinbutton'), { target: { value: '275.50' } });
+		await fireEvent.click(view.getByRole('button', { name: 'Save' }));
+		await flush();
+		expect(view.getByRole('alert').textContent).toContain('503');
+		expect(view.queryByRole('status')).toBeNull();
+		expect(saved.accounts[0].monthlyUsd).toBe(99);
+		expect(view.getByRole('spinbutton')).toHaveProperty('value', '275.50');
+		fail = false;
+		await fireEvent.click(view.getByRole('button', { name: 'Save' }));
+		await flush();
+		expect(view.getByRole('status').textContent).toBe('Saved');
+		expect(fetch).toHaveBeenCalledWith('/api/config', expect.objectContaining({ body: JSON.stringify({ account: { id: 'claude', name: 'Claude', tier: 'custom', monthlyUsd: 275.5 } }) }));
+		view.unmount();
+		view = render(Page);
+		await flush();
+		await fireEvent.click(view.getByRole('button', { name: 'Settings' }));
+		expect(view.getByRole('spinbutton')).toHaveProperty('value', '275.5');
+	});
+
+	it.each(['Personality', 'Animations'])('restores %s checkbox when storage rejects the change', async (name) => {
+		snapshotToEmit = richSnap();
+		const view = render(Page);
+		await flush();
+		await fireEvent.click(view.getByRole('button', { name: 'Settings' }));
+		const checkbox = view.getByRole('checkbox', { name: new RegExp(name) });
+		const write = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('Blocked'); });
+		try {
+			await fireEvent.click(checkbox);
+			expect(view.getByRole('alert').textContent).toContain('Could not save');
+			expect(checkbox).toHaveProperty('checked', true);
+		} finally { write.mockRestore(); }
+	});
+
+	it('persists appearance controls across remounts and suppresses Explore motion and art', async () => {
+		snapshotToEmit = richSnap();
+		let view = render(Page);
+		await flush();
+		await fireEvent.click(view.getByRole('button', { name: 'Settings' }));
+		await fireEvent.click(view.getByRole('checkbox', { name: /Animations/ }));
+		await fireEvent.click(view.getByRole('checkbox', { name: /Personality/ }));
+		expect(localStorage.getItem('chaching.reducedMotion')).toBe('1');
+		expect(localStorage.getItem('chaching.noArt')).toBe('1');
+		view.unmount();
+		view = render(Page);
+		await flush();
+		await fireEvent.click(view.getByRole('button', { name: 'Explore' }));
+		expect(view.container.querySelectorAll('[data-animated="true"]')).toHaveLength(0);
+		expect(view.container.textContent).not.toContain('🧾');
+		await fireEvent.click(view.getByRole('button', { name: 'Settings' }));
+		await fireEvent.click(view.getByRole('checkbox', { name: /Personality/ }));
+		expect(view.getByRole('checkbox', { name: /Animations/ })).toHaveProperty('checked', false);
+		await fireEvent.click(view.getByRole('checkbox', { name: /Animations/ }));
+		await fireEvent.click(view.getByRole('button', { name: 'Dashboard' }));
+		expect(view.container.querySelector('[data-animated="true"]')).toBeTruthy();
+	});
+
+	it('keeps system reduced motion authoritative over the saved animation preference', async () => {
+		vi.mocked(window.matchMedia).mockReturnValue({ matches: true, media: '', onchange: null, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn() });
+		snapshotToEmit = richSnap();
+		const view = render(Page);
+		await flush();
+		await fireEvent.click(view.getByRole('button', { name: 'Settings' }));
+		expect(view.getByRole('checkbox', { name: /Animations/ })).toHaveProperty('disabled', true);
+		expect(view.getByRole('checkbox', { name: /Animations/ })).toHaveProperty('checked', false);
+	});
+
 	it('shows the final hero value when prefers-reduced-motion is set (NumberFlow honours the preference, no roll)', async () => {
 		vi.stubGlobal(
 			'matchMedia',
@@ -380,7 +614,7 @@ describe('dashboard route — motion (reduced-motion contract)', () => {
 		// CSS reels (no plain-text value) and its visual is aria-hidden, so the
 		// value the a11y tree + this assertion read is the odometer's visually-hidden
 		// text mirror. Under reduced motion it must still be the correct final total.
-		const hero = container.querySelector('.hero')!;
+		const hero = container.querySelector('[aria-label="Spend overview"]')!;
 		expect(hero.querySelector('[data-testid="money-odometer"]')).toBeTruthy();
 		expect(hero.textContent ?? '').toMatch(/\$20[0-9]/);
 	});
@@ -395,6 +629,39 @@ describe('dashboard route — motion (reduced-motion contract)', () => {
 		const { container } = render(Page);
 		await flush();
 		await tick();
-		expect((container.querySelector('.hero')?.textContent ?? '')).toMatch(/\$20[0-9]/);
+		expect((container.querySelector('[aria-label="Spend overview"]')?.textContent ?? '')).toMatch(/\$20[0-9]/);
 	});
+});
+
+
+it('retains local Account fees and quotas without Account spend filters', async () => {
+	snapshotToEmit = richSnap();
+	snapshotToEmit.dayModel = snapshotToEmit.dayModel.map(row => ({ ...row, accountId: row.provider }));
+	syncStatusToReturn = { enabled: false, machines: [], accounts: ['claude', 'codex'].map(id => ({
+		id, provider: id, name: `Local ${id}`, account: '', tier: 'custom', monthlyUsd: 20
+	})), mappings: [], providerQuotas: [] };
+	const { getByRole, container } = render(Page);
+	await flush();
+	expect(container.querySelector('[aria-label="Account filter"]')).toBeNull();
+	expect(getByRole('link', { name: /shareable receipt/ }).getAttribute('href')).not.toContain('account=');
+	expect(getByRole('region', { name: 'Account quotas' }).textContent).toContain('Local codex');
+	expect(getByRole('region', { name: 'Cache cost and subscription subsidy' }).textContent).toContain('Local codex');
+});
+
+
+it('keeps Codex quotas visible when only Claude has a selected Account', async () => {
+	snapshotToEmit = richSnap();
+	syncStatusToReturn = { enabled: false, machines: [], accounts: [], mappings: [], providerQuotas: [{
+		machineId: 'one', source: 'tokenmaxx', observedAt: '2026-08-13T23:00:00Z',
+		accounts: ['claude', 'codex'].map(provider => ({ provider, label: provider + ' quota',
+			current: provider === 'claude', plan: null, hardLimitReached: false,
+			windows: [{ id: 'weekly', label: 'Weekly', usedPercent: 25, resetAt: null }]
+		}))
+	}] };
+	const { getByRole, getAllByRole } = render(Page);
+	await flush();
+	const quotas = getByRole('region', { name: 'Account quotas' });
+	expect(quotas.textContent).toContain('claude quota');
+	expect(quotas.textContent).toContain('codex quota');
+	expect(getAllByRole('meter').map(row => row.getAttribute('aria-valuenow'))).toEqual(['75', '75']);
 });

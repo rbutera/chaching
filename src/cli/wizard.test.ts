@@ -5,7 +5,7 @@
  * - Pure-logic functions (applySelectionToConfig, resolveEnvSecret) are tested directly.
  * - Interactive prompts (multiselect, password) are mocked at the @clack/prompts module level.
  * - Config I/O uses a temp XDG dir to avoid touching the real config.
- * - The atomic write + 0600 test exercises saveConfig / configFilePath directly.
+ * - The atomic write + 0600 test exercises updateConfig / configFilePath directly.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -56,7 +56,7 @@ import {
 	resolveEnvSecret,
 	KNOWN_PROVIDERS
 } from './wizard.js';
-import { defaultConfig, saveConfig, configFilePath, clearConfigCache } from '../lib/core/config.js';
+import { defaultConfig, updateConfig, configFilePath, clearConfigCache } from '../lib/core/config.js';
 
 describe('parseWizardInterval', () => {
 	it('returns a valid whole-minute entry', () => {
@@ -162,7 +162,7 @@ describe('resolveEnvSecret', () => {
 
 // ── Atomic write + 0600 test ───────────────────────────────────────────────────
 
-describe('saveConfig atomic write + 0600', () => {
+describe('updateConfig atomic write + 0600', () => {
 	let tmpDir: string;
 
 	beforeEach(async () => {
@@ -179,7 +179,7 @@ describe('saveConfig atomic write + 0600', () => {
 
 	it('writes config file with 0600 permissions', async () => {
 		const cfg = defaultConfig();
-		await saveConfig(cfg);
+		await updateConfig(() => cfg);
 		// configFilePath() reads process.env (which we've overridden) with no args
 		const file = configFilePath();
 		const s = await stat(file);
@@ -190,7 +190,7 @@ describe('saveConfig atomic write + 0600', () => {
 	it('config file is either old or complete content, never truncated (atomic rename)', async () => {
 		const cfg = defaultConfig();
 		cfg.server.port = 12345;
-		await saveConfig(cfg);
+		await updateConfig(() => cfg);
 
 		const file = configFilePath();
 		const { readFile } = await import('node:fs/promises');
@@ -202,12 +202,12 @@ describe('saveConfig atomic write + 0600', () => {
 	it('second save updates the file correctly (idempotent atomic write)', async () => {
 		const cfg1 = defaultConfig();
 		cfg1.server.port = 11111;
-		await saveConfig(cfg1);
+		await updateConfig(() => cfg1);
 
 		clearConfigCache();
 		const cfg2 = defaultConfig();
 		cfg2.server.port = 22222;
-		await saveConfig(cfg2);
+		await updateConfig(() => cfg2);
 
 		const file = configFilePath();
 		const { readFile } = await import('node:fs/promises');
@@ -369,7 +369,7 @@ describe('runWizard (mocked prompts — TTY bypassed via isTTY stub)', () => {
 			pool: { id: 'pool-abc', name: 'My machines' },
 			machine: { id: 'm1', name: 'kinto', hostname: 'kinto', lastSeenAt: null },
 			machines: [],
-			subscriptions: [],
+			accounts: [],
 			mappings: [],
 			error: null
 		});
@@ -424,7 +424,7 @@ describe('provider command logic', () => {
 		// Seed a config with all providers enabled so we can flip them
 		const base = defaultConfig();
 		base.providers.cursor.enabled = true;
-		await saveConfig(base);
+		await updateConfig(() => base);
 		clearConfigCache();
 	});
 
@@ -461,7 +461,7 @@ describe('provider command logic', () => {
 		const { loadConfig } = await import('../lib/core/config.js');
 		const cfg = await loadConfig();
 		cfg.providers.cursor.enabled = false;
-		await saveConfig(cfg);
+		await updateConfig(() => cfg);
 		clearConfigCache();
 
 		const { runProvider } = await import('./commands/provider.js');

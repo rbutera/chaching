@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_SUBSCRIPTION, type chachingConfig } from './config';
+import { type chachingConfig } from './config';
 
 // Import the core engine via its relative path only — no SvelteKit $lib alias
 // resolution. If this module loaded any framework runtime, this import would fail
@@ -21,7 +21,6 @@ function syncConfiguredConfig(databaseUrl = 'postgresql://u:p@127.0.0.1:1/db'): 
 		poolId: randomUUID(),
 		machineId: randomUUID(),
 		machineName: 'test-machine',
-		providerSubscriptions: {},
 		intervalMinutes: 15
 	};
 	return cfg;
@@ -29,6 +28,7 @@ function syncConfiguredConfig(databaseUrl = 'postgresql://u:p@127.0.0.1:1/db'): 
 
 function disabledConfig(): chachingConfig {
 	return {
+		version: 1, accounts: [], providerAccounts: {},
 		cutoverTs: null,
 		server: { host: '127.0.0.1', port: 5178, origin: '' },
 		history: { enabled: false, dbPath: '' },
@@ -39,12 +39,11 @@ function disabledConfig(): chachingConfig {
 			poolId: null,
 			machineId: null,
 			machineName: '',
-			providerSubscriptions: {},
 			intervalMinutes: 15
 		},
 		providers: {
-			claude: { enabled: false, roots: [], subscription: { ...DEFAULT_SUBSCRIPTION } },
-			codex: { enabled: false, root: '', subscription: { ...DEFAULT_SUBSCRIPTION } },
+			claude: { enabled: false, roots: [] },
+			codex: { enabled: false, root: '' },
 			cursor: { enabled: false, adminApiToken: '', email: null, pollSeconds: 3600 },
 			opencode: { enabled: false, dbPath: '' },
 			pi: { enabled: false, roots: [] }
@@ -105,7 +104,7 @@ describe('core engine (no SvelteKit)', () => {
 		tmpRoots.push(root);
 		await mkdir(join(root, 'projects'), { recursive: true });
 		const cfg = disabledConfig();
-		cfg.providers.claude = { enabled: true, roots: [root], subscription: { ...DEFAULT_SUBSCRIPTION } };
+		cfg.providers.claude = { enabled: true, roots: [root] };
 
 		const before = activeHandleCount();
 		await runOnce(cfg);
@@ -121,7 +120,7 @@ describe('core engine (no SvelteKit)', () => {
 		await mkdir(join(root, 'projects'), { recursive: true });
 
 		const cfg = disabledConfig();
-		cfg.providers.claude = { enabled: true, roots: [root], subscription: { ...DEFAULT_SUBSCRIPTION } };
+		cfg.providers.claude = { enabled: true, roots: [root] };
 
 		const before = activeHandleCount();
 		const engine = createEngine(cfg);
@@ -139,7 +138,7 @@ describe('core engine (no SvelteKit)', () => {
 		tmpRoots.push(root);
 		await mkdir(join(root, 'projects'), { recursive: true });
 		const cfg = disabledConfig();
-		cfg.providers.claude = { enabled: true, roots: [root], subscription: { ...DEFAULT_SUBSCRIPTION } };
+		cfg.providers.claude = { enabled: true, roots: [root] };
 
 		const before = activeHandleCount();
 		const engine = createEngine(cfg);
@@ -160,7 +159,10 @@ describe('codex liveness — a session written AFTER the cold scan reaches the r
 		await mkdir(join(root, '2026/07/02'), { recursive: true });
 
 		const cfg = disabledConfig();
-		cfg.providers.codex = { enabled: true, root, subscription: { ...DEFAULT_SUBSCRIPTION } };
+		cfg.providers.codex = { enabled: true, root };
+		cfg.accounts = [{ id: 'local-codex', provider: 'codex', name: 'Local Codex', tier: 'custom', monthlyUsd: 20,
+			feeSource: 'explicit', identity: null, registrations: [], legacy: false }];
+		cfg.providerAccounts = { codex: ['local-codex'] };
 
 		const engine = createEngine(cfg);
 		try {
@@ -189,22 +191,28 @@ describe('codex liveness — a session written AFTER the cold scan reaches the r
 			await writeFile(join(root, '2026/07/02/rollout-live.jsonl'), session);
 
 			let deltas = 0;
-			engine.subscribe(() => deltas++);
+			engine.subscribe(delta => {
+				deltas++;
+				expect(delta.dayModel[0].accountId).toBe('local-codex');
+				expect(delta.sessions[0].accountId).toBe('local-codex');
+			});
 
 			// Drive the poll body directly (the production interval is 15s — white-box
 			// call keeps the test instant; the interval wiring is covered by dispose tests).
-			await (engine as unknown as { pollLocalProviders(c: typeof cfg): Promise<void> }).pollLocalProviders(cfg);
+			await (engine as unknown as { pollLocalProviders(c: typeof cfg): Promise<void>; }).pollLocalProviders(cfg);
 
 			const snap = engine.snapshot();
 			const codexRows = snap.dayModel.filter((dm) => dm.provider === 'codex');
 			expect(codexRows.length).toBe(1);
 			expect(codexRows[0].model).toBe('gpt-5.5');
 			expect(codexRows[0].day).toBe('2026-07-02');
+			expect(codexRows[0].accountId).toBe('local-codex');
+			expect(snap.sessions[0].accountId).toBe('local-codex');
 			expect(deltas).toBe(1);
 
 			// idempotent: a second poll re-reads the same file (inside the margin) but
 			// dedup keeps the rollup unchanged and no delta fires.
-			await (engine as unknown as { pollLocalProviders(c: typeof cfg): Promise<void> }).pollLocalProviders(cfg);
+			await (engine as unknown as { pollLocalProviders(c: typeof cfg): Promise<void>; }).pollLocalProviders(cfg);
 			expect(engine.snapshot().dayModel.filter((dm) => dm.provider === 'codex').length).toBe(1);
 			expect(engine.snapshot().dayModel.filter((dm) => dm.provider === 'codex')[0].requests).toBe(1);
 			expect(deltas).toBe(1);
@@ -272,7 +280,7 @@ describe('B1 — sync configured but unreachable falls back to local frozen hist
 		// Sync configured, but the URL points at a refused port so loadSync throws.
 		const cfg = syncConfiguredConfig();
 		cfg.history = { enabled: true, dbPath: historyPath };
-		cfg.providers.codex = { enabled: true, root: codexRoot, subscription: { ...DEFAULT_SUBSCRIPTION } };
+		cfg.providers.codex = { enabled: true, root: codexRoot };
 
 		const engine = createEngine(cfg, () => Date.parse('2026-07-17T12:00:00Z'));
 		try {
@@ -309,6 +317,24 @@ describe('B1 — sync configured but unreachable falls back to local frozen hist
 });
 
 describe('M5 — sync burst reliability', () => {
+	it('publishes cutover changes immediately, including clearing the date', async () => {
+		const engine = createEngine(disabledConfig());
+		await engine.ensureStarted();
+		const updates: (number | null)[] = [];
+		const unsubscribe = engine.subscribe(delta => {
+			if (delta.replace) updates.push(delta.replace.cutoverTs);
+		});
+		try {
+			const date = Date.parse('2026-09-09T00:00:00Z');
+			engine.setCutover(date);
+			expect(engine.snapshot().cutoverTs).toBe(date);
+			expect(updates.at(-1)).toBe(date);
+			engine.setCutover(null);
+			expect(engine.snapshot().cutoverTs).toBeNull();
+			expect(updates.at(-1)).toBeNull();
+		} finally { unsubscribe(); engine.dispose(); }
+	});
+
 	function loadStub() {
 		return { dayAggregates: [], hourAggregates: [], sessions: [], watermark: null };
 	}

@@ -47,6 +47,10 @@ export interface DayCell {
 	coverage: DayCoverage;
 }
 
+export function isCalendarDay(value: string): boolean {
+	return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+}
+
 /** Add (or subtract) whole days to a YYYY-MM-DD string, in UTC. */
 export function addDaysISO(day: string, delta: number): string {
 	const d = new Date(day + 'T00:00:00Z');
@@ -79,14 +83,16 @@ export function enumerateDays(from: string, to: string): string[] {
 /** The minimal UI selection both faces own. Sets may be empty (= "all"). */
 export interface ViewState {
 	period: Period;
+	/** Explicit UTC endpoint supplied by the caller; independent of the latest recorded day. */
+	windowEnd?: string;
 	/** empty = all models */
 	modelFilter: Set<string>;
 	/** empty = all providers */
 	providerFilter: Set<string>;
 	/** empty = all machines; optional for backward-compatible local/TUI callers */
 	machineFilter?: Set<string>;
-	/** empty = all subscriptions; optional for backward-compatible local/TUI callers */
-	subscriptionFilter?: Set<string>;
+	/** empty = all accounts; optional for backward-compatible local/TUI callers */
+	accountFilter?: Set<string>;
 	/**
 	 * The pinned single-day focus (`YYYY-MM-DD`), or null for rolling-period mode (default). When
 	 * set, `scopedSessions` narrows its window to this one day instead of the rolling period
@@ -102,7 +108,7 @@ export function defaultViewState(period: Period = 'week'): ViewState {
 		modelFilter: new Set(),
 		providerFilter: new Set(),
 		machineFilter: new Set(),
-		subscriptionFilter: new Set(),
+		accountFilter: new Set(),
 		focusedDay: null
 	};
 }
@@ -113,7 +119,7 @@ function asFilter(set?: Set<string>): Set<string> | null {
 }
 
 function hasPoolFilter(state: ViewState): boolean {
-	return Boolean(asFilter(state.machineFilter) || asFilter(state.subscriptionFilter));
+	return Boolean(asFilter(state.machineFilter) || asFilter(state.accountFilter));
 }
 
 /**
@@ -121,7 +127,7 @@ function hasPoolFilter(state: ViewState): boolean {
  * Under an attribution filter, downgrade known days to partial instead of
  * inheriting a peer's frozen/zero claim.
  */
-function coverageForState(snap: RollupSnapshot, state: ViewState): CoverageMap {
+export function coverageForState(snap: RollupSnapshot, state: ViewState): CoverageMap {
 	if (!hasPoolFilter(state)) return snap.coverage;
 	return Object.fromEntries(
 		Object.entries(snap.coverage).map(([day, coverage]) => [
@@ -133,24 +139,31 @@ function coverageForState(snap: RollupSnapshot, state: ViewState): CoverageMap {
 
 type PooledDayModel = DayModelAgg & {
 	machineId?: string;
-	subscriptionId?: string | null;
+	accountId?: string | null;
+	accountCandidates?: string[];
 };
 type PooledSession = SessionSummary & {
 	machineId?: string;
-	subscriptionId?: string | null;
+	accountId?: string | null;
+	accountCandidates?: string[];
 };
 
+function matchesAccountScope(row: Pick<DayModelAgg, 'accountId' | 'accountCandidates'>, accounts: Set<string>): boolean {
+	if (row.accountId) return accounts.has(row.accountId);
+	return Boolean(row.accountCandidates?.length && row.accountCandidates.every(id => accounts.has(id)));
+}
+
 /** Apply pool attribution filters before any period/model/provider aggregation. */
-function poolGrain(rows: readonly DayModelAgg[], state: ViewState): DayModelAgg[] {
+export function poolGrain(rows: readonly DayModelAgg[], state: Pick<ViewState, 'machineFilter' | 'accountFilter'>): DayModelAgg[] {
 	const machines = asFilter(state.machineFilter);
-	const subscriptions = asFilter(state.subscriptionFilter);
-	if (!machines && !subscriptions) return [...rows];
+	const accounts = asFilter(state.accountFilter);
+	if (!machines && !accounts) return [...rows];
 	return rows.filter((row) => {
 		const pooled = row as PooledDayModel;
 		if (machines && (!pooled.machineId || !machines.has(pooled.machineId))) return false;
 		if (
-			subscriptions &&
-			(!pooled.subscriptionId || !subscriptions.has(pooled.subscriptionId))
+			accounts &&
+			!matchesAccountScope(pooled, accounts)
 		)
 			return false;
 		return true;
@@ -159,12 +172,12 @@ function poolGrain(rows: readonly DayModelAgg[], state: ViewState): DayModelAgg[
 
 function poolSessionMatches(session: SessionSummary, state: ViewState): boolean {
 	const machines = asFilter(state.machineFilter);
-	const subscriptions = asFilter(state.subscriptionFilter);
+	const accounts = asFilter(state.accountFilter);
 	const pooled = session as PooledSession;
 	if (machines && (!pooled.machineId || !machines.has(pooled.machineId))) return false;
 	if (
-		subscriptions &&
-		(!pooled.subscriptionId || !subscriptions.has(pooled.subscriptionId))
+		accounts &&
+		!matchesAccountScope(pooled, accounts)
 	)
 		return false;
 	return true;
@@ -338,7 +351,7 @@ export interface PeriodWindow {
 }
 
 /** Rolling-window span in days for a fixed-length period, or null for "all". */
-function periodSpan(period: Period): number | null {
+export function periodSpan(period: Period): number | null {
 	switch (period) {
 		case 'day':
 			return 1;
@@ -368,7 +381,7 @@ function periodSpan(period: Period): number | null {
  * suppresses the delta.
  */
 export function periodWindow(snap: RollupSnapshot, state: ViewState): PeriodWindow {
-	const to = snap.latestDay ?? snap.earliestDay ?? '1970-01-01';
+	const to = state.windowEnd ?? snap.latestDay ?? snap.earliestDay ?? '1970-01-01';
 	const span = periodSpan(state.period);
 	if (span === null) {
 		// All-time: span the full data range; prior window is the (data-less) day
@@ -389,6 +402,17 @@ export function periodWindow(snap: RollupSnapshot, state: ViewState): PeriodWind
 					? 'Last 30 days'
 					: 'Last 90 days';
 	return { from, to, priorFrom, priorTo, label };
+}
+
+/** Fixed headlines stay current while the selected chart window can move through history. */
+export function headlineTotals(snap: RollupSnapshot, state: ViewState, today: string) {
+	const current = { ...state, windowEnd: today, focusedDay: null };
+	return {
+		today: heroTotals(snap, { ...current, period: 'day' }),
+		week: heroTotals(snap, { ...current, period: 'week' }),
+		month: heroTotals(snap, { ...current, period: 'month' }),
+		all: heroTotals(snap, { ...current, period: 'all' })
+	};
 }
 
 /**
@@ -417,7 +441,7 @@ export function periodWindow(snap: RollupSnapshot, state: ViewState): PeriodWind
 export function heroTotals(
 	snap: RollupSnapshot,
 	state: ViewState
-): { current: Totals; prior: Totals; label: string; priorHasBaseline: boolean } {
+): { current: Totals; prior: Totals; label: string; priorHasBaseline: boolean; } {
 	const modelFilter = asFilter(state.modelFilter);
 	const providerFilter = asFilter(state.providerFilter);
 	const w = periodWindow(snap, state);
@@ -518,8 +542,8 @@ export function allSessions(snap: RollupSnapshot, state: ViewState): SessionSumm
 	const modelFilter = asFilter(state.modelFilter);
 	const providerFilter = asFilter(state.providerFilter);
 	const machineFilter = asFilter(state.machineFilter);
-	const subscriptionFilter = asFilter(state.subscriptionFilter);
-	if (!modelFilter && !providerFilter && !machineFilter && !subscriptionFilter) return snap.sessions;
+	const accountFilter = asFilter(state.accountFilter);
+	if (!modelFilter && !providerFilter && !machineFilter && !accountFilter) return snap.sessions;
 	return snap.sessions.filter((s) => {
 		if (!poolSessionMatches(s, state)) return false;
 		if (modelFilter && !s.models.some((m) => modelFilter.has(m))) return false;
@@ -550,6 +574,7 @@ export interface ProjectTotal {
 	tokens: TokenCounts;
 	cost: number;
 	requests: number;
+	costUnknownRequests?: number;
 	/** number of scoped sessions attributed to this project. */
 	sessionCount: number;
 	/** contributing providers, by descending cost within the project (drives "top provider"). */
@@ -597,6 +622,7 @@ export function aggregateProjects(sessions: SessionSummary[]): ProjectTotal[] {
 		tokens: TokenCounts;
 		cost: number;
 		requests: number;
+		costUnknownRequests: number;
 		sessionCount: number;
 		providerCost: Map<string, number>;
 	}
@@ -617,6 +643,7 @@ export function aggregateProjects(sessions: SessionSummary[]): ProjectTotal[] {
 				tokens: zeroTokens(),
 				cost: 0,
 				requests: 0,
+				costUnknownRequests: 0,
 				sessionCount: 0,
 				providerCost: new Map()
 			};
@@ -625,6 +652,7 @@ export function aggregateProjects(sessions: SessionSummary[]): ProjectTotal[] {
 		addTokensInto(acc.tokens, s.tokens);
 		acc.cost += s.cost;
 		acc.requests += s.requests;
+		acc.costUnknownRequests += s.costUnknownRequests;
 		acc.sessionCount += 1;
 		acc.providerCost.set(s.provider, (acc.providerCost.get(s.provider) ?? 0) + s.cost);
 	}
@@ -634,6 +662,7 @@ export function aggregateProjects(sessions: SessionSummary[]): ProjectTotal[] {
 		tokens: acc.tokens,
 		cost: acc.cost,
 		requests: acc.requests,
+		...(acc.costUnknownRequests ? { costUnknownRequests: acc.costUnknownRequests } : {}),
 		sessionCount: acc.sessionCount,
 		providers: [...acc.providerCost.entries()]
 			.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
@@ -684,8 +713,7 @@ export function isLive(session: SessionSummary, now: number = Date.now()): boole
  *
  * Single pass: aggregate the flat grain to day grain once via `aggregateByPeriod(_, 'day')`,
  * index by day, then walk every calendar day from earliest to latest filling gaps with a
- * zero cell. Model/provider display filters are ignored, but pool attribution filters apply:
- * a machine/subscription drill-down needs the heatmap to show that selected ledger slice. Each
+ * zero cell. Scope filters apply without narrowing the navigable calendar range. Each
  * cell's `coverage` is read from the snapshot map, defaulting to `missing` for a gap day
  * (the same range-relative rule as the trend). Empty when there's no data.
  */
@@ -693,7 +721,9 @@ export function byDay(snap: RollupSnapshot, state?: ViewState): DayCell[] {
 	const from = snap.earliestDay;
 	const to = snap.latestDay;
 	if (from == null || to == null) return [];
-	const rows = state ? poolGrain(snap.dayModel, state) : snap.dayModel;
+	const rows = state ? poolGrain(snap.dayModel, state).filter(row =>
+		(!state.providerFilter.size || state.providerFilter.has(row.provider)) &&
+		(!state.modelFilter.size || state.modelFilter.has(row.model))) : snap.dayModel;
 	const coverage = state ? coverageForState(snap, state) : snap.coverage;
 	const present = new Map(aggregateByPeriod(rows, 'day').map((b) => [b.key, b]));
 	const out: DayCell[] = [];
@@ -754,10 +784,11 @@ export function focusedSessions(snap: RollupSnapshot, day: string, state: ViewSt
 }
 
 /** Clamp a day into `[earliestDay, latestDay]`; returns null when there's no data range. */
-export function clampDay(snap: RollupSnapshot, day: string): string | null {
-	const lo = snap.earliestDay;
-	const hi = snap.latestDay;
-	if (lo == null || hi == null) return null;
+export function clampDay(snap: RollupSnapshot, day: string, latestDay = snap.latestDay): string | null {
+	if (!isCalendarDay(day)) return null;
+	if (snap.earliestDay == null || snap.latestDay == null || latestDay == null) return null;
+	const lo = snap.earliestDay < latestDay ? snap.earliestDay : latestDay;
+	const hi = latestDay;
 	if (day < lo) return lo;
 	if (day > hi) return hi;
 	return day;

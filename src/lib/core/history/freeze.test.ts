@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runOnce } from '../engine';
 import { HistoryStore } from './store';
-import { DEFAULT_SUBSCRIPTION, type chachingConfig } from '../config';
+import { type chachingConfig } from '../config';
 
 const roots: string[] = [];
 
@@ -61,6 +61,7 @@ async function makeRoot(days: DayLine[]): Promise<string> {
 
 function cfg(root: string, dbPath: string): chachingConfig {
 	return {
+		version: 1, accounts: [], providerAccounts: {},
 		cutoverTs: null,
 		server: { host: '127.0.0.1', port: 5178, origin: '' },
 		history: { enabled: true, dbPath },
@@ -71,12 +72,11 @@ function cfg(root: string, dbPath: string): chachingConfig {
 			poolId: null,
 			machineId: null,
 			machineName: '',
-			providerSubscriptions: {},
 			intervalMinutes: 15
 		},
 		providers: {
-			claude: { enabled: true, roots: [root], subscription: { ...DEFAULT_SUBSCRIPTION } },
-			codex: { enabled: false, root: '', subscription: { ...DEFAULT_SUBSCRIPTION } },
+			claude: { enabled: true, roots: [root] },
+			codex: { enabled: false, root: '' },
 			cursor: { enabled: false, adminApiToken: '', email: null, pollSeconds: 3600 },
 			opencode: { enabled: false, dbPath: '' },
 			pi: { enabled: false, roots: [] }

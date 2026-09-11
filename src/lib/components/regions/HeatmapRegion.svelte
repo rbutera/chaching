@@ -2,7 +2,6 @@
 	import type { FeedStore } from '$lib/client/feed.svelte';
 	import type { Dashboard } from '$lib/client/dashboard.svelte';
 	import CalendarHeatmap from '$lib/components/CalendarHeatmap.svelte';
-	import { dayCoverageState } from '$lib/core/aggregate';
 
 	let { feed, dash }: { feed: FeedStore; dash: Dashboard } = $props();
 
@@ -11,10 +10,9 @@
 
 	// calendar heatmap series: one cell per banked day (full range), cost-shaded + coverage.
 	let dayCells = $derived(snap ? dash.byDay(snap) : []);
-	// Wire the real coverage state from the snapshot map (the sibling change landed) rather
-	// than the heatmap's all-frozen default.
+	let coverageByDay = $derived(new Map(dayCells.map(cell => [cell.day, cell.coverage])));
 	function coverageFor(day: string): import('$lib/types').DayCoverage {
-		return snap ? dayCoverageState(day, snap.coverage) : 'frozen';
+		return coverageByDay.get(day) ?? 'missing';
 	}
 </script>
 

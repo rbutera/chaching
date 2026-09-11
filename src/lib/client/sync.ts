@@ -3,5 +3,5 @@ export type {
 	SyncMachine as SyncMachineView,
 	SyncMapping as SyncMappingView,
 	SyncStatus as SyncStatusView,
-	SyncSubscription as SyncSubscriptionView
+	SyncAccount as SyncAccountView
 } from '$lib/core/sync/types';

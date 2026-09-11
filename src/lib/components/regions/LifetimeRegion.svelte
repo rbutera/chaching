@@ -65,7 +65,7 @@
 		justify-content: center;
 	}
 	.lifetime-spark-label {
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
 		font-weight: var(--fw-medium);
 		text-transform: uppercase;

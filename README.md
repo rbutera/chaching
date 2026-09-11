@@ -103,6 +103,8 @@ chaching stats --provider claude
 chaching stats --json           # machine-readable snapshot
 ```
 
+With filters, JSON totals, sessions, and model/provider lists match the selected usage. `_scope` records the date/provider selection and lists the block and scan metadata that remain unscoped.
+
 ### `chaching receipt` — proof of purchase
 
 The fun one. Renders a period's spend as a thermal-printer receipt: line items per model, the cache savings as **coupons** (the caching pun, made structural), the cache cost as **billed line items** right beneath them (because cache isn't free, see below), a `TOTAL BURN`, an optional subscription-subsidy footer, a wry footer, and a barcode that means nothing.

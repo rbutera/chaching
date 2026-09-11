@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
-import { render, screen, within } from '@testing-library/svelte';
+import { describe, expect, it, vi } from 'vitest';
+import { render, screen, within, fireEvent } from '@testing-library/svelte';
 import DetailSheet from './DetailSheet.svelte';
 import type { DrillTarget } from '$lib/client/dashboard.svelte';
 import type { RollupSnapshot, SessionSummary } from '$lib/types';
@@ -74,4 +74,33 @@ describe('DetailSheet — enriched session branch', () => {
 		render(DetailSheet, { drill, snapshot: emptySnap(), onClose: () => {} });
 		expect(screen.queryByText(/no known price/i)).not.toBeInTheDocument();
 	});
+});
+
+
+it('opens a native modal and forwards cancellation to its owner', async () => {
+	const onClose = vi.fn();
+	render(DetailSheet, { drill: { kind: 'session', session: session(), label: 'sess' }, snapshot: emptySnap(), onClose });
+	const dialog = screen.getByRole('dialog');
+	expect(dialog.tagName).toBe('DIALOG');
+	expect(dialog).toHaveAttribute('open');
+	await fireEvent(dialog, new Event('cancel'));
+	expect(onClose).toHaveBeenCalledOnce();
+});
+
+
+it('applies the same four filters to period detail and its prior comparison', () => {
+	const snapshot = emptySnap();
+	const row = { day: '2026-06-18', provider: 'claude', model: 'claude-sonnet-4-5', machineId: 'one', accountId: 'a', cost: 10, requests: 1, costUnknownRequests: 0, tokens: { input: 1, output: 0, cacheRead: 0, cacheCreation: 0 } };
+	snapshot.dayModel = [row, { ...row, day: '2026-06-17', cost: 5 },
+		...['2026-06-18', '2026-06-17'].flatMap(day => [
+			{ ...row, day, cost: 1000, provider: 'codex' },
+			{ ...row, day, cost: 1000, model: 'other' },
+			{ ...row, day, cost: 1000, machineId: 'two' },
+			{ ...row, day, cost: 1000, accountId: 'b' }
+		])];
+	const view = render(DetailSheet, { snapshot,
+		drill: { kind: 'period', from: row.day, to: row.day, periodKey: row.day, label: 'day' },
+		scope: { providerFilter: new Set(['claude']), modelFilter: new Set([row.model]), machineFilter: new Set(['one']), accountFilter: new Set(['a']) }, onClose: () => {} });
+	expect(view.container.querySelector('.hval')).toHaveTextContent('$10.00');
+	expect(view.getByLabelText('+100% compared with previous window, $5.00')).toBeInTheDocument();
 });

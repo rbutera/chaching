@@ -21,7 +21,7 @@
 	let offline = $derived(!!status?.enabled && !status?.pool && !!status?.localIdentity);
 
 	let provider = $state('claude');
-	let subscriptionName = $state('');
+	let accountName = $state('');
 	let account = $state('');
 	let tier = $state('custom');
 	let monthlyUsd = $state('200');
@@ -79,33 +79,31 @@
 		if (ok) databaseUrl = '';
 	}
 
-	async function addSubscription(event: SubmitEvent): Promise<void> {
+	async function addAccount(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
 		const fee = Number(monthlyUsd);
-		if (!subscriptionName.trim() || !Number.isFinite(fee) || fee < 0) {
-			error = 'Subscription name and a non-negative monthly fee are required.';
+		if (!accountName.trim() || !Number.isFinite(fee) || fee < 0) {
+			error = 'Account name and a non-negative monthly fee are required.';
 			return;
 		}
 		const ok = await run({
-			action: 'add-subscription',
+			action: 'add-account',
 			provider,
-			name: subscriptionName.trim(),
+			name: accountName.trim(),
 			account: account.trim(),
 			tier: tier.trim() || 'custom',
 			monthlyUsd: fee
 		});
 		if (ok) {
-			subscriptionName = '';
+			accountName = '';
 			account = '';
 		}
 	}
 
-	function mappedSubscription(machineId: string, mappedProvider: string): string {
-		return (
-			status?.mappings.find(
-				(mapping) => mapping.machineId === machineId && mapping.provider === mappedProvider
-			)?.subscriptionId ?? ''
-		);
+	function mappedAccounts(machineId: string, mappedProvider: string): string[] {
+		return [...new Set((status?.mappings ?? [])
+			.filter(mapping => mapping.machineId === machineId && mapping.provider === mappedProvider)
+			.flatMap(mapping => mapping.accountId ? [mapping.accountId] : []))];
 	}
 </script>
 
@@ -124,7 +122,7 @@
 		<p class="summary">
 			<strong>{status.machine.name}</strong> is contributing to pool
 			<code>{status.pool.id}</code>. It publishes compact aggregates to the shared PostgreSQL pool;
-			local SQLite history keeps running, so this machine's own numbers are always live.
+			this machine's own numbers keep updating live.
 			{#if status.intervalMinutes}
 				Peers refresh at most every {status.intervalMinutes} min.
 			{/if}
@@ -150,16 +148,16 @@
 			</div>
 
 			<div>
-				<h3>subscriptions</h3>
-				{#if status.subscriptions.length > 0}
+				<h3>Accounts</h3>
+				{#if status.accounts.length > 0}
 					<ul class="rows">
-						{#each status.subscriptions as subscription (subscription.id)}
+						{#each status.accounts as subscription (subscription.id)}
 							<li>
 								<span>
 									<strong>{subscription.name}</strong>
-									<small>{subscription.provider} · {subscription.account || 'no account label'}</small>
+									<small>{syncProviderLabel(subscription.provider)}</small>
 								</span>
-								<span class="money">${subscription.monthlyUsd}/mo</span>
+								<span class="money">{subscription.monthlyUsd === null ? 'Fee unknown' : `$${subscription.monthlyUsd}/mo`}</span>
 							</li>
 						{/each}
 					</ul>
@@ -179,8 +177,8 @@
 
 		{#if status.managementAllowed !== false}
 			<div class="sync-grid forms">
-			<form onsubmit={addSubscription}>
-				<h3>add subscription</h3>
+			<form onsubmit={addAccount}>
+				<h3>Add Account</h3>
 				<div class="fields">
 					<label>
 						provider
@@ -190,10 +188,10 @@
 					</label>
 					<label>
 						name
-						<input bind:value={subscriptionName} placeholder="Work Claude Max" />
+						<input bind:value={accountName} placeholder="Work Claude Max" />
 					</label>
 					<label>
-						account label
+						private label
 						<input bind:value={account} placeholder="name@example.com" />
 					</label>
 					<label>
@@ -205,28 +203,30 @@
 						<input bind:value={monthlyUsd} type="number" min="0" step="0.01" />
 					</label>
 				</div>
-				<button class="primary" type="submit" disabled={busy}>add subscription</button>
+				<button class="primary" type="submit" disabled={busy}>Add Account</button>
 			</form>
 
 			<div>
 				<h3>this machine uses</h3>
 				<div class="mapping-list">
 					{#each providers as mappedProvider}
+						{@const linked = mappedAccounts(status.machine.id, mappedProvider)}
 						<label>
 							{syncProviderLabel(mappedProvider)}
 							<select
-								value={mappedSubscription(status.machine.id, mappedProvider)}
+								value={linked.length > 1 ? '__multiple__' : linked[0] ?? ''}
 								onchange={(event) =>
 									run({
 										action: 'map',
 										machineId: status.machine!.id,
 										provider: mappedProvider,
-										subscriptionId: (event.currentTarget as HTMLSelectElement).value || null
+										accountId: (event.currentTarget as HTMLSelectElement).value || null
 									})}
 								disabled={busy}
 							>
 								<option value="">unmapped</option>
-								{#each status.subscriptions.filter((item) => item.provider === mappedProvider) as subscription (subscription.id)}
+								{#if linked.length > 1}<option value="__multiple__" disabled>{linked.length} accounts</option>{/if}
+								{#each status.accounts.filter((item) => item.provider === mappedProvider) as subscription (subscription.id)}
 									<option value={subscription.id}>{subscription.name}</option>
 								{/each}
 							</select>
@@ -286,7 +286,7 @@
 	{:else}
 		<p class="summary">
 			Create one PostgreSQL-backed pool, then join every machine that should contribute. Machines can
-			share a subscription or map to different ones. Subscription and mapping controls appear after
+			share an Account or map to different ones. Account and mapping controls appear after
 			this machine joins.
 		</p>
 
@@ -348,6 +348,10 @@
 <style>
 	.sync-panel {
 		margin-bottom: 1rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		padding: 20px;
+		min-width: 0;
 	}
 	.sync-head,
 	.rows li,
@@ -367,7 +371,7 @@
 	.error,
 	.muted,
 	.danger-zone {
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 	}
 	.eyebrow,
 	h3 {
@@ -416,6 +420,7 @@
 	}
 	code {
 		color: var(--accent);
+		overflow-wrap: anywhere;
 	}
 	.sync-grid {
 		display: grid;
@@ -431,12 +436,14 @@
 	.rows li {
 		padding: 0.5rem 0;
 		border-bottom: 1px solid var(--border);
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: 0.75rem;
 	}
 	.rows span {
 		display: flex;
 		flex-direction: column;
+		min-width: 0;
+		overflow-wrap: anywhere;
 	}
 	small {
 		color: var(--text-dim);
@@ -473,7 +480,9 @@
 		background: var(--surface-2);
 		color: var(--text);
 		padding: 0.45rem 0.55rem;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
+		min-height: 40px;
+		font-size: 14px;
 	}
 	button {
 		border: 1px solid var(--border);
@@ -481,13 +490,17 @@
 		background: var(--surface-2);
 		color: var(--text-muted);
 		padding: 0.4rem 0.8rem;
-		font-family: var(--font-mono);
+		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
 		cursor: pointer;
 	}
 	button:disabled {
 		cursor: wait;
 		opacity: 0.6;
+	}
+	button:focus-visible, input:focus-visible, select:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
 	}
 	button.primary,
 	.mode-switch button.active {

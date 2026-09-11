@@ -27,7 +27,7 @@ export interface UsageRecord {
 	/** Present when the record belongs to a PostgreSQL sync pool. */
 	machineId?: string;
 	/** Subscription attribution captured at ingestion time; null/absent = unmapped. */
-	subscriptionId?: string | null;
+	accountId?: string | null;
 	/** computed estimate; null when the model has no known price */
 	cost: number | null;
 }
@@ -38,7 +38,9 @@ export interface DayModelAgg {
 	provider: string;
 	model: string;
 	machineId?: string;
-	subscriptionId?: string | null;
+	/** Known contributing set when individual attribution is unavailable. */
+	accountCandidates?: string[];
+	accountId?: string | null;
 	tokens: TokenCounts;
 	requests: number;
 	cost: number; // 0 if unknown-price contributed (see costUnknownRequests)
@@ -50,7 +52,9 @@ export interface SessionSummary {
 	sessionId: string;
 	provider: string;
 	machineId?: string;
-	subscriptionId?: string | null;
+	/** Known contributing set when individual attribution is unavailable. */
+	accountCandidates?: string[];
+	accountId?: string | null;
 	project: string;
 	firstTs: number;
 	lastTs: number;
@@ -109,6 +113,8 @@ export interface RollupSnapshot {
 	sessions: SessionSummary[];
 	/** rolling 5-hour blocks, newest first */
 	blocks: BlockSummary[];
+	/** This machine's blocks before the peer overlay, present on pooled snapshots. */
+	localBlocks?: BlockSummary[];
 	/** distinct models seen, by total cost desc */
 	models: string[];
 	providers: string[];
@@ -161,8 +167,7 @@ export interface RollupDelta {
 	coverage: CoverageMap;
 }
 
-export type SSEMessage =
-	| { type: 'snapshot'; data: RollupSnapshot }
+export type SSEMessage = { type: 'snapshot'; data: RollupSnapshot }
 	| { type: 'delta'; data: RollupDelta };
 
 export type Period = 'day' | 'week' | 'month' | 'quarter' | 'all';

@@ -10,7 +10,7 @@
 
 import { writeSync } from 'node:fs';
 import { runOnce } from '../../lib/core/engine.js';
-import { loadConfig } from '../../lib/core/config.js';
+import { getReportAccountContext } from '../../lib/core/sync/manager.js';
 import { getPricingMeta } from '../../lib/core/pricing/cost.js';
 import { noArt as resolveNoArt, receiptFooter } from '../theme/personality.js';
 import { buildWrapped } from '../wrapped/build.js';
@@ -48,7 +48,7 @@ export interface WrappedFlags {
 }
 
 export async function runWrapped(flags: WrappedFlags): Promise<void> {
-	const cfg = await loadConfig();
+	const { config: cfg, fees: subscription } = await getReportAccountContext();
 	const snapshot = await runOnce(cfg);
 
 	const noArt = flags.noArt ?? resolveNoArt();
@@ -58,18 +58,6 @@ export async function runWrapped(flags: WrappedFlags): Promise<void> {
 	const footer = noArt || flags.json ? '' : receiptFooter();
 
 	// Per-provider subscription config → enables the subsidy block (mirrors receipt).
-	const subscription = {
-		claude: {
-			enabled: cfg.providers.claude.enabled,
-			tier: cfg.providers.claude.subscription.tier,
-			monthlyUsd: cfg.providers.claude.subscription.monthlyUsd
-		},
-		codex: {
-			enabled: cfg.providers.codex.enabled,
-			tier: cfg.providers.codex.subscription.tier,
-			monthlyUsd: cfg.providers.codex.subscription.monthlyUsd
-		}
-	};
 
 	const model = buildWrapped(snapshot, {
 		month: flags.month,

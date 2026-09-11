@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { readTokenmaxxAggregates, readTokenmaxxQuota } from './sqlite';
+import { readTokenmaxxAccounts, readTokenmaxxAggregates, readTokenmaxxQuota } from './sqlite';
 
 const roots: string[] = [];
 
@@ -12,6 +12,80 @@ afterEach(async () => {
 });
 
 describe('readTokenmaxxAggregates', () => {
+	it('keeps canonical quota identity across registrations, isolates pools and reports current Codex selections', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'chaching-tokenmaxx-identity-'));
+		roots.push(root);
+		const dbPath = join(root, 'state.sqlite');
+		const db = new DatabaseSync(dbPath);
+		db.exec(`
+			CREATE TABLE accounts (id TEXT PRIMARY KEY, provider TEXT NOT NULL, payload TEXT NOT NULL);
+			CREATE TABLE usage_snapshots (account_id TEXT PRIMARY KEY, observed_at TEXT NOT NULL, payload TEXT NOT NULL);
+			CREATE TABLE provider_states (provider TEXT PRIMARY KEY, payload TEXT NOT NULL);
+		`);
+		const registrations = [
+			{ id: 'registration-a', user: 'user-1' },
+			{ id: 'registration-b', user: 'user-1' },
+			{ id: 'registration-c', user: 'user-2' }
+		];
+		for (const { id, user } of registrations) {
+			db.prepare('INSERT INTO accounts VALUES (?, ?, ?)').run(id, 'openai', JSON.stringify({
+				identity: 'private@example.com', externalAccountId: 'organization-id', externalUserId: user, plan: 'pro'
+			}));
+			db.prepare('INSERT INTO usage_snapshots VALUES (?, ?, ?)').run(id, '2026-09-10T12:00:00Z', JSON.stringify({
+				hardLimitReached: false,
+				windows: [
+					{ id: 'primary', label: '5h', usedPercent: 20, resetAt: null },
+					{ id: 'secondary', label: 'Weekly', usedPercent: 45, resetAt: '2026-09-15T00:00:00Z' },
+					{ id: 'invalid', label: 'Invalid', usedPercent: 120, resetAt: null },
+					null
+				]
+			}));
+		}
+		db.prepare('INSERT INTO provider_states VALUES (?, ?)').run('openai', JSON.stringify({ provider: 'openai', activeAccountId: 'registration-b' }));
+		db.close();
+
+		const quota = readTokenmaxxQuota(dbPath, 'pool-one');
+		expect(quota?.accounts).toHaveLength(3);
+		const [a, b, c] = quota!.accounts;
+		expect(a.identityKey).toMatch(/^v1:[a-f0-9]{64}$/);
+		expect(a.identityKey).toBe(b.identityKey);
+		expect(a.identityKey).not.toBe(c.identityKey);
+		expect(a.identityKey).not.toBe(readTokenmaxxQuota(dbPath, 'pool-two')?.accounts[0].identityKey);
+		expect(quota?.accounts.map(account => account.current)).toEqual([false, true, false]);
+		expect(a.provider).toBe('codex');
+		expect(a.windows.map(window => window.id)).toEqual(['primary', 'secondary']);
+		for (const privateValue of ['private@example.com', 'organization-id', 'user-1', 'registration-a']) {
+			expect(JSON.stringify(quota)).not.toContain(privateValue);
+		}
+		expect(readTokenmaxxQuota(dbPath)?.accounts[0].identityKey).toBeUndefined();
+	});
+
+	it('discovers stable identity without a quota snapshot and never invents observation freshness', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'chaching-tokenmaxx-empty-quota-'));
+		roots.push(root);
+		const dbPath = join(root, 'state.sqlite');
+		const db = new DatabaseSync(dbPath);
+		db.exec('CREATE TABLE accounts (id TEXT PRIMARY KEY, provider TEXT NOT NULL, payload TEXT NOT NULL)');
+		db.prepare('INSERT INTO accounts VALUES (?, ?, ?)').run('registration', 'openai', JSON.stringify({
+			externalAccountId: 'private-organization', externalUserId: 'private-user', plan: 'plus'
+		}));
+		const discovered = readTokenmaxxAccounts(dbPath, 'pool');
+		expect(discovered).toHaveLength(1);
+		expect(discovered[0]).toMatchObject({
+			registrationId: 'registration', identity: { accountId: 'private-organization', userId: 'private-user' },
+			quota: { observedAt: null, windows: [], hardLimitReached: false }
+		});
+		db.exec('CREATE TABLE usage_snapshots (account_id TEXT PRIMARY KEY, observed_at TEXT NOT NULL, payload TEXT NOT NULL)');
+		db.prepare('INSERT INTO usage_snapshots VALUES (?, ?, ?)').run('registration', 'bad-date', '{}');
+		expect(readTokenmaxxQuota(dbPath, 'pool')?.accounts[0]).toEqual(discovered[0].quota);
+		expect(readTokenmaxxQuota(dbPath, 'pool')?.observedAt).toBeNull();
+		const serialized = JSON.stringify(readTokenmaxxQuota(dbPath, 'pool'));
+		expect(serialized).not.toContain('private-organization');
+		expect(serialized).not.toContain('private-user');
+		expect(serialized).not.toContain('registration');
+		db.close();
+	});
+
 	it('returns no rows when Tokenmaxx is not installed', () => {
 		expect(readTokenmaxxAggregates('/definitely/missing/state.sqlite')).toEqual([]);
 	});
@@ -94,6 +168,7 @@ describe('readTokenmaxxAggregates', () => {
 				label: 'Claude account 1',
 				provider: 'claude',
 				plan: 'default_claude_max_20x',
+				observedAt: '2026-08-13T22:00:00Z',
 				hardLimitReached: false,
 				windows: [{ id: 'weekly_all', label: '7 day · all models', usedPercent: 91, resetAt: '2026-08-15T04:00:00Z' }]
 			}]
