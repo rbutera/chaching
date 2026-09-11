@@ -35,7 +35,7 @@
 	<p>{palette.note}</p>
 	<div class="surfaces">{#each palette.surfaces as surface, i}<span style:background={surface}>Surface {i}<code>{surface}</code></span>{/each}</div>
 	{#each Object.entries(semanticGroups) as [group, names]}
-		<h3>{group}</h3><div class="swatches">{#each names as name}<div><span class="swatch" style:background={vars[name]}></span><span style:color={vars[name]}>{name}<code>{vars[name]}</code></span></div>{/each}</div>
+		<h3>{group}</h3><div class="swatches">{#each names as name}<div><span class="swatch" style:background={vars[name]}></span><span>{name}<code>{vars[name]}</code></span></div>{/each}</div>
 	{/each}
 </details>
 <style>

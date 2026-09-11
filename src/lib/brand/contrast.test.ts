@@ -116,17 +116,24 @@ describe('brass-vs-haiku OKLab ΔE separation', () => {
 
 import { palettes, paletteVars, semanticGroups } from './prototype-palettes';
 
-// The prototype's text-coloured categories may appear as small labels, so use 4.5 throughout.
+// Accent fills and warm-spend marks use 3:1; their small text uses accent-ink.
 describe.each(palettes)('$name prototype semantic contrast', (palette) => {
 	const vars = paletteVars(palette);
-	it('every readable role clears 4.5 on every fill, including meter tracks', () => {
+	it('text clears 4.5 and graphical accents clear 3 on every fill', () => {
 		for (const names of Object.values(semanticGroups)) for (const name of names) {
 			for (const surface of palette.surfaces) {
-				expect(wcagContrast(vars[name], surface), `${name} ${vars[name]} on ${surface}`).toBeGreaterThanOrEqual(4.5);
+				const graphical = ['accent', 'focus-ring', 'spend-warm', 'chrome-brass', 'chrome-ember', 'chrome-edge'].includes(name);
+				expect(wcagContrast(vars[name], surface), `${name} ${vars[name]} on ${surface}`).toBeGreaterThanOrEqual(graphical ? 3 : 4.5);
 			}
 		}
 	});
-	it('accent and Haiku remain separate', () => {
-		expect(differenceEuclidean('oklab')(palette.accent, palette.yellow)).toBeGreaterThanOrEqual(0.085);
+	it('models inherit provider colours, with neutral Cursor and OpenCode', () => {
+		expect(vars['p-claude']).toBe(palette.orange);
+		expect(vars['p-pi']).toBe(palette.purple);
+		expect(vars['p-cursor']).toBe(vars['p-unknown']);
+		expect(vars['p-opencode']).toBe(vars['p-unknown']);
+		for (const provider of ['claude', 'codex', 'opencode', 'cursor', 'pi', 'unknown'] as const) {
+			expect(vars[`m-${provider}`]).toBe(vars[`p-${provider}`]);
+		}
 	});
 });
