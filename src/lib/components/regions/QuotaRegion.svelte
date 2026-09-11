@@ -8,13 +8,15 @@
 		dash: Dashboard; syncStatus: SyncStatusView | null; now: number; reducedMotion?: boolean;
 	} = $props();
 	const views = [
-		{ id: 'current', label: 'Current' },
+		{ id: 'current', label: 'Selected' },
 		{ id: 'all', label: 'All accounts' },
 		{ id: 'provider', label: 'By provider' }
 	] satisfies { id: 'current' | 'all' | 'provider'; label: string }[];
 	let rows = $derived(quotaRows(syncStatus?.providerQuotas ?? [], dash.providerFilter, dash.machineFilter,
 		new Set(), syncStatus?.accounts ?? [], syncStatus?.mappings ?? []));
-	let visible = $derived(dash.quotaView === 'current' ? rows.filter(row => row.currentMachines.length) : rows);
+	let selectedProviders = $derived(new Set(rows.filter(row => row.currentMachines.length).map(row => row.provider)));
+	let selectionMissing = $derived(rows.some(row => !selectedProviders.has(row.provider)));
+	let visible = $derived(dash.quotaView === 'current' ? rows.filter(row => row.currentMachines.length || !selectedProviders.has(row.provider)) : rows);
 	let groups = $derived(dash.quotaView === 'provider'
 		? [...new Set(visible.map(row => row.provider))].map(provider => ({ label: providerLabel(provider), rows: visible.filter(row => row.provider === provider) }))
 		: [{ label: '', rows: visible }]);
@@ -24,13 +26,14 @@
 
 <section class="quotas" aria-label="Account quotas" class:still={reducedMotion}>
 	<div class="heading"><h2>Accounts</h2><div class="views" aria-label="Quota view">
-		{#each views as view (view.id)}<button aria-pressed={dash.quotaView === view.id} onclick={() => dash.setQuotaView(view.id)}>{view.label}</button>{/each}
+		{#each views as view (view.id)}<button title={view.id === 'current' ? "Selected in Tokenmaxx at observation time; individual processes may use another Account." : undefined} aria-pressed={dash.quotaView === view.id} onclick={() => dash.setQuotaView(view.id)}>{view.label}</button>{/each}
 	</div></div>
+	{#if dash.quotaView === 'current' && selectionMissing}<p>Selection unavailable for some providers. Showing their Account quotas.</p>{/if}
 	{#each groups as group (group.label)}
 		{#if group.label}<h3>{group.label}</h3>{/if}
 		{#each group.rows as row (row.key)}
 			<div class="account">
-				<div class="identity"><strong>{row.label}</strong><small title={row.observedAt ? 'Observed ' + dateLabel(row.observedAt) : 'No quota observation'}>{(dash.quotaView === 'current' ? row.currentMachines : row.machines).map(machineName).join(', ')}{#if row.observedAt} · {dateLabel(row.observedAt)}{/if}</small>{#if row.hardLimitReached}<small class="limit">Limit reached</small>{/if}</div>
+				<div class="identity"><strong>{row.label}</strong><small title={row.observedAt ? 'Observed ' + dateLabel(row.observedAt) : 'No quota observation'}>{(dash.quotaView === 'current' && row.currentMachines.length ? row.currentMachines : row.machines).map(machineName).join(', ')}{#if row.observedAt} · {dateLabel(row.observedAt)}{/if}</small>{#if row.hardLimitReached}<small class="limit">Limit reached</small>{/if}</div>
 				<div class="windows">
 					{#each row.windows as window (window.id)}
 						{@const remaining = Math.max(0, 100 - window.usedPercent)}
@@ -44,7 +47,7 @@
 			</div>
 		{/each}
 	{/each}
-	{#if !visible.length}<p>{dash.quotaView === 'current' && rows.length ? 'Current account unavailable. All accounts shows the reported quotas.' : 'No quota observations in this scope.'}</p>{/if}
+	{#if !visible.length}<p>No quota observations in this scope.</p>{/if}
 </section>
 
 <style>

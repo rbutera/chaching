@@ -392,7 +392,9 @@ describe('dashboard route — behavior contracts', () => {
 		};
 		const { container, getByRole, getAllByRole } = render(Page);
 		await flush();
-		expect(container.textContent).toContain('Current account unavailable');
+		expect(container.textContent).toContain('Selection unavailable for some providers');
+		expect(getAllByRole('meter')).toHaveLength(3);
+		expect(getByRole('button', { name: 'Selected' }).getAttribute('title')).toContain('Selected in Tokenmaxx');
 		await fireEvent.click(getByRole('button', { name: /^All accounts$/ }));
 		const text = container.textContent ?? '';
 		expect(text).toContain('Accounts');
@@ -632,7 +634,7 @@ describe('dashboard route — motion (reduced-motion contract)', () => {
 });
 
 
-it('offers Account filtering without a sync pool', async () => {
+it('retains local Account fees and quotas without Account spend filters', async () => {
 	snapshotToEmit = richSnap();
 	snapshotToEmit.dayModel = snapshotToEmit.dayModel.map(row => ({ ...row, accountId: row.provider }));
 	syncStatusToReturn = { enabled: false, machines: [], accounts: ['claude', 'codex'].map(id => ({
@@ -640,9 +642,26 @@ it('offers Account filtering without a sync pool', async () => {
 	})), mappings: [], providerQuotas: [] };
 	const { getByRole, container } = render(Page);
 	await flush();
-	await fireEvent.click(container.querySelector('summary')!);
-	await fireEvent.click(getByRole('button', { name: 'Local codex' }));
-	expect(getByRole('button', { name: 'Local codex' }).getAttribute('aria-pressed')).toBe('true');
-	expect(getByRole('link', { name: /shareable receipt/ }).getAttribute('href')).toContain('account=codex');
+	expect(container.querySelector('[aria-label="Account filter"]')).toBeNull();
+	expect(getByRole('link', { name: /shareable receipt/ }).getAttribute('href')).not.toContain('account=');
+	expect(getByRole('region', { name: 'Account quotas' }).textContent).toContain('Local codex');
 	expect(getByRole('region', { name: 'Cache cost and subscription subsidy' }).textContent).toContain('Local codex');
+});
+
+
+it('keeps Codex quotas visible when only Claude has a selected Account', async () => {
+	snapshotToEmit = richSnap();
+	syncStatusToReturn = { enabled: false, machines: [], accounts: [], mappings: [], providerQuotas: [{
+		machineId: 'one', source: 'tokenmaxx', observedAt: '2026-08-13T23:00:00Z',
+		accounts: ['claude', 'codex'].map(provider => ({ provider, label: provider + ' quota',
+			current: provider === 'claude', plan: null, hardLimitReached: false,
+			windows: [{ id: 'weekly', label: 'Weekly', usedPercent: 25, resetAt: null }]
+		}))
+	}] };
+	const { getByRole, getAllByRole } = render(Page);
+	await flush();
+	const quotas = getByRole('region', { name: 'Account quotas' });
+	expect(quotas.textContent).toContain('claude quota');
+	expect(quotas.textContent).toContain('codex quota');
+	expect(getAllByRole('meter').map(row => row.getAttribute('aria-valuenow'))).toEqual(['75', '75']);
 });

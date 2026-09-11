@@ -4,7 +4,7 @@ import { defaultConfig } from './config';
 
 function input(): Parameters<typeof accountWindowValues>[0] {
 	return {
-		from: '2026-08-12', to: '2026-09-10', providers: new Set(), machines: new Set(), selected: new Set(), models: new Set(),
+		from: '2026-08-12', to: '2026-09-10', providers: new Set(), machines: new Set(), models: new Set(),
 		accounts: ['a', 'b'].map(id => ({ id, provider: 'claude', name: id, account: '', tier: 'max', monthlyUsd: 200 })),
 		mappings: ['a', 'b'].map(accountId => ({ machineId: 'one', provider: 'claude', accountId })),
 		grain: [{ day: '2026-09-10', provider: 'claude', model: 'model', machineId: 'one', cost: 2000, requests: 1, costUnknownRequests: 0, tokens: { input: 1, output: 0, cacheRead: 0, cacheCreation: 0 } }]
@@ -22,22 +22,16 @@ describe('Account window values', () => {
 		expect(reportAccountFees(cfg, { enabled: true, unreachable: true, accounts: [] }).claude).toMatchObject({ enabled: true, monthlyUsd: null });
 		expect(reportAccountFees(cfg, { enabled: true, accounts: [account, { ...account, id: 'peer', monthlyUsd: null }] }).claude.monthlyUsd).toBeNull();
 	});
-	it('marks missing Account references unavailable without counting excluded Accounts', () => {
+	it('retains provider spend independently of missing or ambiguous Account attribution', () => {
 		const data = input();
-		data.grain[0].accountId = 'missing';
-		expect(accountWindowValues(data).valueUsd).toBeNull();
-		expect(accountWindowValues({ ...data, selected: new Set(['a']) }).valueUsd).toBe(0);
-		data.grain[0].accountId = 'b';
-		expect(accountWindowValues({ ...data, selected: new Set(['a']) }).valueUsd).toBe(0);
-	});
-	it('retains combined usage across known Accounts without inventing a split', () => {
-		const result = accountWindowValues(input());
-		expect(result.valueUsd).toBe(2000);
-		expect(result.feeUsd).toBe(400);
-		expect(result.rows.map(row => row.valueUsd)).toEqual([null, null]);
-		const partial = accountWindowValues({ ...input(), selected: new Set(['a']) });
-		expect(partial.valueUsd).toBeNull();
-		expect(partial.feeUsd).toBe(200);
+		for (const accountId of [undefined, 'missing', 'a']) {
+			data.grain[0].accountId = accountId;
+			expect(accountWindowValues(data)).toMatchObject({ valueUsd: 2000, feeUsd: 400 });
+		}
+		data.mappings = [];
+		data.grain[0].accountCandidates = ['missing', 'b'];
+		expect(accountWindowValues(data)).toMatchObject({ valueUsd: 2000, feeUsd: 400 });
+		expect(accountWindowValues(data).rows.every(row => !('valueUsd' in row))).toBe(true);
 	});
 
 	it('counts a shared fee once and charges the same period fee to a machine view', () => {
