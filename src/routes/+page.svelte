@@ -436,7 +436,7 @@
 	{/if}
 
 {#if snap && dash.drill}
-	<DetailSheet drill={dash.drill} snapshot={snap} onClose={() => dash.closeDrill()} />
+	<DetailSheet drill={dash.drill} snapshot={snap} scope={dash} onClose={() => dash.closeDrill()} />
 {/if}
 </div>
 

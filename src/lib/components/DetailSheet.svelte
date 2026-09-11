@@ -5,6 +5,7 @@
 	// and a comparison to the prior equivalent slice. Focus-trapped, ESC + backdrop
 	// dismiss, breadcrumb header.
 	import { onMount } from 'svelte';
+	import { poolGrain, defaultViewState, type ViewState } from '$lib/core/view-model';
 	import type { DrillTarget } from '$lib/client/dashboard.svelte';
 	import type { RollupSnapshot, TokenCounts } from '$lib/types';
 	import TokenSplitBar from './TokenSplitBar.svelte';
@@ -33,14 +34,20 @@
 	let {
 		drill,
 		snapshot,
+		scope = defaultViewState(),
 		onClose
 	}: {
 		drill: DrillTarget;
 		snapshot: RollupSnapshot;
+		scope?: Pick<ViewState, 'providerFilter' | 'modelFilter' | 'machineFilter' | 'accountFilter'>;
 		onClose: () => void;
 	} = $props();
 
 	let panel: HTMLDialogElement | undefined = $state();
+
+	let scopedRows = $derived(poolGrain(snapshot.dayModel, scope).filter(row =>
+		(!scope.providerFilter.size || scope.providerFilter.has(row.provider)) &&
+		(!scope.modelFilter.size || scope.modelFilter.has(row.model))));
 
 	// ---- derive the slice the drill points at ----
 	let slice = $derived.by(() => {
@@ -64,7 +71,7 @@
 		// period
 		const from = drill.from ?? '';
 		const to = drill.to ?? '';
-		const grain = filterDays(snapshot.dayModel, from, to);
+		const grain = filterDays(scopedRows, from, to);
 		const totals = sumGrain(grain);
 		const modelTotals = aggregateByModel(grain);
 		// prior equivalent slice: same span immediately before `from`
@@ -92,7 +99,7 @@
 		const priorFrom = new Date(f - spanDays * 86400000);
 		const pf = isoDay(priorFrom);
 		const pt = isoDay(priorTo);
-		const g = filterDays(snapshot.dayModel, pf, pt);
+		const g = filterDays(scopedRows, pf, pt);
 		const totals = sumGrain(g);
 		if (totals.requests === 0) return null;
 		return { tokens: totals.tokens, cost: totals.cost };
@@ -174,8 +181,7 @@
 			</div>
 			{#if delta && slice.prior}
 				<div class="cmp">
-					<span class="cmp-delta {delta.dir}">{delta.text}</span>
-					<span class="cmp-sub">vs prior {money(slice.prior.cost)}</span>
+					<span class="cmp-delta {delta.dir}" title={`Previous window: ${money(slice.prior.cost)}`} aria-label={`${delta.text} compared with previous window, ${money(slice.prior.cost)}`}>{delta.text}</span>
 				</div>
 			{/if}
 		</div>
@@ -411,10 +417,6 @@
 		color: var(--good);
 	}
 	.cmp-delta.flat {
-		color: var(--fg-dim);
-	}
-	.cmp-sub {
-		font-size: 0.72rem;
 		color: var(--fg-dim);
 	}
 	.stat-row {
