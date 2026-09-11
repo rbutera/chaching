@@ -62,27 +62,35 @@ export async function runStats(flags: StatsFlags): Promise<void> {
 		// _pricing exposes which price snapshot resolved (and confirms it loaded at
 		// all) — useful for scripts and a guard against the cwd/layout resolution bug.
 		const pricing = getPricingMeta();
-		if (flags.period || flags.providers) {
-			const providerFilter = flags.providers && flags.providers.length > 0
-				? new Set(flags.providers)
-				: null;
-			const { from, to } = periodDayRange(flags.period);
-			let grain = filterDays(snapshot.dayModel, from, to);
-			if (providerFilter) {
-				grain = grain.filter((dm) => providerFilter.has(dm.provider));
-			}
-			const scoped: RollupSnapshot = {
-				...snapshot,
-				dayModel: grain
-			};
-			writeStdoutSync(JSON.stringify({ ...scoped, _pricing: pricing }) + '\n');
-		} else {
-			writeStdoutSync(JSON.stringify({ ...snapshot, _pricing: pricing }) + '\n');
-		}
+		writeStdoutSync(JSON.stringify({ ...statsSnapshot(snapshot, flags), _pricing: pricing }) + '\n');
 		return;
 	}
 
 	printHuman(snapshot, flags);
+}
+
+export function statsSnapshot(snapshot: RollupSnapshot, flags: StatsFlags) {
+	if (!flags.period && !flags.providers?.length) return snapshot;
+	const providers = new Set(flags.providers ?? []);
+	const { from, to } = periodDayRange(flags.period);
+	const grain = filterDays(snapshot.dayModel, from, to).filter(row => !providers.size || providers.has(row.provider));
+	const sessions = snapshot.sessions.filter(row => (!providers.size || providers.has(row.provider)) &&
+		(!from || !to || inWindow(row, from, to)));
+	const days = grain.map(row => row.day).sort();
+	const { coverage: _coverage, ...totals } = sumGrain(grain);
+	return {
+		...snapshot,
+		dayModel: grain,
+		totals,
+		sessions,
+		models: aggregateByModel(grain).map(row => row.model),
+		providers: aggregateByProvider(grain).map(row => row.provider),
+		unknownPriceModels: [...new Set(grain.filter(row => row.costUnknownRequests > 0).map(row => row.model))],
+		earliestDay: days[0] ?? null,
+		latestDay: days.at(-1) ?? null,
+		coverage: Object.fromEntries(Object.entries(snapshot.coverage).filter(([day]) => (!from || day >= from) && (!to || day <= to))),
+		_scope: { from: from ?? null, to: to ?? null, providers: [...providers], unscoped: ['blocks', 'localBlocks', 'stats'] }
+	};
 }
 
 function periodDayRange(period: Period | undefined): { from: string | undefined; to: string | undefined } {
