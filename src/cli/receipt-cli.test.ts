@@ -204,3 +204,24 @@ it('accepts repeated machine and Account scopes in JSON receipts', async () => {
 	expect(result.receipt).toMatchObject({ machines: ['one', 'two', 'three'], accountIds: ['a', 'b', 'c'], totalBurn: 0 });
 	expect(result.totals.cost).toBe(0);
 });
+
+
+it('keeps stats and receipt JSON usage and fees equal for identical dates and filters', async () => {
+	for (const filters of [[], ['--model=absent'], ['--machine=one', '--account=a']]) {
+		const args = ['--json', '--from', fx.days[0], '--to', fx.days.at(-1)!, '--provider=claude', ...filters];
+		const stats = await runCli(['stats', ...args]);
+		const receipt = await runCli(['receipt', ...args]);
+		expect(stats.code).toBe(0);
+		expect(receipt.code).toBe(0);
+		const stat = JSON.parse(stats.stdout);
+		const rec = JSON.parse(receipt.stdout);
+		expect(stat.totals).toEqual(rec.totals);
+		const { periodLabel, ...subsidy } = rec.receipt.subsidisation;
+		expect(stat.subsidisation).toEqual(subsidy);
+	}
+	for (const args of [['--png'], ['--from=2026-02-30', '--to=2026-03-01'], ['--from=2026-06-01']]) {
+		const invalid = await runCli(['stats', ...args]);
+		expect(invalid.code).not.toBe(0);
+		expect(invalid.stderr).toContain('chaching stats:');
+	}
+});

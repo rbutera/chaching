@@ -63,7 +63,9 @@ Flags (global):
   --no-art               Suppress ASCII art and decorative copy
 
 Flags for stats:
-  --period day|week|month  Aggregate by period (default: all time)
+  --period day|week|month|quarter|all  Rolling window (default: all time)
+  --from YYYY-MM-DD --to YYYY-MM-DD  Inclusive date range
+  --model <name> --machine <id> --account <id>  Repeatable scope filters
   --provider <name>        Filter to provider(s); repeatable or comma-separated
   --json                   Output only the raw JSON snapshot to stdout
 

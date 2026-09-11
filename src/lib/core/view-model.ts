@@ -127,7 +127,7 @@ function hasPoolFilter(state: ViewState): boolean {
  * Under an attribution filter, downgrade known days to partial instead of
  * inheriting a peer's frozen/zero claim.
  */
-function coverageForState(snap: RollupSnapshot, state: ViewState): CoverageMap {
+export function coverageForState(snap: RollupSnapshot, state: ViewState): CoverageMap {
 	if (!hasPoolFilter(state)) return snap.coverage;
 	return Object.fromEntries(
 		Object.entries(snap.coverage).map(([day, coverage]) => [

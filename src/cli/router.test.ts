@@ -189,7 +189,7 @@ describe('chaching stats human output', () => {
 	});
 
 	it('rejects invalid period and exits non-zero', async () => {
-		const { code } = await runCli(['stats', '--period', 'quarter']);
+		const { code } = await runCli(['stats', '--period', 'invalid']);
 		expect(code).not.toBe(0);
 	});
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountWindowValues, reportAccountFees } from './accounts';
+import { accountWindowValues, reportAccountFees, accountFeesByProvider } from './accounts';
 import { defaultConfig } from './config';
 
 function input(): Parameters<typeof accountWindowValues>[0] {
@@ -77,4 +77,15 @@ it('retains one whole shared bill for a selected machine, including its unused A
 	expect(selected.claude.monthlyUsd).toBe(200);
 	expect(selected.codex.enabled).toBe(false);
 	expect(reportAccountFees(cfg, status, { machines: ['one'], accountIds: ['peer-only'] }).claude.enabled).toBe(false);
+});
+
+
+it('retains configured local Account fees when provider scanning is disabled', () => {
+	const cfg = defaultConfig();
+	cfg.providers.claude.enabled = false;
+	cfg.accounts = [{ ...input().accounts[0], feeSource: 'explicit', identity: null, registrations: [], legacy: false }];
+	cfg.providerAccounts.claude = ['a'];
+	expect(accountFeesByProvider(cfg).claude).toMatchObject({ enabled: true, monthlyUsd: 200 });
+	cfg.providerAccounts.claude = ['missing'];
+	expect(accountFeesByProvider(cfg).claude).toMatchObject({ enabled: true, monthlyUsd: null });
 });

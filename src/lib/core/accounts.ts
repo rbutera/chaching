@@ -74,7 +74,7 @@ export function accountFeesByProvider(config: {
 		const ids = new Set(config.providerAccounts[provider] ?? []);
 		const accounts = config.accounts.filter(account => account.provider === provider && ids.has(account.id));
 		return {
-			enabled: config.providers[provider].enabled,
+			enabled: config.providers[provider].enabled || ids.size > 0,
 			tier: accounts.length === 1 ? accounts[0].tier : accounts.length ? `${accounts.length} accounts` : 'unknown',
 			monthlyUsd: accounts.length && accounts.length === ids.size && !accounts.some(account => account.pendingLegacyIds?.length) ? sumFees(accounts.map(account => account.monthlyUsd)) : null
 		};
