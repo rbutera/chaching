@@ -46,7 +46,7 @@ function baseline() {
  const tables = ['pool', 'machine', 'machine_day_agg', 'machine_hour_agg', 'machine_session_agg', 'machine_provider_status'];
  const queries = Object.fromEntries(tables.map(table => [table, `SELECT * FROM chaching_sync.${table}`]));
  if (v === 2 && sql("SELECT to_regclass('chaching_sync.machine_provider_status') IS NULL;") === 't') queries.machine_provider_status = 'SELECT 1 WHERE false';
- queries.accounts = `SELECT pool_id,id,provider,name,account,tier,monthly_usd FROM chaching_sync.${v < 4 ? 'subscription' : 'account'}`;
+ queries.accounts = `SELECT pool_id,id,provider,name,account,tier,monthly_usd,${v < 4 ? "NULL::text AS identity_key,'explicit'::text AS fee_source" : 'identity_key,fee_source'} FROM chaching_sync.${v < 4 ? 'subscription' : 'account'}`;
  queries.links = v < 4 ? 'SELECT pool_id,machine_id,provider,subscription_id AS account_id FROM chaching_sync.machine_subscription WHERE subscription_id IS NOT NULL' : 'SELECT pool_id,machine_id,provider,account_id FROM chaching_sync.machine_account';
  return Object.fromEntries(Object.entries(queries).map(([name, query]) => [name, sql(`SELECT count(*) || ':' || md5(coalesce(string_agg(row_to_json(x)::text, E'\\n' ORDER BY row_to_json(x)::text),'')) FROM (${query}) x;`)]));
 }

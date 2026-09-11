@@ -76,6 +76,14 @@ suite.each([2, 3])('Packaged pool rollout from schema %i', sourceVersion => {
   expect(run('migrate',rollout)).toContain('verified');
   expect(run('migrate',rollout)).toContain('verified');
   expect(run('verify',rollout)).toContain('verified');
+  await db.query("UPDATE chaching_sync.account SET identity_key='v1:unexpected'");
+  expect(() => run('verify',rollout)).toThrow();
+  await db.query('UPDATE chaching_sync.account SET identity_key=NULL');
+  expect(run('verify',rollout)).toContain('verified');
+  await db.query("UPDATE chaching_sync.account SET fee_source='inferred'");
+  expect(() => run('verify',rollout)).toThrow();
+  await db.query("UPDATE chaching_sync.account SET fee_source='explicit'");
+  expect(run('verify',rollout)).toContain('verified');
   expect(() => run('restore',rollout)).toThrow();
   await db.query(`DROP OWNED BY ${role}`);
   await admin.query(`DROP ROLE ${role}`);
