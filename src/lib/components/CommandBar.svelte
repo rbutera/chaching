@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	// The single sticky scope surface. It absorbs every dashboard scope control
 	// that used to live scattered in the controls region — the period switcher,
 	// the day navigator, the provider filter pills, and the pool filters — and
@@ -49,6 +50,16 @@
 		dash.clearModelFilter();
 		dash.clearPoolFilters();
 	}
+	let receiptUrl = $derived.by(() => {
+		const qs = new URLSearchParams();
+		qs.set('period', dash.period);
+		if (focusedDay) qs.set('day', focusedDay);
+		else if (snap) { const range = dash.periodWindow(snap); qs.set('from', range.from); qs.set('to', range.to); }
+		for (const p of dash.providerFilter) qs.append('provider', p);
+		for (const model of dash.modelFilter) qs.append('model', model);
+		return `${resolve('/api/receipt.png')}?${qs.toString()}`;
+	});
+
 </script>
 
 <!-- REGION 3 → the sticky command bar (dissolved the old controls region). -->
@@ -60,6 +71,7 @@
 			</div>
 
 			<RangeNavigator {dash} snapshot={snap}/>
+			<a class="receipt-link" href={receiptUrl} target="_blank" rel="noopener" aria-label="Open a shareable receipt of the current view in a new tab">Receipt</a>
 
 			{#if providerChoices.length > 1}
 				<div class="pills" aria-label="Provider filter">
@@ -167,6 +179,8 @@
 		gap: 0.75rem;
 		flex-wrap: wrap;
 	}
+	.receipt-link { color: var(--accent); font-size: var(--text-xs); padding: 0.35rem 0; }
+	.receipt-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 	.period-wrap {
 		display: inline-flex;
 		align-items: center;

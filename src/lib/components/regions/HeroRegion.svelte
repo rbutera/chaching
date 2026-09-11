@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
 	import type { FeedStore } from '$lib/client/feed.svelte';
 	import type { Dashboard } from '$lib/client/dashboard.svelte';
 	import MoneyOdometer from '$lib/components/ds/MoneyOdometer.svelte';
@@ -51,21 +50,6 @@
 		}
 		return null;
 	});
-
-	let receiptUrl = $derived.by(() => {
-		const qs = new URLSearchParams();
-		qs.set('period', dash.period);
-		if (focusedDay) qs.set('day', focusedDay);
-		else if (snap) { const range = dash.periodWindow(snap); qs.set('from', range.from); qs.set('to', range.to); }
-		for (const p of dash.providerFilter) qs.append('provider', p);
-		for (const model of dash.modelFilter) qs.append('model', model);
-		return `${resolve('/api/receipt.png')}?${qs.toString()}`;
-	});
-
-	function openReceipt(): void {
-		// New tab; noopener for safety. The current view is baked into receiptUrl.
-		window.open(receiptUrl, '_blank', 'noopener');
-	}
 
 	// Hero odometer feed: the figure is rendered by MoneyOdometer (NumberFlow), which
 	// owns the roll animation and the reduced-motion gate. We only decide HOW OFTEN it
@@ -132,17 +116,7 @@
 			{/if}
 		</div>
 		{#if flourish}<div class="flourish">{flourish}</div>{/if}
-		<div class="hero-actions">
-			<button
-				type="button"
-				class="receipt-btn ka-chunk"
-				onclick={openReceipt}
-				title="Open a shareable receipt PNG of this view in a new tab"
-				aria-label="Open a shareable receipt of the current view in a new tab"
-			>
-				{suppressArt ? '' : '🧾 '}Receipt
-			</button>
-		</div>
+
 	</div>
 	<div class="hero-spark">
 		{#if heroSpark.length > 1}
@@ -243,53 +217,8 @@
 		font-size: 0.82rem;
 		color: var(--text-muted);
 	}
-	.hero-actions {
-		margin-top: 0.85rem;
-	}
-	.receipt-btn {
-		font-family: var(--font-sans);
-		font-size: var(--text-2xs);
-		letter-spacing: var(--tracking-snug);
-		color: var(--text-on-gold);
-		background: var(--accent);
-		border: 1px solid var(--accent);
-		border-radius: var(--radius-pill);
-		padding: 0.35rem 0.85rem;
-		cursor: pointer;
-	}
 	.hero-spark {
 		flex: 0 0 auto;
 	}
 
-	/* Register "ka-chunk" microinteraction — press scale .97 + darken to gold-600,
-	   hover lift + brighten to gold-400, 2px gold focus ring. CSS-only, on the
-	   --dur-fast/--dur motion tokens; gated by prefers-reduced-motion (the base
-	   reset kills the transition, and the transform only applies when motion is ok). */
-	.ka-chunk {
-		transform: translateY(0) scale(1);
-	}
-	.ka-chunk:focus-visible {
-		outline: 2px solid var(--accent);
-		outline-offset: 2px;
-	}
-	@media (prefers-reduced-motion: no-preference) {
-		.ka-chunk {
-			transition:
-				transform var(--dur-fast) var(--ease-snap),
-				background var(--dur-fast) var(--ease-out),
-				border-color var(--dur-fast) var(--ease-out),
-				color var(--dur-fast) var(--ease-out),
-				box-shadow var(--dur) var(--ease-out);
-		}
-		.ka-chunk:hover:not(:disabled) {
-			transform: translateY(-1px);
-			border-color: var(--gold-400);
-			color: var(--gold-400);
-		}
-		.ka-chunk:active:not(:disabled) {
-			transform: scale(0.97);
-			background: var(--gold-600);
-			border-color: var(--gold-600);
-		}
-	}
 </style>

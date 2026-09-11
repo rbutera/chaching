@@ -6,8 +6,9 @@
 // genuine `zero` day and a `frozen` day still headline money.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, cleanup, fireEvent } from '@testing-library/svelte';
+import { render, cleanup } from '@testing-library/svelte';
 import HeroRegion from './HeroRegion.svelte';
+import CommandBar from '../CommandBar.svelte';
 import { FeedStore } from '$lib/client/feed.svelte';
 import { Dashboard } from '$lib/client/dashboard.svelte';
 import type { DayModelAgg, RollupSnapshot, TokenCounts } from '$lib/types';
@@ -123,11 +124,9 @@ it('forwards the selected models and date to the receipt', async () => {
 	const dash = new Dashboard();
 	dash.focusedDay = '2026-06-15';
 	dash.modelFilter = new Set(['claude-opus-4-8']);
-	const open = vi.spyOn(window, 'open').mockImplementation(() => null);
-	const view = render(HeroRegion, { props: { feed, dash, reducedMotion: true, suppressArt: true } });
-	await fireEvent.click(view.getByRole('button', { name: 'Open a shareable receipt of the current view in a new tab' }));
-	const url = new URL(String(open.mock.calls[0]?.[0]), 'http://localhost');
+	const view = render(CommandBar, { props: { feed, dash, syncStatus: null } });
+	const link = view.getByRole('link', { name: 'Open a shareable receipt of the current view in a new tab' });
+	const url = new URL(link.getAttribute('href')!, 'http://localhost');
 	expect(url.searchParams.getAll('model')).toEqual(['claude-opus-4-8']);
 	expect(url.searchParams.get('day')).toBe('2026-06-15');
-	open.mockRestore();
 });
