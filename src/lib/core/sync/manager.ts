@@ -12,7 +12,7 @@ import {
 	type SyncConfig
 } from '../config';
 import { PostgresSyncStore } from './store';
-import type { SyncAction, SyncStatus, SyncAccount } from './types';
+import type { SyncAction, SyncStatus, SyncAccount, SyncMapping } from './types';
 
 export function localSyncStatus(error: string | null = null): SyncStatus {
 	return {
@@ -26,6 +26,13 @@ export function localSyncStatus(error: string | null = null): SyncStatus {
 		providerQuotas: [],
 		error
 	};
+}
+
+export function localAccountMappings(cfg: chachingConfig): SyncMapping[] {
+	return Object.entries(cfg.providerAccounts).filter(([provider]) => !cfg.accounts.some(account =>
+		account.provider === provider && account.pendingLegacyIds?.length)).flatMap(([provider, ids]) => ids
+		.filter(id => cfg.accounts.some(account => account.id === id && account.provider === provider && !account.pendingLegacyIds?.length))
+		.map(accountId => ({ machineId: cfg.sync.machineId ?? hostname(), provider, accountId })));
 }
 
 export async function publishDiscoveredAccounts(store: PostgresSyncStore, cfg: chachingConfig): Promise<void> {
@@ -107,7 +114,10 @@ export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus
 			...localSyncStatus(),
 			databaseConfigured: cfg.sync.databaseUrl.length > 0,
 			intervalMinutes,
-			providerQuotas: localProviderQuotas
+			providerQuotas: localProviderQuotas,
+			accounts: cfg.accounts.map(account => ({ id: account.id, provider: account.provider, name: account.name,
+				account: '', tier: account.tier, monthlyUsd: account.monthlyUsd, feeSource: account.feeSource })),
+			mappings: localAccountMappings(cfg)
 		};
 	}
 	const store = new PostgresSyncStore(

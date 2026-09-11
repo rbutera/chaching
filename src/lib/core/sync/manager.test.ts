@@ -144,3 +144,21 @@ it.skipIf(!process.env.CHACHING_TEST_DATABASE_URL)('keeps manual Accounts canoni
 		await rm(directory, { recursive: true, force: true });
 	}
 });
+
+
+it('exposes local Account filters without private identity or unresolved mappings', async () => {
+	const cfg = defaultConfig();
+	cfg.tokenmaxx.enabled = false;
+	cfg.accounts = ['one', 'two'].map(id => ({ id, provider: 'codex', name: id, tier: 'custom', monthlyUsd: 20,
+		feeSource: 'explicit', identity: null, privateLabel: 'private@example.test', registrations: ['private-registration'], legacy: false }));
+	cfg.accounts[1].pendingLegacyIds = ['old'];
+	cfg.providerAccounts = { codex: ['one', 'two', 'missing'], claude: ['one'] };
+	const status = await getSyncStatus(cfg);
+	expect(status.enabled).toBe(false);
+	expect(status.accounts.map(account => account.id)).toEqual(['one', 'two']);
+	expect(status.mappings).toEqual([]);
+	cfg.accounts[1].pendingLegacyIds = [];
+	cfg.providerAccounts.codex = ['one', 'missing'];
+	expect((await getSyncStatus(cfg)).mappings).toEqual([{ machineId: expect.any(String), provider: 'codex', accountId: 'one' }]);
+	expect(JSON.stringify(status.accounts)).not.toContain('private');
+});

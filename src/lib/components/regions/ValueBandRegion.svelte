@@ -41,7 +41,7 @@
 	let subsidy = $derived(snap && subsidyConfig ? dash.subsidisation(snap, subsidyConfig) : null);
 
 	let poolValues = $derived.by(() => {
-		if (!snap || !syncStatus?.enabled) return null;
+		if (!snap || !syncStatus || (!syncStatus.enabled && !syncStatus.accounts?.length)) return null;
 		const window = dash.periodWindow(snap);
 		return accountWindowValues({
 			localAccounts: config?.accounts,
@@ -63,7 +63,7 @@
 	{#if cacheBreakdown}
 		<CachePanel breakdown={cacheBreakdown} />
 	{/if}
-	{#if syncStatus?.enabled}
+	{#if syncStatus?.enabled || poolValues}
 		{#if poolValues && poolValues.rows.length > 0}
 			<PoolSubsidisationCard
 				rows={poolValues.rows}
@@ -72,7 +72,7 @@
 				wholePlanFee={dash.machineFilter.size > 0}
 			/>
 		{:else}
-			<p role="status">{syncStatus.unreachable ? 'Pool unavailable.' : 'No Accounts in this scope.'}</p>
+			<p role="status">{syncStatus?.unreachable ? 'Pool unavailable.' : 'No Accounts in this scope.'}</p>
 		{/if}
 	{:else if subsidy && subsidyConfig}
 		<SubsidisationCard rollup={subsidy} windowLabel={heroLabel} burnPace={pace} />

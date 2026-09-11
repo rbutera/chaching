@@ -630,3 +630,18 @@ describe('dashboard route — motion (reduced-motion contract)', () => {
 		expect((container.querySelector('[aria-label="Spend overview"]')?.textContent ?? '')).toMatch(/\$20[0-9]/);
 	});
 });
+
+
+it('offers Account filtering without a sync pool', async () => {
+	snapshotToEmit = richSnap();
+	snapshotToEmit.dayModel = snapshotToEmit.dayModel.map(row => ({ ...row, accountId: row.provider }));
+	syncStatusToReturn = { enabled: false, machines: [], accounts: ['claude', 'codex'].map(id => ({
+		id, provider: id, name: `Local ${id}`, account: '', tier: 'custom', monthlyUsd: 20
+	})), mappings: [], providerQuotas: [] };
+	const { getByRole } = render(Page);
+	await flush();
+	await fireEvent.click(getByRole('button', { name: 'Local codex' }));
+	expect(getByRole('button', { name: 'Local codex' }).getAttribute('aria-pressed')).toBe('true');
+	expect(getByRole('link', { name: /shareable receipt/ }).getAttribute('href')).toContain('account=codex');
+	expect(getByRole('region', { name: 'Cache cost and subscription subsidy' }).textContent).toContain('Local codex');
+});

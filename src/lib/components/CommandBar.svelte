@@ -91,7 +91,7 @@
 				</div>
 			{/if}
 
-			{#if syncStatus?.enabled}
+			{#if syncStatus?.enabled || syncStatus?.accounts?.length}
 				<PoolFilters
 					machines={syncStatus.machines}
 					accounts={syncStatus.accounts}

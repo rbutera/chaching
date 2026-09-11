@@ -29,7 +29,7 @@ import {
 } from './providers/tokenmaxx/sqlite';
 import { fetchCursorUsageRecords } from './providers/cursor/api';
 import type { RollupDelta, RollupSnapshot, UsageRecord } from '../types';
-import { isConfigured, publishDiscoveredAccounts } from './sync/manager';
+import { isConfigured, publishDiscoveredAccounts, localAccountMappings } from './sync/manager';
 import { isPoolGlobalUsage, usageDedupKey } from './sync/record-key';
 import {
 	PostgresSyncStore,
@@ -167,6 +167,9 @@ class Ingestion {
 		const t0 = Date.now();
 		const cfg = this.config ?? (await refreshAccountDiscovery());
 		this.resolvedConfig = cfg;
+		if (!isConfigured(cfg.sync)) {
+			this.syncAccountIndex = buildAccountIndex(localAccountMappings(cfg), cfg.sync.machineId ?? hostname());
+		}
 		this.rollup.setCutover(cfg.cutoverTs);
 
 		// Local-first ALWAYS: seed the rollup with frozen past-day aggregates from local SQLite
@@ -860,7 +863,10 @@ class Ingestion {
 		}
 		if (this.rollup.hasDirty()) {
 			const delta = this.rollup.drainDelta(this.now(), this.coverageInput());
-			if (delta) for (const fn of this.listeners) fn(delta);
+			if (delta) {
+				const attributed = attachAccounts(delta, this.syncAccountIndex);
+				for (const fn of this.listeners) fn(attributed);
+			}
 		}
 	}
 
@@ -1018,7 +1024,7 @@ class Ingestion {
 
 	snapshot(): RollupSnapshot {
 		if (this.syncStore) return this.buildSyncSnapshot();
-		return this.rollup.snapshot(this.now(), this.coverageInput());
+		return attachAccounts(this.rollup.snapshot(this.now(), this.coverageInput()), this.syncAccountIndex);
 	}
 
 	setCutover(ts: number | null): void {

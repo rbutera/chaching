@@ -160,6 +160,9 @@ describe('codex liveness — a session written AFTER the cold scan reaches the r
 
 		const cfg = disabledConfig();
 		cfg.providers.codex = { enabled: true, root };
+		cfg.accounts = [{ id: 'local-codex', provider: 'codex', name: 'Local Codex', tier: 'custom', monthlyUsd: 20,
+			feeSource: 'explicit', identity: null, registrations: [], legacy: false }];
+		cfg.providerAccounts = { codex: ['local-codex'] };
 
 		const engine = createEngine(cfg);
 		try {
@@ -188,7 +191,11 @@ describe('codex liveness — a session written AFTER the cold scan reaches the r
 			await writeFile(join(root, '2026/07/02/rollout-live.jsonl'), session);
 
 			let deltas = 0;
-			engine.subscribe(() => deltas++);
+			engine.subscribe(delta => {
+				deltas++;
+				expect(delta.dayModel[0].accountId).toBe('local-codex');
+				expect(delta.sessions[0].accountId).toBe('local-codex');
+			});
 
 			// Drive the poll body directly (the production interval is 15s — white-box
 			// call keeps the test instant; the interval wiring is covered by dispose tests).
@@ -199,6 +206,8 @@ describe('codex liveness — a session written AFTER the cold scan reaches the r
 			expect(codexRows.length).toBe(1);
 			expect(codexRows[0].model).toBe('gpt-5.5');
 			expect(codexRows[0].day).toBe('2026-07-02');
+			expect(codexRows[0].accountId).toBe('local-codex');
+			expect(snap.sessions[0].accountId).toBe('local-codex');
 			expect(deltas).toBe(1);
 
 			// idempotent: a second poll re-reads the same file (inside the margin) but

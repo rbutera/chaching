@@ -221,7 +221,7 @@ function resolveMachineId(
  * row and recover this machine's id on legacy local rows written before the pool join. Runs
  * last so a remap needs only a fresh index, never a re-scan or re-load.
  */
-export function attachAccounts(snap: RollupSnapshot, index: AccountIndex): RollupSnapshot {
+export function attachAccounts<T extends Pick<RollupSnapshot, 'dayModel' | 'sessions'>>(snap: T, index: AccountIndex): T {
 	const dayModel: DayModelAgg[] = snap.dayModel.map((dm) => {
 		const machineId = resolveMachineId(index, dm.machineId, dm.provider);
 		return {
