@@ -27,7 +27,7 @@ Audit CLI/API Account scope compatibility explicitly: do not silently ignore a s
 
 Automate the existing migration rather than creating a second schema implementation. Provide separately executable preflight, backup, migrate, verify and recovery steps. Require an explicit roster of stopped/upgraded clients; record the old schema/config versions, exact target artifact and checksums, backups, immutable baseline totals and fee/link inventory. Back up the database and each machine's private config/history before migration. Compare the resulting totals and canonical fee/link inventory, then restart upgraded clients together. Recovery restores the matching old database/config/artifact set; never restart an old binary against upgraded state.
 
-Use existing PostgreSQL tooling and the existing migration entry point. Keep secrets out of manifests and command output. Rehearse against disposable populated schema-3 data, including failure/rollback and rerun, and make the runbook's commands directly runnable. No live data migration is authorized here.
+Use existing PostgreSQL tooling and the existing migration entry point. Keep secrets out of manifests and command output. Rehearse against disposable populated schema-2 and schema-3 data, including failure/rollback and rerun, and make the runbook's commands directly runnable. No live data migration is authorized here.
 
 ## Completion evidence
 
