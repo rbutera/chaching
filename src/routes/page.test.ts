@@ -249,6 +249,18 @@ describe('dashboard route — behavior contracts', () => {
 		expect(getByRole('button', { name: /^old-project,.*Open session detail/ })).toBeTruthy();
 	});
 
+	it('steps full windows and stops once the first recorded day is included', async () => {
+		snapshotToEmit = { ...richSnap(), earliestDay: '2026-05-15' };
+		const view = render(Page);
+		await flush();
+		expect(view.getByRole('button', { name: 'Previous window' })).not.toBeDisabled();
+		await fireEvent.click(view.getByRole('button', { name: 'Previous window' }));
+		expect(view.getByLabelText('Window ending date')).toHaveValue('2026-05-20');
+		expect(view.getByRole('button', { name: 'Previous window' })).toBeDisabled();
+		await fireEvent.click(view.getByRole('button', { name: 'Next window' }));
+		expect(view.getByLabelText('Window ending date')).toHaveValue('2026-06-19');
+	});
+
 	it('navigates through quiet today and preserves day focus when choosing a date', async () => {
 		vi.setSystemTime(new Date('2026-06-20T12:00:00Z'));
 		snapshotToEmit = richSnap();

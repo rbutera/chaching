@@ -18,7 +18,7 @@
 </script>
 
 <div class="range-nav" aria-label="Date navigation">
-	<button aria-label="Previous window" disabled={(!dash.focusedDay && periodSpan(dash.period) === null) || (!!snapshot.earliestDay && end <= snapshot.earliestDay)} onclick={() => step(-1)}>‹</button>
+	<button aria-label="Previous window" disabled={(!dash.focusedDay && periodSpan(dash.period) === null) || (!!snapshot.earliestDay && start <= snapshot.earliestDay)} onclick={() => step(-1)}>‹</button>
 	<label title="Choose end date"><span>{start === end ? fmtDay(end) : `${fmtDay(start)} – ${fmtDay(end)}`}</span><input type="date" aria-label="Window ending date" min={snapshot.earliestDay ?? undefined} max={dash.today} value={end} onchange={e => selectDay(e.currentTarget.value)}/></label>
 	<button aria-label="Next window" disabled={end >= dash.today || (!dash.focusedDay && periodSpan(dash.period) === null)} onclick={() => step(1)}>›</button>
 	{#if dash.windowEnd || dash.focusedDay}<button onclick={() => dash.setWindowEnd(null)}>Latest</button>{/if}

@@ -140,9 +140,9 @@ export class Dashboard {
 
 	stepWindow(snap: RollupSnapshot, direction: -1 | 1): void {
 		const span = vm.periodSpan(this.period);
-		if (span === null) return;
+		if (span === null || (direction < 0 && snap.earliestDay && this.periodWindow(snap).from <= snap.earliestDay)) return;
 		const next = vm.addDaysISO(this.windowEnd ?? this.today, direction * span);
-		this.setWindowEnd(snap.earliestDay && next < snap.earliestDay ? snap.earliestDay : next);
+		this.setWindowEnd(next);
 	}
 
 	headlines(snap: RollupSnapshot) {
