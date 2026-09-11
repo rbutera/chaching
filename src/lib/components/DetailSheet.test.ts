@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
-import { render, screen, within } from '@testing-library/svelte';
+import { describe, expect, it, vi } from 'vitest';
+import { render, screen, within, fireEvent } from '@testing-library/svelte';
 import DetailSheet from './DetailSheet.svelte';
 import type { DrillTarget } from '$lib/client/dashboard.svelte';
 import type { RollupSnapshot, SessionSummary } from '$lib/types';
@@ -74,4 +74,15 @@ describe('DetailSheet — enriched session branch', () => {
 		render(DetailSheet, { drill, snapshot: emptySnap(), onClose: () => {} });
 		expect(screen.queryByText(/no known price/i)).not.toBeInTheDocument();
 	});
+});
+
+
+it('opens a native modal and forwards cancellation to its owner', async () => {
+	const onClose = vi.fn();
+	render(DetailSheet, { drill: { kind: 'session', session: session(), label: 'sess' }, snapshot: emptySnap(), onClose });
+	const dialog = screen.getByRole('dialog');
+	expect(dialog.tagName).toBe('DIALOG');
+	expect(dialog).toHaveAttribute('open');
+	await fireEvent(dialog, new Event('cancel'));
+	expect(onClose).toHaveBeenCalledOnce();
 });

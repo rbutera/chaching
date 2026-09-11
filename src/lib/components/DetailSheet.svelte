@@ -4,6 +4,7 @@
 	// input/output/cache split, the cost math, a session timeline / model mix,
 	// and a comparison to the prior equivalent slice. Focus-trapped, ESC + backdrop
 	// dismiss, breadcrumb header.
+	import { onMount } from 'svelte';
 	import type { DrillTarget } from '$lib/client/dashboard.svelte';
 	import type { RollupSnapshot, TokenCounts } from '$lib/types';
 	import TokenSplitBar from './TokenSplitBar.svelte';
@@ -39,7 +40,7 @@
 		onClose: () => void;
 	} = $props();
 
-	let panel: HTMLElement | undefined = $state();
+	let panel: HTMLDialogElement | undefined = $state();
 
 	// ---- derive the slice the drill points at ----
 	let slice = $derived.by(() => {
@@ -130,32 +131,31 @@
 		});
 	});
 
-	function onKey(e: KeyboardEvent) {
-		if (e.key === 'Escape') onClose();
+	onMount(() => {
+		const dialog = panel;
+		dialog?.showModal();
+		return () => dialog?.close();
+	});
+
+	function close() {
+		panel?.close();
+		onClose();
 	}
 
-	$effect(() => {
-		panel?.focus();
-	});
+	function closeBackdrop(event: MouseEvent) {
+		if (!panel || event.target !== panel) return;
+		const bounds = panel.getBoundingClientRect();
+		if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) close();
+	}
 </script>
 
-<svelte:window onkeydown={onKey} />
-
-<!-- backdrop -->
-<div
-	class="backdrop"
-	onclick={onClose}
-	role="presentation"
-	aria-hidden="true"
-></div>
-
-<div
+<dialog
 	class="sheet"
-	role="dialog"
-	aria-modal="true"
 	aria-label={`Detail: ${slice.title}`}
 	tabindex="-1"
 	bind:this={panel}
+	oncancel={(event) => { event.preventDefault(); close(); }}
+	onclick={closeBackdrop}
 >
 	<div class="sheet-head">
 		<div>
@@ -163,7 +163,7 @@
 			<h2 class="sheet-title">{slice.title}</h2>
 			<p class="range">{slice.timeRange}</p>
 		</div>
-		<button class="close" onclick={onClose} aria-label="Close detail">✕</button>
+		<button class="close" onclick={close} aria-label="Close detail">✕</button>
 	</div>
 
 	<div class="sheet-body">
@@ -276,10 +276,10 @@
 			</section>
 		{/if}
 	</div>
-</div>
+</dialog>
 
 <style>
-	.backdrop {
+	.sheet::backdrop {
 		position: fixed;
 		inset: 0;
 		background: rgba(0, 0, 0, 0.55);
@@ -293,6 +293,12 @@
 		}
 	}
 	.sheet {
+		margin: 0;
+		padding: 0;
+		color: var(--text);
+		width: 100%;
+		max-width: none;
+		top: auto;
 		position: fixed;
 		z-index: 50;
 		background: var(--surface-1);
@@ -320,6 +326,7 @@
 			bottom: 0;
 			right: 0;
 			width: 440px;
+			height: 100dvh;
 			max-height: 100dvh;
 			border-radius: 0;
 			border-right: none;
