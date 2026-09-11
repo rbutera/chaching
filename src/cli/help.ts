@@ -65,13 +65,12 @@ Flags (global):
 Flags for stats:
   --period day|week|month|quarter|all  Rolling window (default: all time)
   --from YYYY-MM-DD --to YYYY-MM-DD  Inclusive date range
-  --model <name> --machine <id> --account <id>  Repeatable scope filters
+  --model <name> --machine <id>  Repeatable scope filters
   --provider <name>        Filter to provider(s); repeatable or comma-separated
   --json                   Output only the raw JSON snapshot to stdout
 
 Flags for receipt:
   --machine <id>          Filter usage by machine; retain shared Account fees
-  --account <id>          Filter by Account; repeatable or comma-separated
   --from YYYY-MM-DD --to YYYY-MM-DD  Export an inclusive date range
   --model <name>           Filter usage by model; repeatable or comma-separated
   --period day|week|month|quarter|all  Aggregate by period (default: last 30 days)
@@ -98,6 +97,7 @@ Chaching Sync:
   CHACHING_DATABASE_URL=<url> chaching sync create --name <pool> [--machine <name>]
   CHACHING_DATABASE_URL=<url> chaching sync join --pool <id> [--machine <name>]
   chaching sync status [--json]
+  CHACHING_DATABASE_URL=<url> chaching sync schema [--migrate --clients-stopped]
   chaching sync interval <minutes>   # publish cadence (>=1, default 15; higher = cheaper serverless)
   chaching sync account add --provider <name> --name <label>
       [--account <label>] [--tier <tier>] --monthly-usd <amount>

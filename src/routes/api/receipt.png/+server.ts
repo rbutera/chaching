@@ -15,6 +15,7 @@
 // reflects the dashboard's active period/scope because the button forwards the live
 // query.
 
+import { ACCOUNT_SPEND_FILTER_UNAVAILABLE } from '$lib/core/accounts';
 import { error } from '@sveltejs/kit';
 import { isCalendarDay } from '$lib/core/view-model';
 import type { RequestHandler } from './$types';
@@ -42,6 +43,7 @@ function parsePeriod(raw: string | null): Period {
 
 export const GET: RequestHandler = async ({ url }) => {
 	const params = url.searchParams;
+	if (params.has('account')) throw error(400, ACCOUNT_SPEND_FILTER_UNAVAILABLE);
 
 	const period = parsePeriod(params.get('period'));
 	const redact = ((): boolean => {
@@ -74,7 +76,6 @@ export const GET: RequestHandler = async ({ url }) => {
 	const models = params.getAll('model').flatMap((value) => value.split(',')).map((value) => value.trim()).filter(Boolean);
 
 	const machines = params.getAll('machine').flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean);
-	const accountIds = params.getAll('account').flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean);
 
 	const service = getService();
 	await service.ensureStarted();
@@ -82,14 +83,13 @@ export const GET: RequestHandler = async ({ url }) => {
 
 	// Per-provider subscription config for the subsidisation footer — built from the
 	// persisted config, exactly like the CLI receipt command.
-	const { fees: subscription } = await getReportAccountContext({ machines, accountIds });
+	const { fees: subscription } = await getReportAccountContext({ machines });
 
 	const model = buildReceipt(snapshot, {
 		period,
 		providers: providers.length > 0 ? providers : undefined,
 		models,
 		machines,
-		accountIds,
 		range,
 		footer: receiptFooter(),
 		subscription,

@@ -4,7 +4,7 @@ import { expandPath } from '../fs-utils';
 import { accountIdentityKey, readTokenmaxxAccounts, type TokenmaxxQuotaSnapshot } from '../providers/tokenmaxx/sqlite';
 import { accountQuotaSnapshot, refreshAccountDiscovery } from '../account-discovery';
 import type { PrivateAccount } from '../accounts';
-import { reportAccountFees } from '../accounts';
+import { reportAccountFees, ACCOUNT_SPEND_FILTER_UNAVAILABLE } from '../accounts';
 import {
 	loadConfig,
 	updateConfig,
@@ -165,6 +165,7 @@ export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus
 }
 
 export async function getReportAccountContext(scope: Parameters<typeof reportAccountFees>[2] = {}) {
+	if (scope.accountIds?.length) throw new Error(ACCOUNT_SPEND_FILTER_UNAVAILABLE);
 	const status = await getSyncStatus();
 	const config = await loadConfig();
 	return { config, status, fees: reportAccountFees(config, status, scope) };

@@ -197,17 +197,24 @@ it('exports explicit dates consistently in the receipt body and JSON totals', as
 });
 
 
-it('accepts repeated machine and Account scopes in JSON receipts', async () => {
-	const { code, stdout } = await runCli(['receipt', '--json', '--machine=one,two', '--machine', 'three', '--account=a,b', '--account', 'c']);
+it('accepts repeated machine scopes in JSON receipts', async () => {
+	const { code, stdout } = await runCli(['receipt', '--json', '--machine=one,two', '--machine', 'three']);
 	expect(code).toBe(0);
-	const result = JSON.parse(stdout);
-	expect(result.receipt).toMatchObject({ machines: ['one', 'two', 'three'], accountIds: ['a', 'b', 'c'], totalBurn: 0 });
-	expect(result.totals.cost).toBe(0);
+	expect(JSON.parse(stdout).receipt).toMatchObject({ machines: ['one', 'two', 'three'], totalBurn: 0 });
+});
+
+it.each(['receipt', 'stats'])('rejects Account spend filters in %s without emitting misleading totals', async command => {
+	for (const args of [['--account=a,b'], ['--account', 'a']]) {
+		const result = await runCli([command, '--json', ...args]);
+		expect(result.code).not.toBe(0);
+		expect(result.stderr).toContain('historical usage cannot be reliably split by Account');
+		expect(result.stdout).toBe('');
+	}
 });
 
 
 it('keeps stats and receipt JSON usage and fees equal for identical dates and filters', async () => {
-	for (const filters of [[], ['--model=absent'], ['--machine=one', '--account=a']]) {
+	for (const filters of [[], ['--model=absent'], ['--machine=one']]) {
 		const args = ['--json', '--from', fx.days[0], '--to', fx.days.at(-1)!, '--provider=claude', ...filters];
 		const stats = await runCli(['stats', ...args]);
 		const receipt = await runCli(['receipt', ...args]);

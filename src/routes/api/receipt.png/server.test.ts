@@ -126,8 +126,12 @@ it('keeps fees when model filtering excludes all usage', async () => {
 });
 
 
-it('uses the same machine and Account scope for fees and receipt usage', async () => {
-	await call('?from=2026-06-01&to=2026-06-30&machine=one,two&account=a&account=b');
-	expect(getReportAccountContext).toHaveBeenLastCalledWith({ machines: ['one', 'two'], accountIds: ['a', 'b'] });
-	expect(vi.mocked(renderReceiptPng).mock.calls.at(-1)?.[0]).toMatchObject({ machines: ['one', 'two'], accountIds: ['a', 'b'], totalBurn: 0 });
+it('uses the same machine scope for fees and receipt usage', async () => {
+	await call('?from=2026-06-01&to=2026-06-30&machine=one,two');
+	expect(getReportAccountContext).toHaveBeenLastCalledWith({ machines: ['one', 'two'] });
+	expect(vi.mocked(renderReceiptPng).mock.calls.at(-1)?.[0]).toMatchObject({ machines: ['one', 'two'], totalBurn: 0 });
+});
+
+it.each(['?account=a', '?account='])('rejects unsupported Account scope with HTTP 400: %s', async query => {
+	await expect(call(query)).rejects.toMatchObject({ status: 400, body: { message: expect.stringContaining('historical usage cannot be reliably split by Account') } });
 });

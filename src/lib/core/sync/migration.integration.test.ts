@@ -1,3 +1,4 @@
+import { runSync } from '../../../cli/commands/sync';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { Pool } from 'pg';
@@ -42,6 +43,23 @@ suite('Account schema migration', () => {
 			INSERT INTO chaching_sync.machine_hour_agg VALUES ('pool', 'machine:one', 'one', 123, 'claude', 'model', 100, 20, 0, 0, 1, 12.5, 0, now());
 			INSERT INTO chaching_sync.machine_session_agg VALUES ('pool', 'machine:one', 'one', 'claude', 'session', '{"cost":12.5}', now());
 		`);
+	});
+
+	it('exposes a read-only schema command and explicit repeatable migration without starting sync', async () => {
+		const previousUrl = process.env.CHACHING_DATABASE_URL;
+		process.env.CHACHING_DATABASE_URL = url;
+		try {
+			await runSync(['schema']);
+			expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows[0].version).toBe(3);
+			await expect(runSync(['schema', '--migrate'])).rejects.toThrow('Stop every client');
+			await runSync(['schema', '--migrate', '--clients-stopped']);
+			await runSync(['schema', '--migrate', '--clients-stopped']);
+			expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows[0].version).toBe(4);
+			expect((await db.query('SELECT count(*) FROM chaching_sync.machine')).rows[0].count).toBe('2');
+		} finally {
+			if (previousUrl === undefined) delete process.env.CHACHING_DATABASE_URL;
+			else process.env.CHACHING_DATABASE_URL = previousUrl;
+		}
 	});
 
 	it('preserves bills, links and aggregate rows across concurrent migration and rerun', async () => {

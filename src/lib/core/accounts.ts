@@ -2,6 +2,8 @@ import { FEE_PRORATA_DAYS, inclusiveDays, sumFees, type SubsidisedProvider, type
 import type { DayModelAgg } from '../types';
 import type { SyncMapping, SyncAccount, SyncStatus } from './sync/types';
 
+export const ACCOUNT_SPEND_FILTER_UNAVAILABLE = 'Account spend filters are unavailable because historical usage cannot be reliably split by Account. Use provider or machine filters instead.';
+
 export interface AccountValueRow {
 	id: string;
 	name: string;

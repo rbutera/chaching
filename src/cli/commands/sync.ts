@@ -1,4 +1,5 @@
 import { hostname } from 'node:os';
+import { PostgresSyncStore, SCHEMA_VERSION } from '../../lib/core/sync/store.js';
 import {
 	getSyncStatus,
 	performSyncAction,
@@ -8,6 +9,23 @@ import type { SyncStatus } from '../../lib/core/sync/types.js';
 
 export async function runSync(argv: string[]): Promise<void> {
 	const [command = 'status', ...rest] = argv;
+	if (command === 'schema') {
+		if (rest.some(arg => arg !== '--migrate' && arg !== '--clients-stopped'))
+			throw new Error('usage: CHACHING_DATABASE_URL=<url> chaching sync schema [--migrate --clients-stopped]');
+		if (rest.includes('--migrate') && !rest.includes('--clients-stopped'))
+			throw new Error('Stop every client sharing this database and complete the rollout backups before using --migrate --clients-stopped.');
+		const store = new PostgresSyncStore(databaseUrl([]));
+		try {
+			const before = await store.readSchemaVersion();
+			if (rest.includes('--migrate')) {
+				if (before !== 3 && before !== SCHEMA_VERSION)
+					throw new Error(`Schema migration requires version 3 or ${SCHEMA_VERSION}; found ${before ?? 'missing'}.`);
+				await store.open();
+			}
+			console.log(JSON.stringify({ before, version: await store.readSchemaVersion(), target: SCHEMA_VERSION }));
+		} finally { await store.close(); }
+		return;
+	}
 	if (command === 'status') {
 		const status = await getSyncStatus();
 		if (rest.includes('--json')) console.log(JSON.stringify(status, null, 2));
@@ -87,7 +105,7 @@ export async function runSync(argv: string[]): Promise<void> {
 		return;
 	}
 	throw new Error(
-		'chaching sync: expected create|join|status|leave|interval|account add|map (run chaching --help)'
+		'chaching sync: expected create|join|status|schema|leave|interval|account add|map (run chaching --help)'
 	);
 }
 

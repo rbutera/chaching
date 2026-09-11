@@ -16,6 +16,7 @@ import { printUsage, printVersion } from './help.js';
 import { configFilePath } from '../lib/core/config.js';
 import { existsSync } from 'node:fs';
 import { noArt } from './tui/theme.js';
+import { ACCOUNT_SPEND_FILTER_UNAVAILABLE } from '../lib/core/accounts.js';
 import { isCalendarDay } from '../lib/core/view-model.js';
 
 /** Known global flags that may appear before the subcommand token. */
@@ -279,7 +280,6 @@ function parseReportFlags(argv: string[], command: 'stats' | 'receipt'): Receipt
 	const providers: string[] = [];
 	const models: string[] = [];
 	const machines: string[] = [];
-	const accountIds: string[] = [];
 	let from: string | undefined;
 	let to: string | undefined;
 
@@ -359,14 +359,17 @@ function parseReportFlags(argv: string[], command: 'stats' | 'receipt'): Receipt
 				process.exit(1);
 			}
 			providers.push(...raw.split(',').map((s) => s.trim()).filter(Boolean));
-		} else if (['--model', '--machine', '--account'].some(flag => arg === flag || arg.startsWith(flag + '='))) {
+		} else if (arg === '--account' || arg.startsWith('--account=')) {
+			console.error(`chaching ${command}: ${ACCOUNT_SPEND_FILTER_UNAVAILABLE}`);
+			process.exit(1);
+		} else if (['--model', '--machine'].some(flag => arg === flag || arg.startsWith(flag + '='))) {
 			const flag = arg.split('=')[0];
 			const raw = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : argv[++i];
 			if (!raw || raw.startsWith('--') || !raw.split(',').some((value) => value.trim())) {
 				console.error(`chaching ${command}: ${flag} requires a value`);
 				process.exit(1);
 			}
-			const values = flag === '--model' ? models : flag === '--machine' ? machines : accountIds;
+			const values = flag === '--model' ? models : machines;
 			values.push(...raw.split(',').map((value) => value.trim()).filter(Boolean));
 		} else if (arg === '--from' || arg.startsWith('--from=') || arg === '--to' || arg.startsWith('--to=')) {
 			const key = arg.startsWith('--from') ? 'from' : 'to';
@@ -387,7 +390,6 @@ function parseReportFlags(argv: string[], command: 'stats' | 'receipt'): Receipt
 	if (providers.length > 0) flags.providers = providers;
 	if (models.length > 0) flags.models = models;
 	if (machines.length > 0) flags.machines = machines;
-	if (accountIds.length > 0) flags.accountIds = accountIds;
 
 	if (from !== undefined || to !== undefined) {
 		if (!from || !to || from > to) {
