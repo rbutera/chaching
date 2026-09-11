@@ -204,13 +204,7 @@
 	);
 
 	let feeSaving = $state(false);
-	async function saveCutover(cutoverTs: number | null) {
-		const res = await fetch(resolve('/api/config'), {
-			method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cutoverTs })
-		});
-		if (!res.ok) throw new Error(`Could not save the cutover date (${res.status}). Try again.`);
-		config = await res.json();
-	}
+
 	async function onTierChange(id: string, name: string, tier: string, monthlyUsd: number) {
 		feeSaving = true;
 		try {
@@ -403,7 +397,7 @@
 				</section>
 				<SyncPanel status={syncStatus} onAction={onSyncAction}/>
 				{#if config}
-					<DataSettings snapshot={snap} cutoverTs={config.cutoverTs} onSave={saveCutover}/>
+					<DataSettings snapshot={snap}/>
 					<section class="plan-settings" aria-label="Plans and fees">
 						<h3>Plans and fees</h3>
 						{#each config.accounts as account (account.id)}

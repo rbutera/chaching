@@ -25,8 +25,9 @@
 {#if machines.length > 1 || accounts.length > 1}
 	<div class="pool-filters" aria-label="Pool filters">
 		{#if machines.length > 1}
-			<div class="filter-group" aria-label="Machine filter">
-				<span class="filter-label">machines</span>
+			<details name="scope-filters">
+				<summary>Machines{machineFilter.size ? ` · ${machineFilter.size}` : ''}</summary>
+				<div class="filter-group" aria-label="Machine filter">
 				{#each machines as machine (machine.id)}
 					<button
 						type="button"
@@ -37,12 +38,14 @@
 						{machine.name}
 					</button>
 				{/each}
-			</div>
+				</div>
+			</details>
 		{/if}
 
 		{#if accounts.length > 1}
-			<div class="filter-group" aria-label="Account filter">
-				<span class="filter-label">accounts</span>
+			<details name="scope-filters">
+				<summary>Accounts{accountFilter.size ? ` · ${accountFilter.size}` : ''}</summary>
+				<div class="filter-group" aria-label="Account filter">
 				{#each accounts as subscription (subscription.id)}
 					<button
 						type="button"
@@ -53,7 +56,8 @@
 						{subscription.name}
 					</button>
 				{/each}
-			</div>
+				</div>
+			</details>
 		{/if}
 
 		{#if machineFilter.size > 0 || accountFilter.size > 0}
@@ -63,28 +67,11 @@
 {/if}
 
 <style>
-	.pool-filters,
-	.filter-group {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 0.45rem;
-	}
-	.pool-filters {
-		flex-basis: 100%;
-		padding-top: 0.2rem;
-	}
-	.filter-group {
-		padding-right: 0.4rem;
-		border-right: 1px solid var(--border);
-	}
-	.filter-label {
-		color: var(--text-dim);
-		font-family: var(--font-sans);
-		font-size: var(--text-2xs);
-		text-transform: uppercase;
-		letter-spacing: var(--tracking-caps);
-	}
+	.pool-filters {position:relative;display:flex;align-items:center;flex-wrap:wrap;gap:8px;flex-basis:100%;padding-top:3px}
+	summary {cursor:pointer;min-height:32px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-pill);font:var(--type-label);color:var(--text-muted)}
+	summary:focus-visible {outline:2px solid var(--accent);outline-offset:2px}
+	.filter-group {position:absolute;top:100%;left:0;z-index:20;width:min(100%,380px);max-height:240px;overflow:auto;padding:8px;background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;gap:4px}
+	.filter-group button {text-align:left;flex-shrink:0}
 	button {
 		min-height: 32px;
 		border: 1px solid var(--border);

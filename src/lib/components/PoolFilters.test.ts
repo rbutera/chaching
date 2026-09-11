@@ -10,7 +10,7 @@ describe('PoolFilters', () => {
 		const onMachineToggle = vi.fn();
 		const onAccountToggle = vi.fn();
 		const onClear = vi.fn();
-		const { getByRole } = render(PoolFilters, {
+		const { getByRole, getByText } = render(PoolFilters, {
 			machines: [
 				{ id: 'kinto', name: 'kinto', hostname: 'kinto', lastSeenAt: null },
 				{ id: 'nimbus', name: 'nimbus', hostname: 'nimbus', lastSeenAt: null }
@@ -40,7 +40,9 @@ describe('PoolFilters', () => {
 			onClear
 		});
 
+		await fireEvent.click(getByText('Machines · 1'));
 		await fireEvent.click(getByRole('button', { name: 'nimbus' }));
+		await fireEvent.click(getByText('Accounts'));
 		await fireEvent.click(getByRole('button', { name: 'Personal Claude' }));
 		await fireEvent.click(getByRole('button', { name: /clear pool filters/i }));
 

@@ -638,8 +638,9 @@ it('offers Account filtering without a sync pool', async () => {
 	syncStatusToReturn = { enabled: false, machines: [], accounts: ['claude', 'codex'].map(id => ({
 		id, provider: id, name: `Local ${id}`, account: '', tier: 'custom', monthlyUsd: 20
 	})), mappings: [], providerQuotas: [] };
-	const { getByRole } = render(Page);
+	const { getByRole, container } = render(Page);
 	await flush();
+	await fireEvent.click(container.querySelector('summary')!);
 	await fireEvent.click(getByRole('button', { name: 'Local codex' }));
 	expect(getByRole('button', { name: 'Local codex' }).getAttribute('aria-pressed')).toBe('true');
 	expect(getByRole('link', { name: /shareable receipt/ }).getAttribute('href')).toContain('account=codex');
