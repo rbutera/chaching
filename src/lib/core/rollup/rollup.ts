@@ -36,7 +36,7 @@ interface SessionState {
 	sessionId: string;
 	provider: string;
 	machineId?: string;
-	subscriptionId?: string | null;
+	accountId?: string | null;
 	project: string;
 	firstTs: number;
 	lastTs: number;
@@ -209,7 +209,7 @@ export class Rollup {
 			this.unknownPriceModels.add(rec.model);
 		}
 
-		const dmKey = recordKey(rec.day, rec.provider, rec.model, rec.machineId, rec.subscriptionId);
+		const dmKey = recordKey(rec.day, rec.provider, rec.model, rec.machineId, rec.accountId);
 		let dm = this.dayModel.get(dmKey);
 		if (!dm) {
 			dm = {
@@ -217,7 +217,7 @@ export class Rollup {
 				provider: rec.provider,
 				model: rec.model,
 				machineId: rec.machineId,
-				subscriptionId: rec.subscriptionId,
+				accountId: rec.accountId,
 				tokens: zeroTokens(),
 				requests: 0,
 				cost: 0,
@@ -258,14 +258,14 @@ export class Rollup {
 		this.pubDirtyHours.add(hrKey);
 
 		// session index
-		const recSessionKey = sessionKey(rec.provider, rec.sessionId, rec.machineId, rec.subscriptionId);
+		const recSessionKey = sessionKey(rec.provider, rec.sessionId, rec.machineId, rec.accountId);
 		let s = this.sessions.get(recSessionKey);
 		if (!s) {
 			s = {
 				sessionId: rec.sessionId,
 				provider: rec.provider,
 				machineId: rec.machineId,
-				subscriptionId: rec.subscriptionId,
+				accountId: rec.accountId,
 				project: rec.project,
 				firstTs: rec.timestamp,
 				lastTs: rec.timestamp,
@@ -422,7 +422,7 @@ export class Rollup {
 	 */
 	loadAggregates(aggregates: readonly FrozenAgg[], sessions: readonly SessionSummary[]): void {
 		for (const a of aggregates) {
-			const dmKey = recordKey(a.day, a.provider, a.model, a.machineId, a.subscriptionId);
+			const dmKey = recordKey(a.day, a.provider, a.model, a.machineId, a.accountId);
 			let dm = this.dayModel.get(dmKey);
 			if (!dm) {
 				dm = {
@@ -430,7 +430,7 @@ export class Rollup {
 					provider: a.provider,
 					model: a.model,
 					machineId: a.machineId,
-					subscriptionId: a.subscriptionId,
+					accountId: a.accountId,
 					tokens: zeroTokens(),
 					requests: 0,
 					cost: 0,
@@ -467,7 +467,7 @@ export class Rollup {
 		}
 
 		for (const s of sessions) {
-			const key = sessionKey(s.provider, s.sessionId, s.machineId, s.subscriptionId);
+			const key = sessionKey(s.provider, s.sessionId, s.machineId, s.accountId);
 			if (this.sessions.has(key)) continue; // finalized session already present; don't double-add
 			// Reconstruct modelCounts preserving the persisted most-used-first order via
 			// descending synthetic counts (real per-model counts aren't persisted).
@@ -478,7 +478,7 @@ export class Rollup {
 				sessionId: s.sessionId,
 				provider: s.provider,
 				machineId: s.machineId,
-				subscriptionId: s.subscriptionId,
+				accountId: s.accountId,
 				project: s.project,
 				firstTs: s.firstTs,
 				lastTs: s.lastTs,
@@ -496,7 +496,7 @@ export class Rollup {
 	 * provider, model) aggregates (with persisted-only extras) plus the sessions whose
 	 * last activity falls on one of those days. Callers freeze only NOT-yet-frozen days.
 	 */
-	freezeCandidates(days: ReadonlySet<string>): { aggregates: FrozenAgg[]; sessions: SessionSummary[] } {
+	freezeCandidates(days: ReadonlySet<string>): { aggregates: FrozenAgg[]; sessions: SessionSummary[]; } {
 		const aggregates: FrozenAgg[] = [];
 		for (const [key, dm] of this.dayModel) {
 			if (!days.has(dm.day)) continue;
@@ -733,7 +733,7 @@ export class Rollup {
 			sessionId: s.sessionId,
 			provider: s.provider,
 			machineId: s.machineId,
-			subscriptionId: s.subscriptionId,
+			accountId: s.accountId,
 			project: s.project,
 			firstTs: s.firstTs,
 			lastTs: s.lastTs,
@@ -851,18 +851,18 @@ function recordKey(
 	provider: string,
 	model: string,
 	machineId?: string,
-	subscriptionId?: string | null
+	accountId?: string | null
 ): string {
-	return `${machineId ?? ''}${KEY_SEP}${subscriptionId ?? ''}${KEY_SEP}${day}${KEY_SEP}${provider}${KEY_SEP}${model}`;
+	return `${machineId ?? ''}${KEY_SEP}${accountId ?? ''}${KEY_SEP}${day}${KEY_SEP}${provider}${KEY_SEP}${model}`;
 }
 
 function sessionKey(
 	provider: string,
 	sessionId: string,
 	machineId?: string,
-	subscriptionId?: string | null
+	accountId?: string | null
 ): string {
-	return `${machineId ?? ''}${KEY_SEP}${subscriptionId ?? ''}${KEY_SEP}${provider}${KEY_SEP}${sessionId}`;
+	return `${machineId ?? ''}${KEY_SEP}${accountId ?? ''}${KEY_SEP}${provider}${KEY_SEP}${sessionId}`;
 }
 
 /** Publish-grain day key: (day, provider, model), independent of machine/subscription. */

@@ -242,27 +242,27 @@ suite('PostgresSyncStore aggregate ledger', () => {
 		}
 	});
 
-	it('maps subscriptions as pool rows with no stored per-record attribution', { timeout: 30_000 }, async () => {
+	it('maps accounts as pool rows with no stored per-record attribution', { timeout: 30_000 }, async () => {
 		const { a, b, storeA, storeB } = await pooledPair();
-		const subscriptionId = randomUUID();
+		const accountId = randomUUID();
 		try {
-			await storeA.addSubscription({
-				id: subscriptionId,
+			await storeA.addAccount({
+				id: accountId,
 				provider: 'claude',
 				name: 'Work Claude',
 				account: 'work@example.com',
 				tier: 'max-20x',
 				monthlyUsd: 200
 			});
-			await storeA.mapSubscription(a, 'claude', subscriptionId);
-			await storeA.mapSubscription(b, 'claude', subscriptionId);
+			await storeA.mapAccount(a, 'claude', accountId);
+			await storeA.mapAccount(b, 'claude', accountId);
 			const before = await storeA.mappingFingerprint();
 			const mappings = await storeA.allMappings();
-			expect(mappings.filter((m) => m.subscriptionId === subscriptionId)).toHaveLength(2);
+			expect(mappings.filter((m) => m.accountId === accountId)).toHaveLength(2);
 
 			// Clearing a mapping is a plain upsert; the fingerprint changes (remap is retroactive
 			// at read time), and there are no usage rows to sweep.
-			await storeA.mapSubscription(a, 'claude', null);
+			await storeA.mapAccount(a, 'claude', null);
 			expect(await storeA.mappingFingerprint()).not.toBe(before);
 			const cleared = (await storeA.allMappings()).find((m) => m.machineId === a && m.provider === 'claude');
 			expect(cleared).toBeUndefined();

@@ -97,24 +97,24 @@ it.skipIf(!process.env.CHACHING_TEST_DATABASE_URL)('keeps manual Accounts canoni
 		await updateConfig(config => ({ ...config, tokenmaxx: { ...config.tokenmaxx, enabled: false }, sync: {
 			...config.sync, enabled: true, databaseUrl, poolId, machineId, machineName: 'fixture'
 		} }));
-		const add = PostgresSyncStore.prototype.addSubscription;
-		const interrupted = vi.spyOn(PostgresSyncStore.prototype, 'addSubscription').mockImplementationOnce(async function (this: PostgresSyncStore, account) {
+		const add = PostgresSyncStore.prototype.addAccount;
+		const interrupted = vi.spyOn(PostgresSyncStore.prototype, 'addAccount').mockImplementationOnce(async function (this: PostgresSyncStore, account) {
 			await add.call(this, account);
 			throw new Error('Simulated lost acknowledgement after pool insert');
 		});
 		const offline = vi.spyOn(PostgresSyncStore.prototype, 'open').mockRejectedValueOnce(new Error('Pool offline'));
-		const first = await performSyncAction({ action: 'add-subscription', provider: 'claude', name: 'Manual Claude', account: 'private@example.test', tier: 'max', monthlyUsd: 200 });
+		const first = await performSyncAction({ action: 'add-account', provider: 'claude', name: 'Manual Claude', account: 'private@example.test', tier: 'max', monthlyUsd: 200 });
 		expect(first.unreachable).toBe(true);
 		let persisted = await loadConfig();
 		expect(persisted.accounts).toEqual([expect.objectContaining({ privateLabel: 'private@example.test', pendingPoolId: poolId })]);
-		expect((await store.status()).subscriptions).toEqual([]);
+		expect((await store.status()).accounts).toEqual([]);
 		offline.mockRestore();
 		expect((await getSyncStatus()).unreachable).toBe(true);
 		interrupted.mockRestore();
 		const added = await getSyncStatus();
 		persisted = await loadConfig();
 		expect(persisted.accounts[0].pendingPoolId).toBeUndefined();
-		const remote = added.subscriptions.find(account => account.name === 'Manual Claude')!;
+		const remote = added.accounts.find(account => account.name === 'Manual Claude')!;
 		expect(remote.account).toBe('');
 		let config = await loadConfig();
 		expect(config.accounts).toEqual([expect.objectContaining({ id: remote.id, name: 'Manual Claude', monthlyUsd: 200, privateLabel: 'private@example.test' })]);
@@ -122,15 +122,15 @@ it.skipIf(!process.env.CHACHING_TEST_DATABASE_URL)('keeps manual Accounts canoni
 		await updateConfig(async current => ({ ...current, accounts: [await writePoolAccount(current, current.accounts[0], { monthlyUsd: 150 })] }));
 		expect((await store.status()).mappings).toEqual([]);
 		expect((await loadConfig()).accounts[0]).toMatchObject({ monthlyUsd: 150, privateLabel: 'private@example.test' });
-		for (let i = 0; i < 2; i++) await performSyncAction({ action: 'map', machineId, provider: 'claude', subscriptionId: remote.id });
+		for (let i = 0; i < 2; i++) await performSyncAction({ action: 'map', machineId, provider: 'claude', accountId: remote.id });
 		config = await loadConfig();
 		expect(config.providerAccounts.claude).toEqual([remote.id]);
 		expect(config.accounts).toHaveLength(1);
 		const status = await getSyncStatus();
-		expect(status.subscriptions).toHaveLength(1);
-		expect(status.mappings).toContainEqual({ machineId, provider: 'claude', subscriptionId: remote.id });
+		expect(status.accounts).toHaveLength(1);
+		expect(status.mappings).toContainEqual({ machineId, provider: 'claude', accountId: remote.id });
 		expect(JSON.stringify(status)).not.toContain('private@example.test');
-		await performSyncAction({ action: 'map', machineId, provider: 'claude', subscriptionId: null });
+		await performSyncAction({ action: 'map', machineId, provider: 'claude', accountId: null });
 		config = await loadConfig();
 		expect(config.providerAccounts.claude).toEqual([]);
 		expect(config.accounts).toHaveLength(1);

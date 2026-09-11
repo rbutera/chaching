@@ -369,7 +369,7 @@ describe('runWizard (mocked prompts — TTY bypassed via isTTY stub)', () => {
 			pool: { id: 'pool-abc', name: 'My machines' },
 			machine: { id: 'm1', name: 'kinto', hostname: 'kinto', lastSeenAt: null },
 			machines: [],
-			subscriptions: [],
+			accounts: [],
 			mappings: [],
 			error: null
 		});

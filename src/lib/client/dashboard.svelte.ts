@@ -43,6 +43,7 @@ interface PersistedUI {
 	models: string[];
 	providers: string[];
 	machines?: string[];
+	accounts?: string[];
 	subscriptions?: string[];
 	/** the pinned single-day focus (YYYY-MM-DD), or absent/null for rolling-period mode */
 	focusedDay?: string | null;
@@ -59,7 +60,7 @@ export class Dashboard {
 	modelFilter = $state<Set<string>>(new Set());
 	providerFilter = $state<Set<string>>(new Set());
 	machineFilter = $state<Set<string>>(new Set());
-	subscriptionFilter = $state<Set<string>>(new Set());
+	accountFilter = $state<Set<string>>(new Set());
 	drill = $state<DrillTarget | null>(null);
 	/**
 	 * The zoomed-in single-day pin (design D5). `null` = rolling-period mode (default).
@@ -78,8 +79,9 @@ export class Dashboard {
 					if (Array.isArray(p.models)) this.modelFilter = new Set(p.models);
 					if (Array.isArray(p.providers)) this.providerFilter = new Set(p.providers);
 					if (Array.isArray(p.machines)) this.machineFilter = new Set(p.machines);
-					if (Array.isArray(p.subscriptions))
-						this.subscriptionFilter = new Set(p.subscriptions);
+					const accounts = p.accounts ?? p.subscriptions;
+					if (Array.isArray(accounts))
+						this.accountFilter = new Set(accounts);
 					// Hydrate the pinned day; clamping against a (possibly shrunk) data range
 					// happens once the snapshot lands, via reconcileFocusedDay().
 					if (typeof p.focusedDay === 'string' && vm.isCalendarDay(p.focusedDay)) this.focusedDay = p.focusedDay;
@@ -100,7 +102,7 @@ export class Dashboard {
 				models: [...this.modelFilter],
 				providers: [...this.providerFilter],
 				machines: [...this.machineFilter],
-				subscriptions: [...this.subscriptionFilter],
+				accounts: [...this.accountFilter],
 				focusedDay: this.focusedDay,
 				windowEnd: this.windowEnd,
 				quotaView: this.quotaView
@@ -118,7 +120,7 @@ export class Dashboard {
 			modelFilter: this.modelFilter,
 			providerFilter: this.providerFilter,
 			machineFilter: this.machineFilter,
-			subscriptionFilter: this.subscriptionFilter,
+			accountFilter: this.accountFilter,
 			focusedDay: this.focusedDay,
 			windowEnd: this.windowEnd ?? this.today
 		};
@@ -227,17 +229,17 @@ export class Dashboard {
 		this.persist();
 	}
 
-	toggleSubscription(subscriptionId: string): void {
-		const next = new Set(this.subscriptionFilter);
-		if (next.has(subscriptionId)) next.delete(subscriptionId);
-		else next.add(subscriptionId);
-		this.subscriptionFilter = next;
+	toggleAccount(accountId: string): void {
+		const next = new Set(this.accountFilter);
+		if (next.has(accountId)) next.delete(accountId);
+		else next.add(accountId);
+		this.accountFilter = next;
 		this.persist();
 	}
 
 	clearPoolFilters(): void {
 		this.machineFilter = new Set();
-		this.subscriptionFilter = new Set();
+		this.accountFilter = new Set();
 		this.persist();
 	}
 
@@ -296,7 +298,7 @@ export class Dashboard {
 	}
 
 	/** Current-period and prior-period totals for the hero + delta. */
-	heroTotals(snap: RollupSnapshot): { current: Totals; prior: Totals; label: string; priorHasBaseline: boolean } {
+	heroTotals(snap: RollupSnapshot): { current: Totals; prior: Totals; label: string; priorHasBaseline: boolean; } {
 		return vm.heroTotals(snap, this.state());
 	}
 

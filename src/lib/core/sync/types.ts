@@ -8,7 +8,7 @@ export interface SyncMachine {
 	current?: boolean;
 }
 
-export interface SyncSubscription {
+export interface SyncAccount {
 	id: string;
 	provider: string;
 	name: string;
@@ -22,7 +22,7 @@ export interface SyncSubscription {
 export interface SyncMapping {
 	machineId: string;
 	provider: string;
-	subscriptionId: string | null;
+	accountId: string | null;
 }
 
 export interface ProviderQuotaWindow {
@@ -70,7 +70,7 @@ export interface SyncStatus {
 	pool: { id: string; name: string } | null;
 	machine: SyncMachine | null;
 	machines: SyncMachine[];
-	subscriptions: SyncSubscription[];
+	accounts: SyncAccount[];
 	mappings: SyncMapping[];
 	providerQuotas?: ProviderQuotaStatus[];
 	/** False when viewed through a remote/reverse-proxied dashboard. */
@@ -106,7 +106,7 @@ export type SyncAction =
 	  }
 	| { action: 'leave' }
 	| {
-			action: 'add-subscription';
+			action: 'add-account';
 			provider: string;
 			name: string;
 			account: string;
@@ -117,5 +117,5 @@ export type SyncAction =
 			action: 'map';
 			machineId: string;
 			provider: string;
-			subscriptionId: string | null;
+			accountId: string | null;
 	  };

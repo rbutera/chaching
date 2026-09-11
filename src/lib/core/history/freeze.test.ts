@@ -72,7 +72,6 @@ function cfg(root: string, dbPath: string): chachingConfig {
 			poolId: null,
 			machineId: null,
 			machineName: '',
-			providerSubscriptions: {},
 			intervalMinutes: 15
 		},
 		providers: {

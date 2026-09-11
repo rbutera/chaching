@@ -1,28 +1,28 @@
 <script lang="ts">
-	import type { SyncMachineView, SyncSubscriptionView } from '$lib/client/sync';
+	import type { SyncMachineView, SyncAccountView } from '$lib/client/sync';
 
 	interface Props {
 		machines: SyncMachineView[];
-		subscriptions: SyncSubscriptionView[];
+		accounts: SyncAccountView[];
 		machineFilter: Set<string>;
-		subscriptionFilter: Set<string>;
+		accountFilter: Set<string>;
 		onMachineToggle: (id: string) => void;
-		onSubscriptionToggle: (id: string) => void;
+		onAccountToggle: (id: string) => void;
 		onClear: () => void;
 	}
 
 	let {
 		machines,
-		subscriptions,
+		accounts,
 		machineFilter,
-		subscriptionFilter,
+		accountFilter,
 		onMachineToggle,
-		onSubscriptionToggle,
+		onAccountToggle,
 		onClear
 	}: Props = $props();
 </script>
 
-{#if machines.length > 1 || subscriptions.length > 1}
+{#if machines.length > 1 || accounts.length > 1}
 	<div class="pool-filters" aria-label="Pool filters">
 		{#if machines.length > 1}
 			<div class="filter-group" aria-label="Machine filter">
@@ -40,15 +40,15 @@
 			</div>
 		{/if}
 
-		{#if subscriptions.length > 1}
+		{#if accounts.length > 1}
 			<div class="filter-group" aria-label="Account filter">
 				<span class="filter-label">accounts</span>
-				{#each subscriptions as subscription (subscription.id)}
+				{#each accounts as subscription (subscription.id)}
 					<button
 						type="button"
-						class:active={subscriptionFilter.has(subscription.id)}
-						aria-pressed={subscriptionFilter.has(subscription.id)}
-						onclick={() => onSubscriptionToggle(subscription.id)}
+						class:active={accountFilter.has(subscription.id)}
+						aria-pressed={accountFilter.has(subscription.id)}
+						onclick={() => onAccountToggle(subscription.id)}
 					>
 						{subscription.name}
 					</button>
@@ -56,7 +56,7 @@
 			</div>
 		{/if}
 
-		{#if machineFilter.size > 0 || subscriptionFilter.size > 0}
+		{#if machineFilter.size > 0 || accountFilter.size > 0}
 			<button type="button" class="clear" onclick={onClear}>clear pool filters ✕</button>
 		{/if}
 	</div>

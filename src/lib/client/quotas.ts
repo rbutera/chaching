@@ -1,4 +1,4 @@
-import type { ProviderQuotaAccount, ProviderQuotaStatus, SyncSubscription, SyncMapping } from '$lib/core/sync/types';
+import type { ProviderQuotaAccount, ProviderQuotaStatus, SyncAccount, SyncMapping } from '$lib/core/sync/types';
 
 export interface QuotaRow extends ProviderQuotaAccount {
 	key: string;
@@ -8,7 +8,7 @@ export interface QuotaRow extends ProviderQuotaAccount {
 }
 
 export function quotaRows(statuses: ProviderQuotaStatus[], providers: ReadonlySet<string>, machines: ReadonlySet<string>,
-	accounts: ReadonlySet<string> = new Set(), knownAccounts: readonly Pick<SyncSubscription, 'id' | 'provider' | 'identityKey' | 'name'>[] = [],
+	accounts: ReadonlySet<string> = new Set(), knownAccounts: readonly Pick<SyncAccount, 'id' | 'provider' | 'identityKey' | 'name'>[] = [],
 	mappings: readonly SyncMapping[] = []): QuotaRow[] {
 	const rows = new Map<string, QuotaRow>();
 	for (const status of statuses) {
@@ -39,7 +39,7 @@ export function quotaRows(statuses: ProviderQuotaStatus[], providers: ReadonlySe
 		if ((providers.size && !providers.has(account.provider)) || (accounts.size && !accounts.has(account.id))) continue;
 		const key = `${account.provider}:account:${account.id}`;
 		if (rows.has(key)) continue;
-		const linked = [...new Set(mappings.filter(mapping => mapping.subscriptionId === account.id && mapping.provider === account.provider &&
+		const linked = [...new Set(mappings.filter(mapping => mapping.accountId === account.id && mapping.provider === account.provider &&
 			(!machines.size || machines.has(mapping.machineId))).map(mapping => mapping.machineId))];
 		if (machines.size && !linked.length) continue;
 		rows.set(key, { key, accountId: account.id, label: account.name, provider: account.provider,

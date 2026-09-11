@@ -84,7 +84,6 @@ never published. If the database or quota tables do not exist, this source is a 
 	"poolId": null,
 	"machineId": null,
 	"machineName": "",
-	"providerSubscriptions": {},
 	"intervalMinutes": 15
 }
 ```
@@ -96,8 +95,8 @@ web public-config and sync-status APIs.
 
 When `sync.enabled` is true and the connection identity is complete, this machine stays local-first
 (local SQLite keeps recording and freezing) and additionally publishes compact aggregates to the
-shared PostgreSQL pool. Raw records never leave the machine. `providerSubscriptions` is a local
-cache of this machine's mappings; PostgreSQL is authoritative and refreshes it at runtime.
+shared PostgreSQL pool. Raw records never leave the machine. `providerAccounts` is the local
+provider-to-Account links, updated by discovery and manual mapping. When pooled, PostgreSQL supplies shared Account metadata and fees.
 
 `intervalMinutes` (integer, min 1, default 15) is the wall-clock-aligned publish cadence: all pool
 machines burst on the same grid instants so a serverless Postgres endpoint wakes once per window
@@ -106,7 +105,7 @@ stale *peers'* data is (your own numbers are always live). Set it with `chaching
 <minutes>` or the wizard. On a serverless free tier keep it at 15 or higher — see the Neon
 arithmetic in docs/sync.md.
 
-See [docs/sync.md](docs/sync.md) for Docker, Tailscale, subscription mapping, the interval/cost
+See [docs/sync.md](docs/sync.md) for Docker, Tailscale, Account mapping, the interval/cost
 trade-off, dashboard filters, and the threat model.
 
 ## Providers

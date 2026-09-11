@@ -6,7 +6,7 @@ import type {
 	SyncMachine,
 	SyncMapping,
 	SyncStatus,
-	SyncSubscription
+	SyncAccount
 } from './types';
 
 const SCHEMA = 'chaching_sync';
@@ -265,7 +265,7 @@ export class PostgresSyncStore {
 	async status(): Promise<SyncStatus> {
 		const { poolId, machineId } = this.identity();
 		await this.open();
-		const [poolResult, machineResult, subscriptionResult, mappingResult, quotaResult] = await Promise.all([
+		const [poolResult, machineResult, accountResult, mappingResult, quotaResult] = await Promise.all([
 			this.pool.query(`SELECT id, name FROM ${SCHEMA}.pool WHERE id = $1`, [poolId]),
 			this.pool.query(
 				`SELECT id, name, hostname, last_seen_at, last_published_at
@@ -300,7 +300,7 @@ export class PostgresSyncStore {
 			lastPublishedAt: dateString(row.last_published_at),
 			current: String(row.id) === machineId
 		}));
-		const subscriptions: SyncSubscription[] = subscriptionResult.rows.map((row) => ({
+		const accounts: SyncAccount[] = accountResult.rows.map((row) => ({
 			id: String(row.id),
 			provider: String(row.provider),
 			name: String(row.name),
@@ -313,10 +313,10 @@ export class PostgresSyncStore {
 		const mappings: SyncMapping[] = mappingResult.rows.map((row) => ({
 			machineId: String(row.machine_id),
 			provider: String(row.provider),
-			subscriptionId: row.account_id == null ? null : String(row.account_id)
+			accountId: row.account_id == null ? null : String(row.account_id)
 		}));
 		const providerQuotas: ProviderQuotaStatus[] = quotaResult.rows.map((row) => {
-			const payload = jsonObject(row.payload) as { accounts?: ProviderQuotaStatus['accounts'] };
+			const payload = jsonObject(row.payload) as { accounts?: ProviderQuotaStatus['accounts']; };
 			return {
 				machineId: String(row.machine_id),
 				source: String(row.source),
@@ -330,13 +330,13 @@ export class PostgresSyncStore {
 			pool: poolRow,
 			machine: machines.find((machine) => machine.id === machineId) ?? null,
 			machines,
-			subscriptions,
+			accounts,
 			mappings,
 			providerQuotas
 		};
 	}
 
-	async discoverAccount(account: SyncSubscription & { identityKey: string | null }, linkToMachine = true): Promise<string> {
+	async discoverAccount(account: SyncAccount & { identityKey: string | null }, linkToMachine = true): Promise<string> {
 		const { poolId, machineId } = this.identity();
 		const client = await this.pool.connect();
 		try {
@@ -376,7 +376,7 @@ export class PostgresSyncStore {
 		} finally { client.release(); }
 	}
 
-	async updateAccountDetails(account: Pick<SyncSubscription, 'id' | 'provider'> & Partial<Pick<SyncSubscription, 'name' | 'tier' | 'monthlyUsd' | 'feeSource'>>): Promise<void> {
+	async updateAccountDetails(account: Pick<SyncAccount, 'id' | 'provider'> & Partial<Pick<SyncAccount, 'name' | 'tier' | 'monthlyUsd' | 'feeSource'>>): Promise<void> {
 		const { poolId } = this.identity();
 		const result = await this.pool.query(
 			`UPDATE ${SCHEMA}.account SET name=COALESCE($3,name), tier=COALESCE($4,tier),
@@ -388,7 +388,7 @@ export class PostgresSyncStore {
 		if (result.rowCount !== 1) throw new Error('Account does not exist in this pool for that provider');
 	}
 
-	async addSubscription(subscription: SyncSubscription): Promise<void> {
+	async addAccount(subscription: SyncAccount): Promise<void> {
 		const { poolId } = this.identity();
 		const result = await this.pool.query(
 			`INSERT INTO ${SCHEMA}.account
@@ -413,22 +413,22 @@ export class PostgresSyncStore {
 
 	/**
 	 * Set (or clear) a machine/provider -> subscription mapping. Attribution is now a
-	 * READ-TIME join (the engine resolves subscriptionId onto every day/session row from
+	 * READ-TIME join (the engine resolves accountId onto every day/session row from
 	 * the mapping when it builds a snapshot), so this is a single idempotent upsert of the
 	 * mapping row — there are no stored per-record subscription columns to sweep, and the
 	 * engine's mapping-fingerprint watch makes a remap retroactive on the next burst.
 	 */
-	async mapSubscription(
+	async mapAccount(
 		targetMachineId: string,
 		provider: string,
-		subscriptionId: string | null
+		accountId: string | null
 	): Promise<void> {
 		const { poolId } = this.identity();
-		if (subscriptionId) {
+		if (accountId) {
 			const match = await this.pool.query(
 				`SELECT 1 FROM ${SCHEMA}.account
 				 WHERE pool_id = $1 AND id = $2 AND provider = $3`,
-				[poolId, subscriptionId, provider]
+				[poolId, accountId, provider]
 			);
 			if (match.rowCount === 0)
 				throw new Error('Subscription does not exist in this pool for that provider');
@@ -439,9 +439,9 @@ export class PostgresSyncStore {
 			const machine = await client.query(`SELECT id FROM ${SCHEMA}.machine WHERE pool_id = $1 AND id = $2 FOR UPDATE`, [poolId, targetMachineId]);
 			if (machine.rowCount === 0) throw new Error('Machine does not exist in this pool');
 			await client.query(`DELETE FROM ${SCHEMA}.machine_account WHERE pool_id = $1 AND machine_id = $2 AND provider = $3`, [poolId, targetMachineId, provider]);
-			if (subscriptionId) await client.query(
+			if (accountId) await client.query(
 				`INSERT INTO ${SCHEMA}.machine_account (pool_id, machine_id, provider, account_id) VALUES ($1, $2, $3, $4)`,
-				[poolId, targetMachineId, provider, subscriptionId]
+				[poolId, targetMachineId, provider, accountId]
 			);
 			await client.query('COMMIT');
 		} catch (error) {
@@ -459,7 +459,7 @@ export class PostgresSyncStore {
 		);
 	}
 
-	async mappedSubscriptions(
+	async mappedAccounts(
 		machineId = this.identity().machineId
 	): Promise<Record<string, string | null>> {
 		const { poolId } = this.identity();
@@ -476,7 +476,7 @@ export class PostgresSyncStore {
 		);
 	}
 
-	/** All (machineId, provider) -> subscriptionId mappings in the pool, for read-time attribution. */
+	/** All (machineId, provider) -> accountId mappings in the pool, for read-time attribution. */
 	async allMappings(): Promise<SyncMapping[]> {
 		const { poolId } = this.identity();
 		const result = await this.pool.query(
@@ -487,14 +487,14 @@ export class PostgresSyncStore {
 		return result.rows.map((row) => ({
 			machineId: String(row.machine_id),
 			provider: String(row.provider),
-			subscriptionId: row.account_id == null ? null : String(row.account_id)
+			accountId: row.account_id == null ? null : String(row.account_id)
 		}));
 	}
 
 	async mappingFingerprint(): Promise<string> {
 		const mappings = await this.allMappings();
 		return JSON.stringify(
-			mappings.map((mapping) => [mapping.machineId, mapping.provider, mapping.subscriptionId])
+			mappings.map((mapping) => [mapping.machineId, mapping.provider, mapping.accountId])
 		);
 	}
 

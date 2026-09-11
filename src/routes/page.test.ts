@@ -272,7 +272,7 @@ describe('dashboard route — behavior contracts', () => {
 		vi.useFakeTimers();
 		snapshotToEmit = richSnap();
 		const machine = { id: 'machine', name: 'Test machine', hostname: 'test', lastSeenAt: null };
-		const joined = { enabled: true, databaseConfigured: true, pool: { id: 'pool', name: 'Old pool' }, machine, machines: [machine], subscriptions: [], mappings: [], providerQuotas: [] };
+		const joined = { enabled: true, databaseConfigured: true, pool: { id: 'pool', name: 'Old pool' }, machine, machines: [machine], accounts: [], mappings: [], providerQuotas: [] };
 		const left = { ...joined, enabled: false, databaseConfigured: false, pool: null, machine: null, machines: [] };
 		const originalFetch = fetch;
 		let reads = 0;
@@ -363,7 +363,7 @@ describe('dashboard route — behavior contracts', () => {
 			pool: { id: 'pool', name: 'Test pool' },
 			machine: null,
 			machines: [],
-			subscriptions: [],
+			accounts: [],
 			mappings: [],
 			providerQuotas: [{
 				machineId: 'nimbus',
@@ -421,7 +421,7 @@ describe('dashboard route — behavior contracts', () => {
 			machines: [
 				{ id: 'm-kinto', name: 'kinto', hostname: 'kinto', lastSeenAt: null, current: true }
 			],
-			subscriptions: [
+			accounts: [
 				{
 					id: 'sub-codex',
 					provider: 'codex',
@@ -437,7 +437,7 @@ describe('dashboard route — behavior contracts', () => {
 		// Attribute the codex spend to the shared subscription so the card has value.
 		for (const row of snap.dayModel)
 			if (row.provider === 'codex')
-				(row as DayModelAgg & { subscriptionId?: string }).subscriptionId = 'sub-codex';
+				(row as DayModelAgg & { accountId?: string }).accountId = 'sub-codex';
 		snapshotToEmit = snap;
 
 		const { container } = render(Page);
@@ -451,7 +451,7 @@ describe('dashboard route — behavior contracts', () => {
 
 	it.each([false, true])('does not substitute local fees for an empty pool scope, unreachable=%s', async unreachable => {
 		snapshotToEmit = richSnap();
-		syncStatusToReturn = { enabled: true, databaseConfigured: true, unreachable, pool: null, machine: null, machines: [], subscriptions: [], mappings: [], providerQuotas: [] };
+		syncStatusToReturn = { enabled: true, databaseConfigured: true, unreachable, pool: null, machine: null, machines: [], accounts: [], mappings: [], providerQuotas: [] };
 		const { container } = render(Page);
 		await flush();
 		expect(container.querySelector('#subsidy-heading')).toBeNull();

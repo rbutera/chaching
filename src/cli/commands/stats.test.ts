@@ -33,11 +33,11 @@ describe('stats JSON scope', () => {
 
 it('intersects explicit dates, model, provider, machine and Account scopes without borrowing coverage', () => {
 	const dayModel = [
-		{ day: '2026-09-10', provider: 'claude', model: 'chosen', machineId: 'one', subscriptionId: 'a', cost: 3 },
-		{ day: '2026-09-10', provider: 'claude', model: 'other', machineId: 'one', subscriptionId: 'a', cost: 5 },
-		{ day: '2026-09-10', provider: 'claude', model: 'chosen', machineId: 'two', subscriptionId: 'a', cost: 7 },
-		{ day: '2026-09-10', provider: 'claude', model: 'chosen', machineId: 'one', subscriptionId: 'b', cost: 11 },
-		{ day: '2026-09-09', provider: 'claude', model: 'chosen', machineId: 'one', subscriptionId: 'a', cost: 13 }
+		{ day: '2026-09-10', provider: 'claude', model: 'chosen', machineId: 'one', accountId: 'a', cost: 3 },
+		{ day: '2026-09-10', provider: 'claude', model: 'other', machineId: 'one', accountId: 'a', cost: 5 },
+		{ day: '2026-09-10', provider: 'claude', model: 'chosen', machineId: 'two', accountId: 'a', cost: 7 },
+		{ day: '2026-09-10', provider: 'claude', model: 'chosen', machineId: 'one', accountId: 'b', cost: 11 },
+		{ day: '2026-09-09', provider: 'claude', model: 'chosen', machineId: 'one', accountId: 'a', cost: 13 }
 	].map(row => ({ ...row, tokens: { input: row.cost, output: 0, cacheRead: 0, cacheCreation: 0 }, requests: 1, costUnknownRequests: 0 }));
 	const snapshot = { ...new Rollup().snapshot(Date.now()), dayModel, earliestDay: '2026-09-09', latestDay: '2026-09-10', totals: sumGrain(dayModel),
 		coverage: { '2026-09-10': 'frozen' as const }, sessions: dayModel.map((row, index) => ({ ...row, sessionId: String(index), project: 'project', firstTs: Date.parse(row.day), lastTs: Date.parse(row.day), models: [row.model] })) };

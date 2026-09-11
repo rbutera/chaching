@@ -8,14 +8,14 @@ afterEach(cleanup);
 describe('PoolFilters', () => {
 	it('toggles machine and subscription scopes and exposes one clear action', async () => {
 		const onMachineToggle = vi.fn();
-		const onSubscriptionToggle = vi.fn();
+		const onAccountToggle = vi.fn();
 		const onClear = vi.fn();
 		const { getByRole } = render(PoolFilters, {
 			machines: [
 				{ id: 'kinto', name: 'kinto', hostname: 'kinto', lastSeenAt: null },
 				{ id: 'nimbus', name: 'nimbus', hostname: 'nimbus', lastSeenAt: null }
 			],
-			subscriptions: [
+			accounts: [
 				{
 					id: 'work',
 					provider: 'claude',
@@ -34,9 +34,9 @@ describe('PoolFilters', () => {
 				}
 			],
 			machineFilter: new Set(['kinto']),
-			subscriptionFilter: new Set<string>(),
+			accountFilter: new Set<string>(),
 			onMachineToggle,
-			onSubscriptionToggle,
+			onAccountToggle,
 			onClear
 		});
 
@@ -45,7 +45,7 @@ describe('PoolFilters', () => {
 		await fireEvent.click(getByRole('button', { name: /clear pool filters/i }));
 
 		expect(onMachineToggle).toHaveBeenCalledWith('nimbus');
-		expect(onSubscriptionToggle).toHaveBeenCalledWith('personal');
+		expect(onAccountToggle).toHaveBeenCalledWith('personal');
 		expect(onClear).toHaveBeenCalledOnce();
 	});
 });

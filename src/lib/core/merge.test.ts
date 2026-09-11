@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { RollupDelta, RollupSnapshot } from '../types';
 import { applyDelta } from './merge';
 
-function snapshot(cost: number, subscriptionId: string | null): RollupSnapshot {
+function snapshot(cost: number, accountId: string | null): RollupSnapshot {
 	return {
 		generatedAt: cost,
 		earliestDay: '2026-07-17',
@@ -19,7 +19,7 @@ function snapshot(cost: number, subscriptionId: string | null): RollupSnapshot {
 				provider: 'codex',
 				model: 'gpt-5.6-sol',
 				machineId: 'kinto',
-				subscriptionId,
+				accountId,
 				tokens: { input: 1, output: 1, cacheCreation: 0, cacheRead: 0 },
 				requests: 1,
 				cost,
@@ -43,6 +43,6 @@ describe('applyDelta pooled replacement', () => {
 		const replacement = snapshot(1, 'new-subscription');
 		const delta: RollupDelta = { ...replacement, replace: replacement };
 		expect(applyDelta(before, delta)).toBe(replacement);
-		expect(applyDelta(before, delta).dayModel[0]?.subscriptionId).toBe('new-subscription');
+		expect(applyDelta(before, delta).dayModel[0]?.accountId).toBe('new-subscription');
 	});
 });

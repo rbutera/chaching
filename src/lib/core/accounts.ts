@@ -1,6 +1,6 @@
 import { FEE_PRORATA_DAYS, inclusiveDays, sumFees, type SubsidisedProvider, type ProviderSubsidisationConfig } from './subsidisation';
 import type { DayModelAgg } from '../types';
-import type { SyncMapping, SyncSubscription, SyncStatus } from './sync/types';
+import type { SyncMapping, SyncAccount, SyncStatus } from './sync/types';
 
 export interface AccountValueRow {
 	id: string;
@@ -12,11 +12,11 @@ export interface AccountValueRow {
 }
 
 export function accountWindowValues({ grain, accounts, mappings, from, to, providers, machines, selected, models }: {
-	grain: readonly DayModelAgg[]; accounts: readonly SyncSubscription[]; mappings: readonly SyncMapping[];
+	grain: readonly DayModelAgg[]; accounts: readonly SyncAccount[]; mappings: readonly SyncMapping[];
 	from: string; to: string; providers: ReadonlySet<string>; machines: ReadonlySet<string>;
 	selected: ReadonlySet<string>; models: ReadonlySet<string>;
 }) {
-	const machineAccounts = new Set(mappings.filter(row => machines.has(row.machineId)).map(row => row.subscriptionId));
+	const machineAccounts = new Set(mappings.filter(row => machines.has(row.machineId)).map(row => row.accountId));
 	const days = inclusiveDays(from, to);
 	const rows: AccountValueRow[] = [...new Map(accounts.map(account => [account.id, account])).values()]
 		.filter(account => (!providers.size || providers.has(account.provider)) &&
@@ -28,9 +28,9 @@ export function accountWindowValues({ grain, accounts, mappings, from, to, provi
 	for (const usage of grain) {
 		if (usage.day < from || usage.day > to || (providers.size && !providers.has(usage.provider)) ||
 			(models.size && !models.has(usage.model)) || (machines.size && (!usage.machineId || !machines.has(usage.machineId)))) continue;
-		const candidates = usage.subscriptionId ? new Set([usage.subscriptionId]) : new Set(mappings
+		const candidates = usage.accountId ? new Set([usage.accountId]) : new Set(mappings
 			.filter(mapping => mapping.machineId === usage.machineId && mapping.provider === usage.provider)
-			.flatMap(mapping => mapping.subscriptionId ? [mapping.subscriptionId] : []));
+			.flatMap(mapping => mapping.accountId ? [mapping.accountId] : []));
 		const relevant = rows.filter(row => row.provider === usage.provider && (!candidates.size || candidates.has(row.id)));
 		if (!relevant.length) {
 			if ([...candidates].some(id => (!selected.size || selected.has(id)) &&
@@ -84,13 +84,13 @@ export function accountFeesByProvider(config: {
 	return { claude: forProvider('claude'), codex: forProvider('codex') };
 }
 
-export function reportAccountFees(config: Parameters<typeof accountFeesByProvider>[0], status: Pick<SyncStatus, 'enabled' | 'subscriptions' | 'unreachable'> & Partial<Pick<SyncStatus, 'mappings'>>, scope: { machines?: string[]; accountIds?: string[] } = {}) {
+export function reportAccountFees(config: Parameters<typeof accountFeesByProvider>[0], status: Pick<SyncStatus, 'enabled' | 'accounts' | 'unreachable'> & Partial<Pick<SyncStatus, 'mappings'>>, scope: { machines?: string[]; accountIds?: string[] } = {}) {
 	if (!status.enabled && !scope.accountIds?.length && !scope.machines?.length) return accountFeesByProvider(config);
 	const machines = new Set(scope.machines);
 	const selected = new Set(scope.accountIds);
-	const mapped = new Set(status.mappings?.filter(row => machines.has(row.machineId)).map(row => row.subscriptionId));
+	const mapped = new Set(status.mappings?.filter(row => machines.has(row.machineId)).map(row => row.accountId));
 	const scoped = machines.size > 0 || selected.size > 0;
-	const source = status.enabled ? status.subscriptions : config.accounts.filter(account => config.providerAccounts[account.provider]?.includes(account.id));
+	const source = status.enabled ? status.accounts : config.accounts.filter(account => config.providerAccounts[account.provider]?.includes(account.id));
 	const accounts = [...new Map(source.map(account => [account.id, account])).values()]
 		.filter(account => (!machines.size || mapped.has(account.id)) && (!selected.size || selected.has(account.id)))
 		.map(account => ({ ...account, feeSource: account.feeSource ?? 'explicit' as const }));
@@ -108,7 +108,7 @@ export function reportAccountFees(config: Parameters<typeof accountFeesByProvide
 	return fees;
 }
 
-export function accountConfigProblems(config: { accounts: PrivateAccount[]; providerAccounts: Record<string, string[]> }): string[] {
+export function accountConfigProblems(config: { accounts: PrivateAccount[]; providerAccounts: Record<string, string[]>; }): string[] {
 	const problems: string[] = [];
 	const broken = Object.entries(config.providerAccounts).reduce((count, [provider, ids]) => count +
 		ids.filter(id => !config.accounts.some(account => account.id === id && account.provider === provider)).length, 0);

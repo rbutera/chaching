@@ -28,7 +28,6 @@ function baseConfig(poolId: string, machineId: string, over: Partial<chachingCon
 			poolId,
 			machineId,
 			machineName: 'kinto',
-			providerSubscriptions: {},
 			intervalMinutes: 15
 		},
 		providers: {
@@ -121,27 +120,27 @@ suite('engine PostgreSQL sync mode (v2 aggregate ledger)', () => {
 			expect(snap.sessions[0]?.machineId).toBe(nimbus);
 			expect(snap.totals.cost).toBeCloseTo(1.23);
 			// No subscription mapped yet -> read-time join resolves null.
-			expect(snap.dayModel[0].subscriptionId).toBeNull();
+			expect(snap.dayModel[0].accountId).toBeNull();
 
 			// Map nimbus/codex to a subscription; a burst re-reads mappings and the read-time
 			// join stamps it — no re-scan, no re-import.
-			const subscriptionId = randomUUID();
-			await store.addSubscription({
-				id: subscriptionId,
+			const accountId = randomUUID();
+			await store.addAccount({
+				id: accountId,
 				provider: 'codex',
 				name: 'Shared Codex',
 				account: 'shared@example.com',
 				tier: 'pro',
 				monthlyUsd: 200
 			});
-			await store.mapSubscription(nimbus, 'codex', subscriptionId);
+			await store.mapAccount(nimbus, 'codex', accountId);
 
 			let replaceSeen = false;
 			const unsubscribe = engine.subscribe((delta) => {
 				replaceSeen ||= Boolean(delta.replace);
 			});
-			await (engine as unknown as { runSyncBurst: (c: chachingConfig) => Promise<void> }).runSyncBurst(cfg);
-			expect(engine.snapshot().dayModel[0]?.subscriptionId).toBe(subscriptionId);
+			await (engine as unknown as { runSyncBurst: (c: chachingConfig) => Promise<void>; }).runSyncBurst(cfg);
+			expect(engine.snapshot().dayModel[0]?.accountId).toBe(accountId);
 			expect(replaceSeen).toBe(true);
 			unsubscribe();
 		} finally {
@@ -181,7 +180,7 @@ suite('engine PostgreSQL sync mode (v2 aggregate ledger)', () => {
 				isSidechain: false,
 				cost: 0.75,
 				machineId: undefined,
-				subscriptionId: null
+				accountId: null
 			};
 			const internal = engine as unknown as {
 				cursorRollup: Rollup | null;
@@ -255,7 +254,7 @@ suite('engine PostgreSQL sync mode (v2 aggregate ledger)', () => {
 
 			// Two same-key rows would make the single-statement upsert hit its conflict target
 			// twice ("cannot affect row a second time") and fail the burst; one row publishes clean.
-			await (engine as unknown as { runSyncBurst: (c: chachingConfig) => Promise<void> }).runSyncBurst(cfg);
+			await (engine as unknown as { runSyncBurst: (c: chachingConfig) => Promise<void>; }).runSyncBurst(cfg);
 			expect(engine.stats.providerErrors.sync).toBeFalsy();
 		} finally {
 			engine?.dispose();

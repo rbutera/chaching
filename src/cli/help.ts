@@ -55,7 +55,7 @@ Usage:
   chaching init          Run the setup wizard (re-runnable)
   chaching provider      Manage providers (add | enable | disable)
   chaching doctor        Diagnose why a provider isn't counting (health, staleness, pricing)
-  chaching sync          Create/join a pooled PostgreSQL ledger, map subscriptions
+  chaching sync          Create/join a pooled PostgreSQL ledger, map accounts
 
 Flags (global):
   --version, -v          Print version and exit
@@ -99,9 +99,9 @@ Chaching Sync:
   CHACHING_DATABASE_URL=<url> chaching sync join --pool <id> [--machine <name>]
   chaching sync status [--json]
   chaching sync interval <minutes>   # publish cadence (>=1, default 15; higher = cheaper serverless)
-  chaching sync subscription add --provider <name> --name <label>
+  chaching sync account add --provider <name> --name <label>
       [--account <label>] [--tier <tier>] --monthly-usd <amount>
-  chaching sync map --provider <name> --subscription <id|none> [--machine <id>]
+  chaching sync map --provider <name> --account <id|none> [--machine <id>]
   chaching sync leave
 
 Examples:

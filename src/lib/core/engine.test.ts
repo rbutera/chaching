@@ -21,7 +21,6 @@ function syncConfiguredConfig(databaseUrl = 'postgresql://u:p@127.0.0.1:1/db'): 
 		poolId: randomUUID(),
 		machineId: randomUUID(),
 		machineName: 'test-machine',
-		providerSubscriptions: {},
 		intervalMinutes: 15
 	};
 	return cfg;
@@ -40,7 +39,6 @@ function disabledConfig(): chachingConfig {
 			poolId: null,
 			machineId: null,
 			machineName: '',
-			providerSubscriptions: {},
 			intervalMinutes: 15
 		},
 		providers: {
@@ -194,7 +192,7 @@ describe('codex liveness — a session written AFTER the cold scan reaches the r
 
 			// Drive the poll body directly (the production interval is 15s — white-box
 			// call keeps the test instant; the interval wiring is covered by dispose tests).
-			await (engine as unknown as { pollLocalProviders(c: typeof cfg): Promise<void> }).pollLocalProviders(cfg);
+			await (engine as unknown as { pollLocalProviders(c: typeof cfg): Promise<void>; }).pollLocalProviders(cfg);
 
 			const snap = engine.snapshot();
 			const codexRows = snap.dayModel.filter((dm) => dm.provider === 'codex');
@@ -205,7 +203,7 @@ describe('codex liveness — a session written AFTER the cold scan reaches the r
 
 			// idempotent: a second poll re-reads the same file (inside the margin) but
 			// dedup keeps the rollup unchanged and no delta fires.
-			await (engine as unknown as { pollLocalProviders(c: typeof cfg): Promise<void> }).pollLocalProviders(cfg);
+			await (engine as unknown as { pollLocalProviders(c: typeof cfg): Promise<void>; }).pollLocalProviders(cfg);
 			expect(engine.snapshot().dayModel.filter((dm) => dm.provider === 'codex').length).toBe(1);
 			expect(engine.snapshot().dayModel.filter((dm) => dm.provider === 'codex')[0].requests).toBe(1);
 			expect(deltas).toBe(1);

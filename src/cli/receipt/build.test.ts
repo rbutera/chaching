@@ -275,9 +275,9 @@ it('filters model usage and coupons while retaining the whole selected Account f
 
 it('scopes pooled receipt usage by both machine and Account while retaining a shared fee', () => {
 	const snapshot = snapFrom([
-		{ ...dm('2026-06-19', 'claude', 'claude-opus-4-8', 10, toks(100)), machineId: 'one', subscriptionId: 'a' },
-		{ ...dm('2026-06-19', 'claude', 'claude-opus-4-8', 20, toks(200)), machineId: 'two', subscriptionId: 'a' },
-		{ ...dm('2026-06-19', 'claude', 'claude-opus-4-8', 30, toks(300)), machineId: 'one', subscriptionId: 'b' }
+		{ ...dm('2026-06-19', 'claude', 'claude-opus-4-8', 10, toks(100)), machineId: 'one', accountId: 'a' },
+		{ ...dm('2026-06-19', 'claude', 'claude-opus-4-8', 20, toks(200)), machineId: 'two', accountId: 'a' },
+		{ ...dm('2026-06-19', 'claude', 'claude-opus-4-8', 30, toks(300)), machineId: 'one', accountId: 'b' }
 	]);
 	const receipt = buildReceipt(snapshot, {
 		now: FIXED_NOW, range: { from: '2026-06-01', to: '2026-06-30' }, machines: ['one'], accountIds: ['a'],

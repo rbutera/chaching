@@ -6,7 +6,7 @@ function input(): Parameters<typeof accountWindowValues>[0] {
 	return {
 		from: '2026-08-12', to: '2026-09-10', providers: new Set(), machines: new Set(), selected: new Set(), models: new Set(),
 		accounts: ['a', 'b'].map(id => ({ id, provider: 'claude', name: id, account: '', tier: 'max', monthlyUsd: 200 })),
-		mappings: ['a', 'b'].map(subscriptionId => ({ machineId: 'one', provider: 'claude', subscriptionId })),
+		mappings: ['a', 'b'].map(accountId => ({ machineId: 'one', provider: 'claude', accountId })),
 		grain: [{ day: '2026-09-10', provider: 'claude', model: 'model', machineId: 'one', cost: 2000, requests: 1, costUnknownRequests: 0, tokens: { input: 1, output: 0, cacheRead: 0, cacheCreation: 0 } }]
 	};
 }
@@ -16,18 +16,18 @@ describe('Account window values', () => {
 		const cfg = defaultConfig();
 		cfg.providers.claude.enabled = false;
 		const account = input().accounts[0];
-		const fees = reportAccountFees(cfg, { enabled: true, subscriptions: [account, account, { ...account, id: 'peer', monthlyUsd: 300 }] });
+		const fees = reportAccountFees(cfg, { enabled: true, accounts: [account, account, { ...account, id: 'peer', monthlyUsd: 300 }] });
 		expect(fees.claude).toMatchObject({ enabled: true, monthlyUsd: 500 });
-		expect(reportAccountFees(cfg, { enabled: true, unreachable: true, subscriptions: [account] }).claude.monthlyUsd).toBeNull();
-		expect(reportAccountFees(cfg, { enabled: true, unreachable: true, subscriptions: [] }).claude).toMatchObject({ enabled: true, monthlyUsd: null });
-		expect(reportAccountFees(cfg, { enabled: true, subscriptions: [account, { ...account, id: 'peer', monthlyUsd: null }] }).claude.monthlyUsd).toBeNull();
+		expect(reportAccountFees(cfg, { enabled: true, unreachable: true, accounts: [account] }).claude.monthlyUsd).toBeNull();
+		expect(reportAccountFees(cfg, { enabled: true, unreachable: true, accounts: [] }).claude).toMatchObject({ enabled: true, monthlyUsd: null });
+		expect(reportAccountFees(cfg, { enabled: true, accounts: [account, { ...account, id: 'peer', monthlyUsd: null }] }).claude.monthlyUsd).toBeNull();
 	});
 	it('marks missing Account references unavailable without counting excluded Accounts', () => {
 		const data = input();
-		data.grain[0].subscriptionId = 'missing';
+		data.grain[0].accountId = 'missing';
 		expect(accountWindowValues(data).valueUsd).toBeNull();
 		expect(accountWindowValues({ ...data, selected: new Set(['a']) }).valueUsd).toBe(0);
-		data.grain[0].subscriptionId = 'b';
+		data.grain[0].accountId = 'b';
 		expect(accountWindowValues({ ...data, selected: new Set(['a']) }).valueUsd).toBe(0);
 	});
 	it('retains combined usage across known Accounts without inventing a split', () => {
@@ -44,7 +44,7 @@ describe('Account window values', () => {
 		const data = input();
 		data.from = '2026-09-04';
 		data.accounts = [{ ...data.accounts[0], monthlyUsd: 300 }];
-		data.mappings = ['one', 'two'].map(machineId => ({ machineId, provider: 'claude', subscriptionId: 'a' }));
+		data.mappings = ['one', 'two'].map(machineId => ({ machineId, provider: 'claude', accountId: 'a' }));
 		data.grain = [...data.grain, { ...data.grain[0], machineId: 'two', cost: 1000 }];
 		expect(accountWindowValues(data)).toMatchObject({ feeUsd: 70, valueUsd: 3000 });
 		expect(accountWindowValues({ ...data, machines: new Set(['one']) })).toMatchObject({ feeUsd: 70, valueUsd: 2000 });
@@ -52,7 +52,7 @@ describe('Account window values', () => {
 
 	it('retains zero-use and unknown-fee Accounts under model filtering', () => {
 		const data = input();
-		data.grain[0].subscriptionId = 'a';
+		data.grain[0].accountId = 'a';
 		data.accounts[1].monthlyUsd = null;
 		expect(accountWindowValues(data)).toMatchObject({ valueUsd: 2000, feeUsd: null });
 		const filtered = accountWindowValues({ ...data, models: new Set(['other']) });
@@ -65,10 +65,10 @@ describe('Account window values', () => {
 
 it('retains one whole shared bill for a selected machine, including its unused Accounts', () => {
 	const { accounts } = input();
-	const status = { enabled: true, subscriptions: [...accounts, { ...accounts[0], id: 'peer-only', monthlyUsd: 900 }], mappings: [
-		{ machineId: 'one', provider: 'claude', subscriptionId: 'a' },
-		{ machineId: 'two', provider: 'claude', subscriptionId: 'a' },
-		{ machineId: 'one', provider: 'claude', subscriptionId: 'b' }
+	const status = { enabled: true, accounts: [...accounts, { ...accounts[0], id: 'peer-only', monthlyUsd: 900 }], mappings: [
+		{ machineId: 'one', provider: 'claude', accountId: 'a' },
+		{ machineId: 'two', provider: 'claude', accountId: 'a' },
+		{ machineId: 'one', provider: 'claude', accountId: 'b' }
 	] };
 	const cfg = defaultConfig();
 	expect(reportAccountFees(cfg, status, { machines: ['one'] }).claude.monthlyUsd).toBe(400);

@@ -96,7 +96,7 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 		const { from, to } = flags.range ?? rollingPeriodRange(snapshot, period, now.getTime());
 		const providerFilter =
 			flags.providers && flags.providers.length > 0 ? new Set(flags.providers) : null;
-		let grain = filterDays(poolGrain(snapshot.dayModel, { machineFilter: new Set(flags.machines), subscriptionFilter: new Set(flags.accountIds) }), from, to);
+		let grain = filterDays(poolGrain(snapshot.dayModel, { machineFilter: new Set(flags.machines), accountFilter: new Set(flags.accountIds) }), from, to);
 		if (providerFilter) grain = grain.filter((dm) => providerFilter.has(dm.provider));
 		const modelFilter = new Set(flags.models);
 		if (modelFilter.size) grain = grain.filter((dm) => modelFilter.has(dm.model));

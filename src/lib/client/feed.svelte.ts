@@ -128,14 +128,14 @@ export class FeedStore {
 }
 
 function dayModelKey(dm: DayModelAgg): string {
-	const pooled = dm as DayModelAgg & { machineId?: string; subscriptionId?: string | null };
-	return `${pooled.machineId ?? ''}${KEY_SEP}${pooled.subscriptionId ?? ''}${KEY_SEP}${dm.day}${KEY_SEP}${dm.provider}${KEY_SEP}${dm.model}`;
+	const pooled = dm as DayModelAgg & { machineId?: string; accountId?: string | null; };
+	return `${pooled.machineId ?? ''}${KEY_SEP}${pooled.accountId ?? ''}${KEY_SEP}${dm.day}${KEY_SEP}${dm.provider}${KEY_SEP}${dm.model}`;
 }
 
 function sessionKey(session: SessionSummary): string {
 	const pooled = session as SessionSummary & {
 		machineId?: string;
-		subscriptionId?: string | null;
+		accountId?: string | null;
 	};
-	return `${pooled.machineId ?? ''}${KEY_SEP}${pooled.subscriptionId ?? ''}${KEY_SEP}${session.provider}${KEY_SEP}${session.sessionId}`;
+	return `${pooled.machineId ?? ''}${KEY_SEP}${pooled.accountId ?? ''}${KEY_SEP}${session.provider}${KEY_SEP}${session.sessionId}`;
 }

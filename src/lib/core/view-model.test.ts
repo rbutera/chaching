@@ -32,7 +32,7 @@ import {
 } from './view-model';
 import { sumGrain } from './aggregate';
 import type { SessionSummary } from '../types';
-import { attachSubscriptions, buildSubscriptionIndex } from './sync/overlay';
+import { attachAccounts, buildAccountIndex } from './sync/overlay';
 
 function toks(input: number, output = 0, cacheCreation = 0, cacheRead = 0): TokenCounts {
 	return { input, output, cacheCreation, cacheRead };
@@ -629,7 +629,7 @@ function sess(
 	id: string,
 	firstDay: string,
 	lastDay: string,
-	opts: { provider?: string; models?: string[]; firstTs?: number; lastTs?: number } = {}
+	opts: { provider?: string; models?: string[]; firstTs?: number; lastTs?: number; } = {}
 ): SessionSummary {
 	return {
 		sessionId: id,
@@ -1015,10 +1015,10 @@ describe('projectTotals — period scoping, focusedDay, and filters', () => {
 
 describe('pooled machine and subscription filters', () => {
 	const pooledRows = [
-		{ ...dm('2026-06-19', 'claude', 'claude-opus-4-8', 100), machineId: 'kinto', subscriptionId: 'work-claude' },
-		{ ...dm('2026-06-19', 'claude', 'claude-opus-4-8', 60), machineId: 'nimbus', subscriptionId: 'personal-claude' },
-		{ ...dm('2026-06-19', 'codex', 'gpt-5.6-sol', 40), machineId: 'nimbus', subscriptionId: 'shared-codex' }
-	] satisfies Array<DayModelAgg & { machineId: string; subscriptionId: string }>;
+		{ ...dm('2026-06-19', 'claude', 'claude-opus-4-8', 100), machineId: 'kinto', accountId: 'work-claude' },
+		{ ...dm('2026-06-19', 'claude', 'claude-opus-4-8', 60), machineId: 'nimbus', accountId: 'personal-claude' },
+		{ ...dm('2026-06-19', 'codex', 'gpt-5.6-sol', 40), machineId: 'nimbus', accountId: 'shared-codex' }
+	] satisfies Array<DayModelAgg & { machineId: string; accountId: string }>;
 	const pooled = snapFrom(pooledRows);
 
 	it('scopes every day-grain total by machine', () => {
@@ -1036,12 +1036,12 @@ describe('pooled machine and subscription filters', () => {
 			dm('2026-06-18', 'claude', 'claude-opus-4-8', 100),
 			dm('2026-06-19', 'codex', 'gpt-5.6-sol', 50)
 		]);
-		const attributed = attachSubscriptions(
+		const attributed = attachAccounts(
 			legacy,
-			buildSubscriptionIndex(
+			buildAccountIndex(
 				[
-					{ machineId: 'kinto', provider: 'claude', subscriptionId: 'work-claude' },
-					{ machineId: 'kinto', provider: 'codex', subscriptionId: 'shared-codex' }
+					{ machineId: 'kinto', provider: 'claude', accountId: 'work-claude' },
+					{ machineId: 'kinto', provider: 'codex', accountId: 'shared-codex' }
 				],
 				'kinto'
 			)
@@ -1060,7 +1060,7 @@ describe('pooled machine and subscription filters', () => {
 	it('scopes by a subscription shared independently of machine', () => {
 		const state = {
 			...defaultViewState('day'),
-			subscriptionFilter: new Set(['shared-codex'])
+			accountFilter: new Set(['shared-codex'])
 		};
 		expect(scopedTotals(pooled, state).cost).toBe(40);
 		expect(models(pooled, state).map((item) => item.model)).toEqual(['gpt-5.6-sol']);
@@ -1070,7 +1070,7 @@ describe('pooled machine and subscription filters', () => {
 		const state = {
 			...defaultViewState('day'),
 			machineFilter: new Set(['kinto']),
-			subscriptionFilter: new Set(['shared-codex'])
+			accountFilter: new Set(['shared-codex'])
 		};
 		expect(scopedTotals(pooled, state).cost).toBe(0);
 	});
@@ -1080,12 +1080,12 @@ describe('pooled machine and subscription filters', () => {
 			{
 				...sess('kinto-session', '2026-06-19', '2026-06-19'),
 				machineId: 'kinto',
-				subscriptionId: 'work-claude'
+				accountId: 'work-claude'
 			},
 			{
 				...sess('nimbus-session', '2026-06-19', '2026-06-19'),
 				machineId: 'nimbus',
-				subscriptionId: 'personal-claude'
+				accountId: 'personal-claude'
 			}
 		];
 		const snapshot = { ...pooled, sessions };
@@ -1109,12 +1109,12 @@ describe('pooled machine and subscription filters', () => {
 			{
 				...dm('2026-06-18', 'claude', 'claude-opus-4-8', 20),
 				machineId: 'kinto',
-				subscriptionId: 'work-claude'
+				accountId: 'work-claude'
 			},
 			{
 				...dm('2026-06-19', 'claude', 'claude-opus-4-8', 10),
 				machineId: 'nimbus',
-				subscriptionId: 'personal-claude'
+				accountId: 'personal-claude'
 			}
 		]);
 		const state = {

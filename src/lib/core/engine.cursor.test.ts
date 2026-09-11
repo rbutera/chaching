@@ -22,7 +22,7 @@ const cursorRecords: UsageRecord[] = [
 		isSidechain: false,
 		cost: 0.5,
 		machineId: undefined,
-		subscriptionId: null
+		accountId: null
 	},
 	{
 		key: 'cursor:evt-2',
@@ -40,7 +40,7 @@ const cursorRecords: UsageRecord[] = [
 		isSidechain: false,
 		cost: 0.25,
 		machineId: undefined,
-		subscriptionId: null
+		accountId: null
 	}
 ];
 
@@ -66,7 +66,6 @@ function pooledCursorConfig(): chachingConfig {
 			poolId: randomUUID(),
 			machineId: randomUUID(),
 			machineName: 'kinto',
-			providerSubscriptions: {},
 			intervalMinutes: 15
 		},
 		providers: {

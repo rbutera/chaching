@@ -12,7 +12,7 @@ import {
 	type SyncConfig
 } from '../config';
 import { PostgresSyncStore } from './store';
-import type { SyncAction, SyncStatus, SyncSubscription } from './types';
+import type { SyncAction, SyncStatus, SyncAccount } from './types';
 
 export function localSyncStatus(error: string | null = null): SyncStatus {
 	return {
@@ -21,7 +21,7 @@ export function localSyncStatus(error: string | null = null): SyncStatus {
 		pool: null,
 		machine: null,
 		machines: [],
-		subscriptions: [],
+		accounts: [],
 		mappings: [],
 		providerQuotas: [],
 		error
@@ -33,7 +33,7 @@ export async function publishDiscoveredAccounts(store: PostgresSyncStore, cfg: c
 	const linked = new Set(Object.values(cfg.providerAccounts).flat());
 	for (const account of cfg.accounts) {
 		if (account.pendingPoolId === cfg.sync.poolId) {
-			await store.addSubscription({ ...account, account: '' });
+			await store.addAccount({ ...account, account: '' });
 			await updateConfig(current => ({ ...current, accounts: current.accounts.map(row => {
 				if (row.id !== account.id || row.pendingPoolId !== account.pendingPoolId) return row;
 				const { pendingPoolId: _pending, ...saved } = row;
@@ -67,7 +67,7 @@ export async function writePoolAccount(cfg: chachingConfig, account: PrivateAcco
 		}, false);
 		await store.updateAccountDetails({ ...fields, id, provider: account.provider });
 		const status = await store.status();
-		const remote = status.subscriptions.find(row => row.id === id);
+		const remote = status.accounts.find(row => row.id === id);
 		if (!remote) throw new Error('Account disappeared from the pool after saving');
 		return { ...account, name: remote.name, tier: remote.tier, monthlyUsd: remote.monthlyUsd, feeSource: remote.feeSource ?? 'explicit' };
 	} finally { await store.close(); }
@@ -79,7 +79,7 @@ export function applyPoolAccountDetails(cfg: chachingConfig, status: SyncStatus)
 	return { ...cfg, accounts: cfg.accounts.map(account => {
 		if (account.pendingLegacyIds?.length) return account;
 		const key = account.identity ? accountIdentityKey(account.provider, account.identity, poolId) : null;
-		const remote = status.subscriptions.find(row => row.provider === account.provider &&
+		const remote = status.accounts.find(row => row.provider === account.provider &&
 			(key && row.identityKey ? row.identityKey === key : row.id === account.id));
 		return remote ? { ...account, name: remote.name, tier: remote.tier, monthlyUsd: remote.monthlyUsd, feeSource: remote.feeSource ?? 'explicit' } : account;
 	}) };
@@ -170,8 +170,7 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 				...current.sync,
 				enabled: false,
 				databaseUrl: '',
-				poolId: null,
-				providerSubscriptions: {}
+				poolId: null
 			}
 		}));
 		return localSyncStatus();
@@ -206,7 +205,6 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 				poolId,
 				machineId,
 				machineName,
-				providerSubscriptions: {},
 				intervalMinutes: current.sync.intervalMinutes
 			}));
 			return await store.status();
@@ -242,7 +240,6 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 				poolId,
 				machineId,
 				machineName,
-				providerSubscriptions: {},
 				intervalMinutes: current.sync.intervalMinutes
 			}));
 			return await store.status();
@@ -255,11 +252,11 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 
 	if (!isConfigured(cfg.sync)) throw new Error('Join or create a sync pool first');
 	const poolId = cfg.sync.poolId;
-	if (action.action === 'add-subscription') {
+	if (action.action === 'add-account') {
 		const monthlyUsd = action.monthlyUsd;
 		if (!Number.isFinite(monthlyUsd) || monthlyUsd < 0)
 			throw new Error('Monthly USD must be a non-negative number');
-		const subscription: SyncSubscription = {
+		const subscription: SyncAccount = {
 			id: randomUUID(),
 			provider: required(action.provider, 'Provider'),
 			name: required(action.name, 'Account name'),
@@ -289,19 +286,19 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 		const machineId = required(action.machineId, 'Machine ID');
 		const provider = required(action.provider, 'Provider');
 		if (machineId !== cfg.sync.machineId) {
-			await store.mapSubscription(machineId, provider, action.subscriptionId);
+			await store.mapAccount(machineId, provider, action.accountId);
 		} else {
 			await updateConfig(async current => {
 				if (current.sync.poolId !== poolId || current.sync.machineId !== machineId || current.sync.databaseUrl !== cfg.sync.databaseUrl) throw new Error('Sync settings changed; retry mapping.');
-				const remote = action.subscriptionId ? (await store.status()).subscriptions.find(account => account.id === action.subscriptionId && account.provider === provider) : null;
-				if (action.subscriptionId && !remote) throw new Error('Account does not exist in this pool for that provider');
+				const remote = action.accountId ? (await store.status()).accounts.find(account => account.id === action.accountId && account.provider === provider) : null;
+				if (action.accountId && !remote) throw new Error('Account does not exist in this pool for that provider');
 				const existing = remote ? current.accounts.find(account => account.provider === provider &&
 					(account.id === remote.id || (account.identity && remote.identityKey === accountIdentityKey(provider, account.identity, poolId)))) : null;
 				const account: PrivateAccount | null = remote ? {
 					...existing, id: existing?.id ?? remote.id, provider, name: remote.name, tier: remote.tier, monthlyUsd: remote.monthlyUsd,
 					feeSource: remote.feeSource ?? 'explicit', identity: existing?.identity ?? null, registrations: existing?.registrations ?? [], legacy: existing?.legacy ?? false
 				} : null;
-				await store.mapSubscription(machineId, provider, action.subscriptionId);
+				await store.mapAccount(machineId, provider, action.accountId);
 				return { ...current,
 					accounts: account ? [...current.accounts.filter(row => row.id !== account.id), account] : current.accounts,
 					providerAccounts: { ...current.providerAccounts, [provider]: account ? [account.id] : [] }
@@ -402,7 +399,7 @@ function describeSyncFailure(cause: unknown): Error {
 	);
 }
 
-async function ensureMachineIdentity(): Promise<{ config: chachingConfig; machineId: string }> {
+async function ensureMachineIdentity(): Promise<{ config: chachingConfig; machineId: string; }> {
 	let machineId = '';
 	const config = await updateConfig(current => {
 		machineId = current.sync.machineId ?? randomUUID();
@@ -411,7 +408,7 @@ async function ensureMachineIdentity(): Promise<{ config: chachingConfig; machin
 	return { config, machineId };
 }
 
-async function ensurePendingPoolIdentity(): Promise<{ config: chachingConfig; poolId: string }> {
+async function ensurePendingPoolIdentity(): Promise<{ config: chachingConfig; poolId: string; }> {
 	let poolId = '';
 	const config = await updateConfig(current => {
 		poolId = current.sync.poolId ?? randomUUID();

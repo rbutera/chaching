@@ -29,7 +29,7 @@
 		id: model.model, name: modelLabel(model.model), detail: model.model,
 		cost: model.cost, tokens: totalTokens(model.tokens), count: model.requests, color: modelColor(model.model), costUnknownRequests: model.costUnknownRequests
 	})));
-	let poolFilterActive = $derived(dash.machineFilter.size > 0 || dash.subscriptionFilter.size > 0);
+	let poolFilterActive = $derived(dash.machineFilter.size > 0 || dash.accountFilter.size > 0);
 	// Five-hour blocks currently carry no attribution dimension. Suppress this one
 	// panel under a pool filter instead of showing a whole-pool number in a scoped view.
 	let activeBlock = $derived(poolFilterActive ? null : (snap?.blocks.find((b) => b.isActive) ?? null));

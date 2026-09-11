@@ -40,7 +40,7 @@ import {
 	flourishFor,
 	formatFlourish,
 	DAILY_FLOURISHES,
-	LIFETIME_FLOURISHES,
+	LIFETIME_FLOURISHES
 } from '../theme/personality.js';
 
 const TOP_MODELS = 8;
@@ -94,7 +94,7 @@ export function statsSnapshot(snapshot: RollupSnapshot, flags: StatsFlags, now: 
 	const providers = new Set(flags.providers);
 	const models = new Set(flags.models);
 	const state = { period: flags.period ?? 'all' as const, focusedDay: null,
-		providerFilter: providers, modelFilter: models, machineFilter: new Set(flags.machines), subscriptionFilter: new Set(flags.accountIds) };
+		providerFilter: providers, modelFilter: models, machineFilter: new Set(flags.machines), accountFilter: new Set(flags.accountIds) };
 	const { from, to } = flags.range ?? rollingPeriodRange(snapshot, flags.period ?? 'all', now);
 	const grain = filterDays(poolGrain(snapshot.dayModel, state), from, to).filter(row =>
 		(!providers.size || providers.has(row.provider)) && (!models.size || models.has(row.model)));

@@ -123,7 +123,6 @@ describe('config', () => {
 			poolId: 'pool-1',
 			machineId: 'machine-1',
 			machineName: 'kinto',
-			providerSubscriptions: { claude: 'work-claude' },
 			intervalMinutes: 15,
 			databaseConfigured: true
 		});

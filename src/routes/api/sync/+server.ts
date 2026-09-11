@@ -20,7 +20,11 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
 		);
 	}
 	try {
-		const action = (await request.json()) as SyncAction;
+		const body = await request.json();
+		if (body?.action === 'add-subscription') body.action = 'add-account';
+		if (body?.action === 'map' && body.accountId === undefined && body.subscriptionId !== undefined)
+			body.accountId = body.subscriptionId;
+		const action = body as SyncAction;
 		if (!action || typeof action !== 'object' || typeof action.action !== 'string')
 			return json({ error: 'Invalid sync action' }, { status: 400 });
 		const status = await performSyncAction(action);

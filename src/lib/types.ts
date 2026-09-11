@@ -27,7 +27,7 @@ export interface UsageRecord {
 	/** Present when the record belongs to a PostgreSQL sync pool. */
 	machineId?: string;
 	/** Subscription attribution captured at ingestion time; null/absent = unmapped. */
-	subscriptionId?: string | null;
+	accountId?: string | null;
 	/** computed estimate; null when the model has no known price */
 	cost: number | null;
 }
@@ -38,7 +38,7 @@ export interface DayModelAgg {
 	provider: string;
 	model: string;
 	machineId?: string;
-	subscriptionId?: string | null;
+	accountId?: string | null;
 	tokens: TokenCounts;
 	requests: number;
 	cost: number; // 0 if unknown-price contributed (see costUnknownRequests)
@@ -50,7 +50,7 @@ export interface SessionSummary {
 	sessionId: string;
 	provider: string;
 	machineId?: string;
-	subscriptionId?: string | null;
+	accountId?: string | null;
 	project: string;
 	firstTs: number;
 	lastTs: number;
@@ -163,8 +163,7 @@ export interface RollupDelta {
 	coverage: CoverageMap;
 }
 
-export type SSEMessage =
-	| { type: 'snapshot'; data: RollupSnapshot }
+export type SSEMessage = { type: 'snapshot'; data: RollupSnapshot }
 	| { type: 'delta'; data: RollupDelta };
 
 export type Period = 'day' | 'week' | 'month' | 'quarter' | 'all';

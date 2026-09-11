@@ -21,7 +21,7 @@
 	let offline = $derived(!!status?.enabled && !status?.pool && !!status?.localIdentity);
 
 	let provider = $state('claude');
-	let subscriptionName = $state('');
+	let accountName = $state('');
 	let account = $state('');
 	let tier = $state('custom');
 	let monthlyUsd = $state('200');
@@ -79,31 +79,31 @@
 		if (ok) databaseUrl = '';
 	}
 
-	async function addSubscription(event: SubmitEvent): Promise<void> {
+	async function addAccount(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
 		const fee = Number(monthlyUsd);
-		if (!subscriptionName.trim() || !Number.isFinite(fee) || fee < 0) {
+		if (!accountName.trim() || !Number.isFinite(fee) || fee < 0) {
 			error = 'Account name and a non-negative monthly fee are required.';
 			return;
 		}
 		const ok = await run({
-			action: 'add-subscription',
+			action: 'add-account',
 			provider,
-			name: subscriptionName.trim(),
+			name: accountName.trim(),
 			account: account.trim(),
 			tier: tier.trim() || 'custom',
 			monthlyUsd: fee
 		});
 		if (ok) {
-			subscriptionName = '';
+			accountName = '';
 			account = '';
 		}
 	}
 
-	function mappedSubscriptions(machineId: string, mappedProvider: string): string[] {
+	function mappedAccounts(machineId: string, mappedProvider: string): string[] {
 		return [...new Set((status?.mappings ?? [])
 			.filter(mapping => mapping.machineId === machineId && mapping.provider === mappedProvider)
-			.flatMap(mapping => mapping.subscriptionId ? [mapping.subscriptionId] : []))];
+			.flatMap(mapping => mapping.accountId ? [mapping.accountId] : []))];
 	}
 </script>
 
@@ -149,9 +149,9 @@
 
 			<div>
 				<h3>Accounts</h3>
-				{#if status.subscriptions.length > 0}
+				{#if status.accounts.length > 0}
 					<ul class="rows">
-						{#each status.subscriptions as subscription (subscription.id)}
+						{#each status.accounts as subscription (subscription.id)}
 							<li>
 								<span>
 									<strong>{subscription.name}</strong>
@@ -177,7 +177,7 @@
 
 		{#if status.managementAllowed !== false}
 			<div class="sync-grid forms">
-			<form onsubmit={addSubscription}>
+			<form onsubmit={addAccount}>
 				<h3>Add Account</h3>
 				<div class="fields">
 					<label>
@@ -188,7 +188,7 @@
 					</label>
 					<label>
 						name
-						<input bind:value={subscriptionName} placeholder="Work Claude Max" />
+						<input bind:value={accountName} placeholder="Work Claude Max" />
 					</label>
 					<label>
 						private label
@@ -210,7 +210,7 @@
 				<h3>this machine uses</h3>
 				<div class="mapping-list">
 					{#each providers as mappedProvider}
-						{@const linked = mappedSubscriptions(status.machine.id, mappedProvider)}
+						{@const linked = mappedAccounts(status.machine.id, mappedProvider)}
 						<label>
 							{syncProviderLabel(mappedProvider)}
 							<select
@@ -220,13 +220,13 @@
 										action: 'map',
 										machineId: status.machine!.id,
 										provider: mappedProvider,
-										subscriptionId: (event.currentTarget as HTMLSelectElement).value || null
+										accountId: (event.currentTarget as HTMLSelectElement).value || null
 									})}
 								disabled={busy}
 							>
 								<option value="">unmapped</option>
 								{#if linked.length > 1}<option value="__multiple__" disabled>{linked.length} accounts</option>{/if}
-								{#each status.subscriptions.filter((item) => item.provider === mappedProvider) as subscription (subscription.id)}
+								{#each status.accounts.filter((item) => item.provider === mappedProvider) as subscription (subscription.id)}
 									<option value={subscription.id}>{subscription.name}</option>
 								{/each}
 							</select>

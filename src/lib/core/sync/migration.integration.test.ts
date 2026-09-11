@@ -51,11 +51,11 @@ suite('Account schema migration', () => {
 			await Promise.all(stores.map(store => store.open()));
 			await stores[0].open();
 			const status = await stores[0].status();
-			expect(status.subscriptions).toEqual(expect.arrayContaining([
+			expect(status.accounts).toEqual(expect.arrayContaining([
 				expect.objectContaining({ id: 'paid', monthlyUsd: 175, feeSource: 'explicit' }),
 				expect.objectContaining({ id: 'free', monthlyUsd: 0, feeSource: 'explicit' })
 			]));
-			expect(status.subscriptions).toHaveLength(2);
+			expect(status.accounts).toHaveLength(2);
 			expect(status.mappings).toHaveLength(2);
 			const after = await db.query(`SELECT row_to_json(t) AS row FROM chaching_sync.machine_day_agg t UNION ALL SELECT row_to_json(t) FROM chaching_sync.machine_hour_agg t UNION ALL SELECT row_to_json(t) FROM chaching_sync.machine_session_agg t`);
 			expect(after.rows).toEqual(before.rows);
@@ -67,17 +67,17 @@ suite('Account schema migration', () => {
 		const store = new PostgresSyncStore(url, 'pool', 'one');
 		try {
 			await store.open();
-			await store.addSubscription({ id: 'unknown', provider: 'claude', name: 'Unknown', account: '', tier: 'new', monthlyUsd: null, feeSource: 'inferred', identityKey: 'v1:opaque' });
+			await store.addAccount({ id: 'unknown', provider: 'claude', name: 'Unknown', account: '', tier: 'new', monthlyUsd: null, feeSource: 'inferred', identityKey: 'v1:opaque' });
 			await store.linkAccount('one', 'claude', 'unknown');
 			await store.linkAccount('one', 'claude', 'unknown');
 			expect((await store.allMappings()).filter(row => row.machineId === 'one')).toHaveLength(2);
-			expect(await store.mappedSubscriptions()).toEqual({ claude: null });
-			expect((await store.status()).subscriptions.find(row => row.id === 'unknown')?.monthlyUsd).toBeNull();
+			expect(await store.mappedAccounts()).toEqual({ claude: null });
+			expect((await store.status()).accounts.find(row => row.id === 'unknown')?.monthlyUsd).toBeNull();
 			await expect(store.linkAccount('one', 'codex', 'unknown')).rejects.toThrow();
-			await expect(store.addSubscription({ id: 'duplicate', provider: 'claude', name: 'Duplicate', account: '', tier: 'new', monthlyUsd: 10, identityKey: 'v1:opaque' })).rejects.toThrow();
-			await expect(store.addSubscription({ id: 'bad', provider: 'claude', name: 'Bad', account: '', tier: 'custom', monthlyUsd: null })).rejects.toThrow();
-			await store.mapSubscription('one', 'claude', 'paid');
-			expect(await store.mappedSubscriptions()).toEqual({ claude: 'paid' });
+			await expect(store.addAccount({ id: 'duplicate', provider: 'claude', name: 'Duplicate', account: '', tier: 'new', monthlyUsd: 10, identityKey: 'v1:opaque' })).rejects.toThrow();
+			await expect(store.addAccount({ id: 'bad', provider: 'claude', name: 'Bad', account: '', tier: 'custom', monthlyUsd: null })).rejects.toThrow();
+			await store.mapAccount('one', 'claude', 'paid');
+			expect(await store.mappedAccounts()).toEqual({ claude: 'paid' });
 		} finally { await store.close(); }
 	});
 
@@ -94,7 +94,7 @@ suite('Account schema migration', () => {
 			]);
 			expect(ids).toEqual(['paid', 'paid']);
 			const status = await one.status();
-			expect(status.subscriptions.filter(a => a.provider === 'claude')).toEqual([
+			expect(status.accounts.filter(a => a.provider === 'claude')).toEqual([
 				expect.objectContaining({ id: 'paid', name: 'Work', monthlyUsd: 175, feeSource: 'explicit', identityKey: 'v1:shared' })
 			]);
 			expect(status.mappings.filter(m => m.provider === 'claude')).toHaveLength(2);
@@ -102,7 +102,7 @@ suite('Account schema migration', () => {
 			const newIds = await Promise.all([one.discoverAccount(newAccount), two.discoverAccount({ ...newAccount, id: 'new-two' })]);
 			expect(new Set(newIds).size).toBe(1);
 			await expect(one.discoverAccount({ ...account, identityKey: 'v1:wrong' })).rejects.toThrow('different provider identity');
-			expect((await one.status()).subscriptions.filter(a => a.identityKey === 'v1:new')).toHaveLength(1);
+			expect((await one.status()).accounts.filter(a => a.identityKey === 'v1:new')).toHaveLength(1);
 		} finally { await Promise.all([one.close(), two.close()]); }
 	});
 
@@ -117,16 +117,16 @@ suite('Account schema migration', () => {
 			await writePoolAccount(cfg, cfg.accounts[0]);
 			await store.open();
 			const status = await store.status();
-			expect(status.subscriptions.find(row => row.id === 'paid')).toMatchObject({ name: 'Edited work', monthlyUsd: 145, identityKey: accountIdentityKey('claude', identity, 'pool') });
+			expect(status.accounts.find(row => row.id === 'paid')).toMatchObject({ name: 'Edited work', monthlyUsd: 145, identityKey: accountIdentityKey('claude', identity, 'pool') });
 			expect(JSON.stringify(status)).not.toMatch(/private-login|private-alias/);
 			const peer = { ...cfg, accounts: [{ ...cfg.accounts[0], id: 'peer-local', name: 'Old name', monthlyUsd: 200 }], providerAccounts: { claude: ['peer-local'] } };
 			expect(applyPoolAccountDetails(peer, status).accounts[0]).toMatchObject({ id: 'peer-local', name: 'Edited work', monthlyUsd: 145, identity, registrations: ['private-alias'] });
 			await writePoolAccount(cfg, { ...cfg.accounts[0], monthlyUsd: 0 });
-			expect((await store.status()).subscriptions.find(row => row.id === 'paid')?.monthlyUsd).toBe(0);
+			expect((await store.status()).accounts.find(row => row.id === 'paid')?.monthlyUsd).toBe(0);
 			const renamed = await writePoolAccount(cfg, cfg.accounts[0], { name: 'Renamed only' });
 			expect(renamed).toMatchObject({ name: 'Renamed only', monthlyUsd: 0 });
 			await expect(store.updateAccountDetails({ ...cfg.accounts[0], monthlyUsd: -1 })).rejects.toThrow();
-			expect((await store.status()).subscriptions.find(row => row.id === 'paid')?.monthlyUsd).toBe(0);
+			expect((await store.status()).accounts.find(row => row.id === 'paid')?.monthlyUsd).toBe(0);
 		} finally { await store.close(); }
 	});
 
@@ -152,7 +152,7 @@ suite('Account schema migration', () => {
 		try {
 			await expect(store.open()).rejects.toThrow();
 			expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows[0].version).toBe(3);
-			expect((await db.query("SELECT count(*)::int AS n FROM chaching_sync.subscription")).rows[0].n).toBe(2);
+			expect((await db.query('SELECT count(*)::int AS n FROM chaching_sync.subscription')).rows[0].n).toBe(2);
 			expect((await db.query("SELECT to_regclass('chaching_sync.account') AS account")).rows[0].account).toBeNull();
 		} finally { await store.close(); }
 	});

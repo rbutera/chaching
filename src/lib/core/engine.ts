@@ -42,11 +42,11 @@ import {
 } from './sync/store';
 import type { SyncMapping } from './sync/types';
 import {
-	attachSubscriptions,
-	buildSubscriptionIndex,
+	attachAccounts,
+	buildAccountIndex,
 	mergePooledSnapshot,
 	peerContribution,
-	type SubscriptionIndex
+	type AccountIndex
 } from './sync/overlay';
 
 const MTIME_POLL_MS = 4000; // fallback poll cadence
@@ -139,7 +139,7 @@ class Ingestion {
 	/** Incremental peer read watermark: max `updated_at` (ISO) seen so far, null = read all. */
 	private syncWatermark: string | null = null;
 	private syncMappings: readonly SyncMapping[] = [];
-	private syncSubscriptionIndex: SubscriptionIndex = {
+	private syncAccountIndex: AccountIndex = {
 		byMachineProvider: new Map(),
 		ownMachineId: '',
 		cursor: null
@@ -276,7 +276,7 @@ class Ingestion {
 			await store.heartbeat(cfg.sync.machineName, hostname());
 			await publishDiscoveredAccounts(store, cfg);
 			this.syncStore = store;
-			await this.refreshSubscriptionIndex();
+			await this.refreshAccountIndex();
 			// Full publish on connect: every local day/session (frozen history + live) plus the
 			// last 48h of hour buckets and the account-scoped cursor spend. Idempotent LWW.
 			const published = await this.publishLocal(true);
@@ -394,11 +394,11 @@ class Ingestion {
 	}
 
 	/** Reload the pool mapping rows and rebuild the read-time subscription index + fingerprint. */
-	private async refreshSubscriptionIndex(): Promise<void> {
+	private async refreshAccountIndex(): Promise<void> {
 		if (!this.syncStore) return;
 		this.syncMappings = await this.syncStore.allMappings();
 		this.syncMappingFingerprint = await this.syncStore.mappingFingerprint();
-		this.syncSubscriptionIndex = buildSubscriptionIndex(
+		this.syncAccountIndex = buildAccountIndex(
 			this.syncMappings,
 			this.resolvedConfig?.sync.machineId ?? ''
 		);
@@ -798,7 +798,7 @@ class Ingestion {
 			await this.syncStore.heartbeat(cfg.sync.machineName, hostname());
 			const fingerprint = await this.syncStore.mappingFingerprint();
 			const mappingChanged = fingerprint !== this.syncMappingFingerprint;
-			if (mappingChanged) await this.refreshSubscriptionIndex();
+			if (mappingChanged) await this.refreshAccountIndex();
 			await this.loadPeer();
 			this.providerStatus.clear('sync');
 			// A merged replace after every burst: local live changes since the last emit and any
@@ -835,7 +835,7 @@ class Ingestion {
 			if (agg.partial) peerPartialDays.add(agg.day);
 		}
 		const merged = mergePooledSnapshot(local, peer, today, peerPartialDays);
-		return attachSubscriptions(merged, this.syncSubscriptionIndex);
+		return attachAccounts(merged, this.syncAccountIndex);
 	}
 
 	private emitSyncSnapshot(): void {

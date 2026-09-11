@@ -1,6 +1,6 @@
 # Chaching Sync
 
-Chaching Sync is an opt-in pooled ledger for people who use AI subscriptions across several
+Chaching Sync is an opt-in pooled ledger for people who use AI accounts across several
 machines. Local mode stays the default. Joining a pool keeps every machine local-first — it still
 reads its own Claude, Codex, OpenCode, Pi, and Cursor sources, dedupes them, and freezes completed
 days into local SQLite — and additionally **publishes compact aggregates** to a shared PostgreSQL
@@ -15,7 +15,7 @@ The pool stores **aggregates only**, never raw usage records:
 - `machine_hour_agg` — last-48h hour buckets (7-day server retention) so shared 5-hour cap windows
   can be reconstructed pool-wide.
 - `machine_session_agg` — per-session summaries.
-- pool / machine / subscription / mapping rows — the roster and attribution tables.
+- pool / machine / account / mapping rows — the roster and attribution tables.
 
 **Raw records never leave the machine.** Prompts, file paths, session contents, and per-request
 rows all stay in local SQLite; only the rolled-up token/cost counts are published. That is a
@@ -27,14 +27,14 @@ A pool has three independent concepts:
 
 - **Machines** are Chaching installations. Each install receives a stable random machine ID when
   it creates or joins a pool.
-- **Subscriptions** are the plans you pay for, such as "Work Claude Max" or "Shared ChatGPT Pro."
-  A subscription belongs to one provider and is charged once in pooled subsidy calculations.
-- **Mappings** connect a provider on a machine to a subscription. Several machines can map to the
-  same subscription. A machine can map Claude and Codex to different subscriptions.
+- **Accounts** are the plans you pay for, such as "Work Claude Max" or "Shared ChatGPT Pro."
+  An Account belongs to one provider and is charged once in pooled subsidy calculations.
+- **Mappings** connect a provider on a machine to an Account. Several machines can map to the
+  same account. A machine can map Claude and Codex to different accounts.
 
 Each machine's aggregates are namespaced by machine ID, so the same provider arriving from two
 machines never collides, and a machine republishing its rows is an idempotent full-replacement
-upsert. Subscription attribution is a **read-time join** on the mapping table: changing a mapping
+upsert. Account attribution is a **read-time join** on the mapping table: changing a mapping
 takes effect instantly and retroactively, with no UPDATE sweep over historical rows.
 
 Cursor Admin API spend is the exception: it describes a cloud-account fact every configured
@@ -126,12 +126,12 @@ chaching sync status --json
 The PostgreSQL URL is stored only in the local mode-`0600` Chaching config. It is excluded from
 the web dashboard's public config API and from sync status output.
 
-## Define subscriptions and mappings
+## Define accounts and mappings
 
 Create each paid plan once:
 
 ```sh
-chaching sync subscription add \
+chaching sync account add \
   --provider claude \
   --name 'Work Claude Max' \
   --account 'work@example.com' \
@@ -139,10 +139,10 @@ chaching sync subscription add \
   --monthly-usd 200
 ```
 
-Copy the subscription ID from `chaching sync status --json`, then map the current machine:
+Copy the account ID from `chaching sync status --json`, then map the current machine:
 
 ```sh
-chaching sync map --provider claude --subscription '<subscription-id>'
+chaching sync map --provider claude --account '<account-id>'
 ```
 
 Map another machine by its machine ID:
@@ -151,10 +151,10 @@ Map another machine by its machine ID:
 chaching sync map \
   --machine '<other-machine-id>' \
   --provider claude \
-  --subscription '<subscription-id>'
+  --account '<account-id>'
 ```
 
-Use `--subscription none` to clear a mapping. Because attribution is a read-time join, a remap is
+Use `--account none` to clear a mapping. Because attribution is a read-time join, a remap is
 instant and retroactive — no historical rows are rewritten. The web Sync panel exposes the same
 operations with forms and selectors.
 
@@ -186,7 +186,7 @@ Each running Chaching instance:
 2. reads its local provider sources continuously (tail + poll), exactly as in local mode;
 3. on each aligned burst, publishes its dirty day/hour/session aggregates (full-replacement
    upserts), heartbeats, and reads back peers' aggregates incrementally;
-4. renders the pool as a read-time subscription join over local + peer rows.
+4. renders the pool as a read-time account join over local + peer rows.
 
 The TUI, one-shot commands, and web server all use the same engine.
 
@@ -253,30 +253,30 @@ chaching stats --no-art
 Create the pool on one machine, join the other two, and verify all three appear:
 
 ```sh
-chaching sync status --json | jq '{pool, machines, subscriptions, mappings}'
+chaching sync status --json | jq '{pool, machines, accounts, mappings}'
 ```
 
 Each machine must actually run Chaching to publish its local aggregates. A long-running TUI or web
 server publishes at `intervalMinutes`; a scheduled `chaching stats` run cold-scans, publishes once,
 and exits. For laptops that are not running Chaching continuously, install a nightly scheduler on
 every machine. Running all scheduled jobs at the same wall-clock time gives Neon a single wake
-window and leaves each local SQLite ledger current even before subscription mappings are complete.
+window and leaves each local SQLite ledger current even before account mappings are complete.
 If `sync create` or `sync join` was run while a TUI/web server was already running, restart that
-process once so it reloads the new pool identity and subscription mappings.
+process once so it reloads the new pool identity and account mappings.
 
-### Decide the subscription topology
+### Decide the account topology
 
-Inventory subscriptions before adding them. For every provider used on every machine, record:
+Inventory accounts before adding them. For every provider used on every machine, record:
 
 - the billing account or identity;
 - the plan/tier and actual monthly USD cost;
-- whether that exact paid subscription is shared with another machine;
+- whether that exact paid account is shared with another machine;
 - whether the provider is local-machine usage or a cloud-account feed.
 
-Create one pool subscription row per **bill you pay**, not per machine. Map every
-machine/provider pair using that bill to the same subscription ID. If Kinto and Latios both use the
-same Claude Max account, create one Claude subscription and map both machines to it. If Nimbus uses
-a separate Claude account, create a second subscription. Codex/ChatGPT follows the same rule.
+Create one pool account row per **bill you pay**, not per machine. Map every
+machine/provider pair using that bill to the same account ID. If Kinto and Latios both use the
+same Claude Max account, create one Claude account and map both machines to it. If Nimbus uses
+a separate Claude account, create a second account. Codex/ChatGPT follows the same rule.
 OpenCode and Pi usage may need a custom or `$0` row depending on how their underlying models are
 paid for; mappings are optional and do not affect token/cost aggregation itself.
 
@@ -291,35 +291,35 @@ For example, a pool where Kinto and Latios share one $200 Claude Max plan, Nimbu
 $200 Claude Max plan, and all three share one Codex plan is configured from any joined machine:
 
 ```sh
-chaching sync subscription add \
+chaching sync account add \
   --provider claude --name 'Work Claude Max' --account 'work-shared' \
   --tier max-20x --monthly-usd 200
-chaching sync subscription add \
+chaching sync account add \
   --provider claude --name 'Nimbus Claude Max' --account 'nimbus-personal' \
   --tier max-20x --monthly-usd 200
-chaching sync subscription add \
+chaching sync account add \
   --provider codex --name 'Shared Codex' --account 'shared' \
   --tier '<codex-tier>' --monthly-usd '<actual-monthly-usd>'
 
 chaching sync status --json > /tmp/chaching-pool.json
-WORK_CLAUDE_ID=$(jq -r '.subscriptions[] | select(.name == "Work Claude Max") | .id' /tmp/chaching-pool.json)
-NIMBUS_CLAUDE_ID=$(jq -r '.subscriptions[] | select(.name == "Nimbus Claude Max") | .id' /tmp/chaching-pool.json)
-CODEX_ID=$(jq -r '.subscriptions[] | select(.name == "Shared Codex") | .id' /tmp/chaching-pool.json)
+WORK_CLAUDE_ID=$(jq -r '.accounts[] | select(.name == "Work Claude Max") | .id' /tmp/chaching-pool.json)
+NIMBUS_CLAUDE_ID=$(jq -r '.accounts[] | select(.name == "Nimbus Claude Max") | .id' /tmp/chaching-pool.json)
+CODEX_ID=$(jq -r '.accounts[] | select(.name == "Shared Codex") | .id' /tmp/chaching-pool.json)
 KINTO_ID=$(jq -r '.machines[] | select(.name == "kinto") | .id' /tmp/chaching-pool.json)
 LATIOS_ID=$(jq -r '.machines[] | select(.name == "latios") | .id' /tmp/chaching-pool.json)
 NIMBUS_ID=$(jq -r '.machines[] | select(.name == "nimbus") | .id' /tmp/chaching-pool.json)
 
-chaching sync map --machine "$KINTO_ID" --provider claude --subscription "$WORK_CLAUDE_ID"
-chaching sync map --machine "$LATIOS_ID" --provider claude --subscription "$WORK_CLAUDE_ID"
-chaching sync map --machine "$NIMBUS_ID" --provider claude --subscription "$NIMBUS_CLAUDE_ID"
-chaching sync map --machine "$KINTO_ID" --provider codex --subscription "$CODEX_ID"
-chaching sync map --machine "$LATIOS_ID" --provider codex --subscription "$CODEX_ID"
-chaching sync map --machine "$NIMBUS_ID" --provider codex --subscription "$CODEX_ID"
+chaching sync map --machine "$KINTO_ID" --provider claude --account "$WORK_CLAUDE_ID"
+chaching sync map --machine "$LATIOS_ID" --provider claude --account "$WORK_CLAUDE_ID"
+chaching sync map --machine "$NIMBUS_ID" --provider claude --account "$NIMBUS_CLAUDE_ID"
+chaching sync map --machine "$KINTO_ID" --provider codex --account "$CODEX_ID"
+chaching sync map --machine "$LATIOS_ID" --provider codex --account "$CODEX_ID"
+chaching sync map --machine "$NIMBUS_ID" --provider codex --account "$CODEX_ID"
 rm -f /tmp/chaching-pool.json
 ```
 
 The web controls appear only after this machine has created or joined the pool. They add pool-wide
-subscription rows and map the current machine; the CLI's `--machine` option can manage all joined
+account rows and map the current machine; the CLI's `--machine` option can manage all joined
 machines centrally as shown above.
 
 The arithmetic for a 3-machine, 24/7 pool at the default 15-minute interval:
@@ -348,16 +348,16 @@ DDL on every read), but the connection itself still wakes a scaled-to-zero endpo
 
 When sync is enabled, the web dashboard shows:
 
-- machine and subscription filter chips, which AND-compose with period, provider, and model
+- machine and account filter chips, which AND-compose with period, provider, and model
   filters;
-- per-subscription value and fee accounting, counting a shared plan's fee once;
-- the pool roster, last-seen timestamps, subscriptions, and machine/provider mappings;
+- per-account value and fee accounting, counting a shared plan's fee once;
+- the pool roster, last-seen timestamps, accounts, and machine/provider mappings;
 - the publish interval and its serverless trade-off in the Sync panel.
 
 Peers' data is at most `intervalMinutes` stale; the roster's last-seen timestamps show when each
 machine last published. Five-hour cap windows fold peers in at **hour grain** (a pooled block is
 approximate to the hour, while this machine's own contribution stays per-request exact), and are
-hidden entirely while a machine or subscription filter is active — those windows carry no pool
+hidden entirely while a machine or account filter is active — those windows carry no pool
 attribution dimension.
 
 ## Troubleshooting
@@ -370,3 +370,5 @@ attribution dimension.
 - A failed burst is self-healing: the dirty aggregates are re-derived from the local rollup and
   republished on the next burst, so a transient PostgreSQL outage costs nothing but a little
   staleness in peers' view of this machine.
+
+The legacy CLI spellings `sync subscription add` and `sync map --subscription` remain aliases for `sync account add` and `sync map --account`. Sync JSON uses `accounts` and mapping `accountId`.

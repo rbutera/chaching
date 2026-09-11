@@ -91,8 +91,8 @@ export interface ViewState {
 	providerFilter: Set<string>;
 	/** empty = all machines; optional for backward-compatible local/TUI callers */
 	machineFilter?: Set<string>;
-	/** empty = all subscriptions; optional for backward-compatible local/TUI callers */
-	subscriptionFilter?: Set<string>;
+	/** empty = all accounts; optional for backward-compatible local/TUI callers */
+	accountFilter?: Set<string>;
 	/**
 	 * The pinned single-day focus (`YYYY-MM-DD`), or null for rolling-period mode (default). When
 	 * set, `scopedSessions` narrows its window to this one day instead of the rolling period
@@ -108,7 +108,7 @@ export function defaultViewState(period: Period = 'week'): ViewState {
 		modelFilter: new Set(),
 		providerFilter: new Set(),
 		machineFilter: new Set(),
-		subscriptionFilter: new Set(),
+		accountFilter: new Set(),
 		focusedDay: null
 	};
 }
@@ -119,7 +119,7 @@ function asFilter(set?: Set<string>): Set<string> | null {
 }
 
 function hasPoolFilter(state: ViewState): boolean {
-	return Boolean(asFilter(state.machineFilter) || asFilter(state.subscriptionFilter));
+	return Boolean(asFilter(state.machineFilter) || asFilter(state.accountFilter));
 }
 
 /**
@@ -139,24 +139,24 @@ export function coverageForState(snap: RollupSnapshot, state: ViewState): Covera
 
 type PooledDayModel = DayModelAgg & {
 	machineId?: string;
-	subscriptionId?: string | null;
+	accountId?: string | null;
 };
 type PooledSession = SessionSummary & {
 	machineId?: string;
-	subscriptionId?: string | null;
+	accountId?: string | null;
 };
 
 /** Apply pool attribution filters before any period/model/provider aggregation. */
-export function poolGrain(rows: readonly DayModelAgg[], state: Pick<ViewState, 'machineFilter' | 'subscriptionFilter'>): DayModelAgg[] {
+export function poolGrain(rows: readonly DayModelAgg[], state: Pick<ViewState, 'machineFilter' | 'accountFilter'>): DayModelAgg[] {
 	const machines = asFilter(state.machineFilter);
-	const subscriptions = asFilter(state.subscriptionFilter);
-	if (!machines && !subscriptions) return [...rows];
+	const accounts = asFilter(state.accountFilter);
+	if (!machines && !accounts) return [...rows];
 	return rows.filter((row) => {
 		const pooled = row as PooledDayModel;
 		if (machines && (!pooled.machineId || !machines.has(pooled.machineId))) return false;
 		if (
-			subscriptions &&
-			(!pooled.subscriptionId || !subscriptions.has(pooled.subscriptionId))
+			accounts &&
+			(!pooled.accountId || !accounts.has(pooled.accountId))
 		)
 			return false;
 		return true;
@@ -165,12 +165,12 @@ export function poolGrain(rows: readonly DayModelAgg[], state: Pick<ViewState, '
 
 function poolSessionMatches(session: SessionSummary, state: ViewState): boolean {
 	const machines = asFilter(state.machineFilter);
-	const subscriptions = asFilter(state.subscriptionFilter);
+	const accounts = asFilter(state.accountFilter);
 	const pooled = session as PooledSession;
 	if (machines && (!pooled.machineId || !machines.has(pooled.machineId))) return false;
 	if (
-		subscriptions &&
-		(!pooled.subscriptionId || !subscriptions.has(pooled.subscriptionId))
+		accounts &&
+		(!pooled.accountId || !accounts.has(pooled.accountId))
 	)
 		return false;
 	return true;
@@ -434,7 +434,7 @@ export function headlineTotals(snap: RollupSnapshot, state: ViewState, today: st
 export function heroTotals(
 	snap: RollupSnapshot,
 	state: ViewState
-): { current: Totals; prior: Totals; label: string; priorHasBaseline: boolean } {
+): { current: Totals; prior: Totals; label: string; priorHasBaseline: boolean; } {
 	const modelFilter = asFilter(state.modelFilter);
 	const providerFilter = asFilter(state.providerFilter);
 	const w = periodWindow(snap, state);
@@ -535,8 +535,8 @@ export function allSessions(snap: RollupSnapshot, state: ViewState): SessionSumm
 	const modelFilter = asFilter(state.modelFilter);
 	const providerFilter = asFilter(state.providerFilter);
 	const machineFilter = asFilter(state.machineFilter);
-	const subscriptionFilter = asFilter(state.subscriptionFilter);
-	if (!modelFilter && !providerFilter && !machineFilter && !subscriptionFilter) return snap.sessions;
+	const accountFilter = asFilter(state.accountFilter);
+	if (!modelFilter && !providerFilter && !machineFilter && !accountFilter) return snap.sessions;
 	return snap.sessions.filter((s) => {
 		if (!poolSessionMatches(s, state)) return false;
 		if (modelFilter && !s.models.some((m) => modelFilter.has(m))) return false;

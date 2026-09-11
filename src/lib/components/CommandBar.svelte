@@ -30,8 +30,8 @@
 
 	// Look up a pool machine / subscription display name for its chip.
 	let machineName = $derived((id: string) => syncStatus?.machines.find((m) => m.id === id)?.name ?? id);
-	let subscriptionName = $derived(
-		(id: string) => syncStatus?.subscriptions.find((s) => s.id === id)?.name ?? id
+	let accountName = $derived(
+		(id: string) => syncStatus?.accounts.find((s) => s.id === id)?.name ?? id
 	);
 
 	// One-action bulk clear (restores the old ControlsRegion "clear filter" buttons).
@@ -42,7 +42,7 @@
 		dash.providerFilter.size +
 			dash.modelFilter.size +
 			dash.machineFilter.size +
-			dash.subscriptionFilter.size >
+			dash.accountFilter.size >
 			0
 	);
 	function clearAllFilters(): void {
@@ -58,7 +58,7 @@
 		for (const p of dash.providerFilter) qs.append('provider', p);
 		for (const model of dash.modelFilter) qs.append('model', model);
 		for (const machine of dash.machineFilter) qs.append('machine', machine);
-		for (const account of dash.subscriptionFilter) qs.append('account', account);
+		for (const account of dash.accountFilter) qs.append('account', account);
 		return `${resolve('/api/receipt.png')}?${qs.toString()}`;
 	});
 
@@ -94,11 +94,11 @@
 			{#if syncStatus?.enabled}
 				<PoolFilters
 					machines={syncStatus.machines}
-					subscriptions={syncStatus.subscriptions}
+					accounts={syncStatus.accounts}
 					machineFilter={dash.machineFilter}
-					subscriptionFilter={dash.subscriptionFilter}
+					accountFilter={dash.accountFilter}
 					onMachineToggle={(id) => dash.toggleMachine(id)}
-					onSubscriptionToggle={(id) => dash.toggleSubscription(id)}
+					onAccountToggle={(id) => dash.toggleAccount(id)}
 					onClear={() => dash.clearPoolFilters()}
 				/>
 			{/if}
@@ -137,10 +137,10 @@
 				</span>
 			{/each}
 
-			{#each [...dash.subscriptionFilter] as id (id)}
+			{#each [...dash.accountFilter] as id (id)}
 				<span class="chip chip-pool">
-					{subscriptionName(id)}
-					<button class="chip-x" aria-label={`Remove ${subscriptionName(id)} Account filter`} onclick={() => dash.toggleSubscription(id)}>✕</button>
+					{accountName(id)}
+					<button class="chip-x" aria-label={`Remove ${accountName(id)} Account filter`} onclick={() => dash.toggleAccount(id)}>✕</button>
 				</span>
 			{/each}
 

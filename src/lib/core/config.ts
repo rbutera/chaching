@@ -80,8 +80,6 @@ export interface SyncConfig {
 	poolId: string | null;
 	machineId: string | null;
 	machineName: string;
-	/** Local ingestion attribution: harness provider -> pooled subscription id. */
-	providerSubscriptions: Record<string, string | null>;
 	/**
 	 * Wall-clock-aligned sync burst cadence in minutes (min 1, default 15). Every pooled
 	 * machine fires on the SAME aligned instants (epoch-grid multiples of this interval,
@@ -124,7 +122,7 @@ export interface PublicchachingConfig extends Omit<chachingConfig, 'providers' |
 	providers: {
 		claude: ClaudeProviderConfig;
 		codex: CodexProviderConfig;
-		cursor: Omit<CursorProviderConfig, 'adminApiToken'> & { adminApiTokenConfigured: boolean };
+		cursor: Omit<CursorProviderConfig, 'adminApiToken'> & { adminApiTokenConfigured: boolean; };
 		opencode: OpenCodeProviderConfig;
 		pi: PiProviderConfig;
 	};
@@ -170,7 +168,6 @@ export function defaultConfig(): chachingConfig {
 			poolId: null,
 			machineId: null,
 			machineName: '',
-			providerSubscriptions: {},
 			intervalMinutes: 15
 		},
 		providers: {
@@ -228,7 +225,6 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 			poolId: nullableStringOr(sync.poolId, defaults.sync.poolId),
 			machineId: nullableStringOr(sync.machineId, defaults.sync.machineId),
 			machineName: stringOrEmpty(sync.machineName, defaults.sync.machineName),
-			providerSubscriptions: nullableStringRecord(sync.providerSubscriptions),
 			intervalMinutes: positiveIntOr(sync.intervalMinutes, defaults.sync.intervalMinutes)
 		},
 		providers: {
@@ -272,7 +268,6 @@ export function publicConfig(cfg: chachingConfig): PublicchachingConfig {
 			poolId: cfg.sync.poolId,
 			machineId: cfg.sync.machineId,
 			machineName: cfg.sync.machineName,
-			providerSubscriptions: { ...cfg.sync.providerSubscriptions },
 			intervalMinutes: cfg.sync.intervalMinutes,
 			databaseConfigured: cfg.sync.databaseUrl.length > 0
 		},
@@ -494,13 +489,4 @@ function normalizePiRoots(pi: Record<string, unknown>): string[] {
 		return pi.root === LEGACY_DEFAULT_PI_ROOT ? [...DEFAULT_PI_SESSION_ROOTS] : [pi.root];
 	}
 	return [...DEFAULT_PI_SESSION_ROOTS];
-}
-
-function nullableStringRecord(value: unknown): Record<string, string | null> {
-	const raw = objectRecord(value);
-	const result: Record<string, string | null> = {};
-	for (const [key, item] of Object.entries(raw)) {
-		if (typeof item === 'string' || item === null) result[key] = item;
-	}
-	return result;
 }

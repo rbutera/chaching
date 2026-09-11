@@ -11,11 +11,11 @@ import type { DayModelAgg, RollupDelta, RollupSnapshot, SessionSummary } from '.
 const KEY_SEP = '';
 
 function dayModelKey(dm: DayModelAgg): string {
-	return `${dm.machineId ?? ''}${KEY_SEP}${dm.subscriptionId ?? ''}${KEY_SEP}${dm.day}${KEY_SEP}${dm.provider}${KEY_SEP}${dm.model}`;
+	return `${dm.machineId ?? ''}${KEY_SEP}${dm.accountId ?? ''}${KEY_SEP}${dm.day}${KEY_SEP}${dm.provider}${KEY_SEP}${dm.model}`;
 }
 
 function sessionKey(s: SessionSummary): string {
-	return `${s.machineId ?? ''}${KEY_SEP}${s.subscriptionId ?? ''}${KEY_SEP}${s.provider}${KEY_SEP}${s.sessionId}`;
+	return `${s.machineId ?? ''}${KEY_SEP}${s.accountId ?? ''}${KEY_SEP}${s.provider}${KEY_SEP}${s.sessionId}`;
 }
 
 /** Fold a delta into a snapshot, returning a new snapshot (inputs untouched). */

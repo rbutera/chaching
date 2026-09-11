@@ -5,7 +5,7 @@ import type { ProviderQuotaStatus } from '$lib/core/sync/types';
 describe('quotaRows', () => {
 	it('retains Accounts without observations, respecting machine and Account scopes', () => {
 		const accounts = [{ id: 'peer', provider: 'codex', name: 'Peer only', identityKey: null }];
-		const mappings = [{ machineId: 'two', provider: 'codex', subscriptionId: 'peer' }];
+		const mappings = [{ machineId: 'two', provider: 'codex', accountId: 'peer' }];
 		const all = quotaRows([], new Set(), new Set(), new Set(), accounts, mappings);
 		expect(all).toHaveLength(1);
 		expect(all[0]).toMatchObject({ accountId: 'peer', observedAt: null, windows: [], machines: ['two'], currentMachines: [] });
