@@ -126,7 +126,7 @@
 			{#each [...dash.subscriptionFilter] as id (id)}
 				<span class="chip chip-pool">
 					{subscriptionName(id)}
-					<button class="chip-x" aria-label={`Remove ${subscriptionName(id)} subscription filter`} onclick={() => dash.toggleSubscription(id)}>✕</button>
+					<button class="chip-x" aria-label={`Remove ${subscriptionName(id)} Account filter`} onclick={() => dash.toggleSubscription(id)}>✕</button>
 				</span>
 			{/each}
 

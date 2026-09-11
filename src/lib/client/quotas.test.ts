@@ -3,6 +3,21 @@ import { quotaRows } from './quotas';
 import type { ProviderQuotaStatus } from '$lib/core/sync/types';
 
 describe('quotaRows', () => {
+	it('filters by the canonical pool Account even when peer local IDs differ', () => {
+		const accounts = [{ id: 'pool-account', provider: 'claude', identityKey: 'v1:shared', name: 'Work' }];
+		const statuses: ProviderQuotaStatus[] = ['one', 'two'].map((machineId, index) => ({
+			machineId, source: 'tokenmaxx', observedAt: `2026-09-10T1${index}:00:00Z`,
+			accounts: [{ accountId: `local-${machineId}`, identityKey: 'v1:shared', provider: 'claude', label: 'Old label', plan: 'pro', hardLimitReached: false, windows: [], current: true }]
+		}));
+		const rows = quotaRows(statuses, new Set(), new Set(), new Set(['pool-account']), accounts);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({ accountId: 'pool-account', label: 'Work', machines: ['one', 'two'] });
+		expect(quotaRows(statuses, new Set(), new Set(), new Set(['local-one']), accounts)).toEqual([]);
+		expect(quotaRows(statuses, new Set(), new Set(['two']), new Set(['pool-account']), accounts)[0].machines).toEqual(['two']);
+		statuses[0].accounts[0].identityKey = 'v1:different';
+		statuses[0].accounts[0].accountId = 'pool-account';
+		expect(quotaRows([statuses[0]], new Set(), new Set(), new Set(['pool-account']), accounts)).toEqual([]);
+	});
 	it('uses the newest observation without losing per-machine selections or filtering them away', () => {
 		const statuses: ProviderQuotaStatus[] = ['one', 'two'].map((machineId, index) => ({
 			machineId, source: 'tokenmaxx', observedAt: `2026-09-10T1${index}:00:00Z`,

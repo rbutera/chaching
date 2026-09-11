@@ -12,7 +12,8 @@
 		{ id: 'all', label: 'All accounts' },
 		{ id: 'provider', label: 'By provider' }
 	] satisfies { id: 'current' | 'all' | 'provider'; label: string }[];
-	let rows = $derived(quotaRows(syncStatus?.providerQuotas ?? [], dash.providerFilter, dash.machineFilter));
+	let rows = $derived(quotaRows(syncStatus?.providerQuotas ?? [], dash.providerFilter, dash.machineFilter,
+		dash.subscriptionFilter, syncStatus?.subscriptions ?? []));
 	let visible = $derived(dash.quotaView === 'current' ? rows.filter(row => row.currentMachines.length) : rows);
 	let groups = $derived(dash.quotaView === 'provider'
 		? [...new Set(visible.map(row => row.provider))].map(provider => ({ label: providerLabel(provider), rows: visible.filter(row => row.provider === provider) }))

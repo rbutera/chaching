@@ -41,8 +41,8 @@
 		{/if}
 
 		{#if subscriptions.length > 1}
-			<div class="filter-group" aria-label="Subscription filter">
-				<span class="filter-label">subscriptions</span>
+			<div class="filter-group" aria-label="Account filter">
+				<span class="filter-label">accounts</span>
 				{#each subscriptions as subscription (subscription.id)}
 					<button
 						type="button"
