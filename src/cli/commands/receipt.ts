@@ -11,6 +11,7 @@ import { writeSync } from 'node:fs';
 import { runOnce } from '../../lib/core/engine.js';
 import { getReportAccountContext } from '../../lib/core/sync/manager.js';
 import { getPricingMeta } from '../../lib/core/pricing/cost.js';
+import { poolGrain } from '../../lib/core/view-model.js';
 import { sumGrain, filterDays } from '../../lib/core/aggregate.js';
 import type { Period } from '../../lib/types.js';
 import { noArt as resolveNoArt, receiptFooter } from '../theme/personality.js';
@@ -38,6 +39,8 @@ export interface ReceiptFlags {
 	period?: Period;
 	providers?: string[];
 	models?: string[];
+	machines?: string[];
+	accountIds?: string[];
 	range?: { from: string; to: string };
 	json?: boolean;
 	/** --png present; value is the path (or undefined → default path). */
@@ -52,7 +55,7 @@ export interface ReceiptFlags {
 }
 
 export async function runReceipt(flags: ReceiptFlags): Promise<void> {
-	const { config: cfg, fees: subscription } = await getReportAccountContext();
+	const { config: cfg, fees: subscription } = await getReportAccountContext(flags);
 	const snapshot = await runOnce(cfg);
 
 	const noArt = flags.noArt ?? resolveNoArt();
@@ -72,6 +75,8 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 		period,
 		providers: flags.providers,
 		models: flags.models,
+		machines: flags.machines,
+		accountIds: flags.accountIds,
 		range: flags.range,
 		noArt: noArt || !!flags.json,
 		footer,
@@ -91,7 +96,7 @@ export async function runReceipt(flags: ReceiptFlags): Promise<void> {
 		const { from, to } = flags.range ?? rollingPeriodRange(snapshot, period, now.getTime());
 		const providerFilter =
 			flags.providers && flags.providers.length > 0 ? new Set(flags.providers) : null;
-		let grain = filterDays(snapshot.dayModel, from, to);
+		let grain = filterDays(poolGrain(snapshot.dayModel, { machineFilter: new Set(flags.machines), subscriptionFilter: new Set(flags.accountIds) }), from, to);
 		if (providerFilter) grain = grain.filter((dm) => providerFilter.has(dm.provider));
 		const modelFilter = new Set(flags.models);
 		if (modelFilter.size) grain = grain.filter((dm) => modelFilter.has(dm.model));

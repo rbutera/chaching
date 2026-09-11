@@ -57,6 +57,7 @@ vi.mock('../../../cli/receipt/render-png', () => ({
 }));
 
 import { GET } from './+server';
+import { getReportAccountContext } from '$lib/core/sync/manager';
 import { renderReceiptPng } from '../../../cli/receipt/render-png';
 
 function call(query: string) {
@@ -122,4 +123,11 @@ it('keeps fees when model filtering excludes all usage', async () => {
 		models: ['absent', 'also-absent', 'another'], lineItems: [], totalBurn: 0,
 		subsidisation: { feeUsd: 99, apiEquivalentUsd: 0 }
 	});
+});
+
+
+it('uses the same machine and Account scope for fees and receipt usage', async () => {
+	await call('?from=2026-06-01&to=2026-06-30&machine=one,two&account=a&account=b');
+	expect(getReportAccountContext).toHaveBeenLastCalledWith({ machines: ['one', 'two'], accountIds: ['a', 'b'] });
+	expect(vi.mocked(renderReceiptPng).mock.calls.at(-1)?.[0]).toMatchObject({ machines: ['one', 'two'], accountIds: ['a', 'b'], totalBurn: 0 });
 });

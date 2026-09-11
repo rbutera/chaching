@@ -146,10 +146,10 @@ export async function getSyncStatus(config?: chachingConfig): Promise<SyncStatus
 	}
 }
 
-export async function getReportAccountContext() {
+export async function getReportAccountContext(scope: Parameters<typeof reportAccountFees>[2] = {}) {
 	const status = await getSyncStatus();
 	const config = await loadConfig();
-	return { config, status, fees: reportAccountFees(config, status) };
+	return { config, status, fees: reportAccountFees(config, status, scope) };
 }
 
 export async function performSyncAction(action: SyncAction): Promise<SyncStatus> {

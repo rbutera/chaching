@@ -397,7 +397,7 @@ function receiptElement(model: ReceiptModel, markDataUri: string, arrowDataUri: 
 		children.push(centerLine('subscription subsidy', { size: SIZE_SEC, color: PAPER.muted, letterSpacing: ls(10, 0.12), uppercase: true, marginTop: px(2) }));
 		const mult = subsidyMultipleText({ ...s, monthlyUsd: s.feeUsd }).replace('∞ — ', '');
 		children.push(lineItem(`${s.periodLabel} multiple`, null, mult, { weight: 700, amountWeight: 700, color: PAPER.ink }));
-		children.push(lineItem(`${money(s.apiEquivalentUsd)} value`, null, s.feeUsd === null ? 'fee unknown' : `for ${money(s.feeUsd)} fee`, { color: PAPER.muted }));
+		children.push(lineItem(`${money(s.apiEquivalentUsd)} value`, null, s.feeUsd === null ? 'fee unknown' : `for ${money(s.feeUsd)} ${s.wholeAccountFee ? 'shared Account ' : ''}fee`, { color: PAPER.muted }));
 		if (s.netSubsidyUsd !== null) {
 			children.push(lineItem('difference', null, `${s.netSubsidyUsd >= 0 ? '+' : ''}${money(s.netSubsidyUsd)}`, { color: s.netSubsidyUsd >= 0 ? PAPER.green : PAPER.muted }));
 		}

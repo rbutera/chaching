@@ -73,18 +73,23 @@ export const GET: RequestHandler = async ({ url }) => {
 
 	const models = params.getAll('model').flatMap((value) => value.split(',')).map((value) => value.trim()).filter(Boolean);
 
+	const machines = params.getAll('machine').flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean);
+	const accountIds = params.getAll('account').flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean);
+
 	const service = getService();
 	await service.ensureStarted();
 	const snapshot = service.snapshot();
 
 	// Per-provider subscription config for the subsidisation footer — built from the
 	// persisted config, exactly like the CLI receipt command.
-	const { fees: subscription } = await getReportAccountContext();
+	const { fees: subscription } = await getReportAccountContext({ machines, accountIds });
 
 	const model = buildReceipt(snapshot, {
 		period,
 		providers: providers.length > 0 ? providers : undefined,
 		models,
+		machines,
+		accountIds,
 		range,
 		footer: receiptFooter(),
 		subscription,

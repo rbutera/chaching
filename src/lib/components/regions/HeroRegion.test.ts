@@ -124,9 +124,13 @@ it('forwards the selected models and date to the receipt', async () => {
 	const dash = new Dashboard();
 	dash.focusedDay = '2026-06-15';
 	dash.modelFilter = new Set(['claude-opus-4-8']);
+	dash.machineFilter = new Set(['one']);
+	dash.subscriptionFilter = new Set(['a']);
 	const view = render(CommandBar, { props: { feed, dash, syncStatus: null } });
 	const link = view.getByRole('link', { name: 'Open a shareable receipt of the current view in a new tab' });
 	const url = new URL(link.getAttribute('href')!, 'http://localhost');
 	expect(url.searchParams.getAll('model')).toEqual(['claude-opus-4-8']);
+	expect(url.searchParams.getAll('machine')).toEqual(['one']);
+	expect(url.searchParams.getAll('account')).toEqual(['a']);
 	expect(url.searchParams.get('day')).toBe('2026-06-15');
 });

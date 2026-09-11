@@ -68,6 +68,8 @@ Flags for stats:
   --json                   Output only the raw JSON snapshot to stdout
 
 Flags for receipt:
+  --machine <id>          Filter usage by machine; retain shared Account fees
+  --account <id>          Filter by Account; repeatable or comma-separated
   --from YYYY-MM-DD --to YYYY-MM-DD  Export an inclusive date range
   --model <name>           Filter usage by model; repeatable or comma-separated
   --period day|week|month|quarter|all  Aggregate by period (default: last 30 days)

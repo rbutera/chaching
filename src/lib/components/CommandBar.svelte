@@ -57,6 +57,8 @@
 		else if (snap) { const range = dash.periodWindow(snap); qs.set('from', range.from); qs.set('to', range.to); }
 		for (const p of dash.providerFilter) qs.append('provider', p);
 		for (const model of dash.modelFilter) qs.append('model', model);
+		for (const machine of dash.machineFilter) qs.append('machine', machine);
+		for (const account of dash.subscriptionFilter) qs.append('account', account);
 		return `${resolve('/api/receipt.png')}?${qs.toString()}`;
 	});
 

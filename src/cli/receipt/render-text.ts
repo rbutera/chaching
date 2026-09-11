@@ -197,7 +197,7 @@ export function renderReceiptText(model: ReceiptModel, e: RenderTextEnv = {}): s
 		lines.push('');
 		lines.push(C.dim(noArt ? 'SUBSCRIPTION SUBSIDY' : '✦ SUBSCRIPTION SUBSIDY'));
 		lines.push(C.accent(C.bold(row(`${s.periodLabel} multiple`, subsidyMultipleText({ ...s, monthlyUsd: s.feeUsd })))));
-		lines.push(C.dim(row(`${money(s.apiEquivalentUsd)} value`, s.feeUsd === null ? 'fee unknown' : `for ${money(s.feeUsd)} fee`)));
+		lines.push(C.dim(row(`${money(s.apiEquivalentUsd)} value`, s.feeUsd === null ? 'fee unknown' : `for ${money(s.feeUsd)} ${s.wholeAccountFee ? 'shared Account ' : ''}fee`)));
 		if (s.netSubsidyUsd !== null) {
 			lines.push(row('difference', `${s.netSubsidyUsd >= 0 ? '+' : ''}${money(s.netSubsidyUsd)}`));
 		}

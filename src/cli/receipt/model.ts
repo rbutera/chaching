@@ -54,6 +54,7 @@ export interface ReceiptCacheCost {
 
 /** The optional subsidisation footer — flat-fee value framing for one slice. */
 export interface ReceiptSubsidisation {
+	wholeAccountFee?: boolean;
 	/** the period label this subsidisation line is computed over (e.g. "this month") */
 	periodLabel: string;
 	/** Fee for the selected inclusive UTC date range. */
@@ -89,6 +90,8 @@ export interface ReceiptModel {
 	/** provider filter applied, if any */
 	providers: string[] | null;
 	models?: string[] | null;
+	machines?: string[] | null;
+	accountIds?: string[] | null;
 	/**
 	 * Real "user@host" for the header's user·path line (the machine the receipt was
 	 * cut on). Shown verbatim by DEFAULT; scrubbed to a redaction block only when the

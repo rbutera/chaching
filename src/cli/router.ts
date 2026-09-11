@@ -351,6 +351,8 @@ function parseReceiptFlags(argv: string[]): ReceiptFlags {
 	const flags: ReceiptFlags = {};
 	const providers: string[] = [];
 	const models: string[] = [];
+	const machines: string[] = [];
+	const accountIds: string[] = [];
 	let from: string | undefined;
 	let to: string | undefined;
 
@@ -425,13 +427,15 @@ function parseReceiptFlags(argv: string[]): ReceiptFlags {
 				process.exit(1);
 			}
 			providers.push(...raw.split(',').map((s) => s.trim()).filter(Boolean));
-		} else if (arg === '--model' || arg.startsWith('--model=')) {
-			const raw = arg === '--model' ? argv[++i] : arg.slice('--model='.length);
+		} else if (['--model', '--machine', '--account'].some(flag => arg === flag || arg.startsWith(flag + '='))) {
+			const flag = arg.split('=')[0];
+			const raw = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : argv[++i];
 			if (!raw || raw.startsWith('--') || !raw.split(',').some((value) => value.trim())) {
-				console.error('chaching receipt: --model requires a value');
+				console.error(`chaching receipt: ${flag} requires a value`);
 				process.exit(1);
 			}
-			models.push(...raw.split(',').map((value) => value.trim()).filter(Boolean));
+			const values = flag === '--model' ? models : flag === '--machine' ? machines : accountIds;
+			values.push(...raw.split(',').map((value) => value.trim()).filter(Boolean));
 		} else if (arg === '--from' || arg.startsWith('--from=') || arg === '--to' || arg.startsWith('--to=')) {
 			const key = arg.startsWith('--from') ? 'from' : 'to';
 			const value = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : argv[++i];
@@ -450,6 +454,8 @@ function parseReceiptFlags(argv: string[]): ReceiptFlags {
 
 	if (providers.length > 0) flags.providers = providers;
 	if (models.length > 0) flags.models = models;
+	if (machines.length > 0) flags.machines = machines;
+	if (accountIds.length > 0) flags.accountIds = accountIds;
 
 	if (from !== undefined || to !== undefined) {
 		if (!from || !to || from > to) {

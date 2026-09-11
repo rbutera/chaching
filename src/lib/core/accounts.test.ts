@@ -61,3 +61,20 @@ describe('Account window values', () => {
 		expect(accountWindowValues({ ...data, providers: new Set(['codex']) }).rows).toEqual([]);
 	});
 });
+
+
+it('retains one whole shared bill for a selected machine, including its unused Accounts', () => {
+	const { accounts } = input();
+	const status = { enabled: true, subscriptions: [...accounts, { ...accounts[0], id: 'peer-only', monthlyUsd: 900 }], mappings: [
+		{ machineId: 'one', provider: 'claude', subscriptionId: 'a' },
+		{ machineId: 'two', provider: 'claude', subscriptionId: 'a' },
+		{ machineId: 'one', provider: 'claude', subscriptionId: 'b' }
+	] };
+	const cfg = defaultConfig();
+	expect(reportAccountFees(cfg, status, { machines: ['one'] }).claude.monthlyUsd).toBe(400);
+	expect(reportAccountFees(cfg, status, { machines: ['two'] }).claude.monthlyUsd).toBe(200);
+	const selected = reportAccountFees(cfg, status, { machines: ['one'], accountIds: ['a'] });
+	expect(selected.claude.monthlyUsd).toBe(200);
+	expect(selected.codex.enabled).toBe(false);
+	expect(reportAccountFees(cfg, status, { machines: ['one'], accountIds: ['peer-only'] }).claude.enabled).toBe(false);
+});

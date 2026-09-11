@@ -147,7 +147,7 @@ type PooledSession = SessionSummary & {
 };
 
 /** Apply pool attribution filters before any period/model/provider aggregation. */
-function poolGrain(rows: readonly DayModelAgg[], state: ViewState): DayModelAgg[] {
+export function poolGrain(rows: readonly DayModelAgg[], state: Pick<ViewState, 'machineFilter' | 'subscriptionFilter'>): DayModelAgg[] {
 	const machines = asFilter(state.machineFilter);
 	const subscriptions = asFilter(state.subscriptionFilter);
 	if (!machines && !subscriptions) return [...rows];

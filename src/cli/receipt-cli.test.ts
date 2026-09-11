@@ -195,3 +195,12 @@ it('exports explicit dates consistently in the receipt body and JSON totals', as
 		expect((await runCli(['receipt', '--json', ...args])).code).not.toBe(0);
 	}
 });
+
+
+it('accepts repeated machine and Account scopes in JSON receipts', async () => {
+	const { code, stdout } = await runCli(['receipt', '--json', '--machine=one,two', '--machine', 'three', '--account=a,b', '--account', 'c']);
+	expect(code).toBe(0);
+	const result = JSON.parse(stdout);
+	expect(result.receipt).toMatchObject({ machines: ['one', 'two', 'three'], accountIds: ['a', 'b', 'c'], totalBurn: 0 });
+	expect(result.totals.cost).toBe(0);
+});
