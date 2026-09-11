@@ -251,7 +251,7 @@ export interface WindowSubsidisationRollup {
 }
 
 /** Inclusive day count of [from, to] (UTC). */
-function inclusiveDays(from: string, to: string): number {
+export function inclusiveDays(from: string, to: string): number {
 	if (to < from) return 0;
 	const a = new Date(from + 'T00:00:00Z').getTime();
 	const b = new Date(to + 'T00:00:00Z').getTime();

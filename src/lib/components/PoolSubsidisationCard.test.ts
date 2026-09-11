@@ -6,6 +6,17 @@ import PoolSubsidisationCard from './PoolSubsidisationCard.svelte';
 afterEach(cleanup);
 
 describe('PoolSubsidisationCard', () => {
+	it('shows combined value without inventing individual Account values', () => {
+		const { container } = render(PoolSubsidisationCard, {
+			windowLabel: 'Last 30 days', totalValue: 2000,
+			rows: ['a', 'b'].map(id => ({ id, name: id, provider: 'claude', account: '', valueUsd: null, feeUsd: 200 }))
+		});
+		expect(container.textContent).toContain('Across 2 Accounts');
+		expect(container.textContent).toContain('5.0×');
+		expect(container.textContent).toContain('$2,000');
+		expect(container.textContent).not.toContain('$1,000');
+	});
+
 	it('counts a shared subscription fee once while combining its pooled value', () => {
 		const { container } = render(PoolSubsidisationCard, {
 			windowLabel: 'Last 30 days',

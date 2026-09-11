@@ -2,32 +2,26 @@
 	import { money } from '$lib/format';
 	import { sumFees, computeSubsidisation, subsidyMultipleText } from '$lib/core/subsidisation';
 
-	export interface PoolSubsidyRow {
-		id: string;
-		name: string;
-		provider: string;
-		account: string;
-		valueUsd: number;
-		feeUsd: number | null;
-	}
+	import type { AccountValueRow } from '$lib/core/accounts';
 
 	interface Props {
-		rows: PoolSubsidyRow[];
+		rows: AccountValueRow[];
+		totalValue?: number | null;
 		windowLabel: string;
 		/** A machine filter is active: the fee shown is the whole shared-plan fee, not per-machine. */
 		wholePlanFee?: boolean;
 	}
 
-	let { rows, windowLabel, wholePlanFee = false }: Props = $props();
-	let totalValue = $derived(rows.reduce((sum, row) => sum + row.valueUsd, 0));
+	let { rows, windowLabel, wholePlanFee = false, totalValue }: Props = $props();
+	let value = $derived(totalValue === undefined ? rows.some(row => row.valueUsd === null) ? null : rows.reduce((sum, row) => sum + (row.valueUsd ?? 0), 0) : totalValue);
 	let totalFee = $derived(sumFees(rows.map(row => row.feeUsd)));
-	let multiple = $derived(subsidyMultipleText(computeSubsidisation({ apiEquivalentUsd: totalValue, monthlyUsd: totalFee })));
+	let multiple = $derived(value === null ? '—' : subsidyMultipleText(computeSubsidisation({ apiEquivalentUsd: value, monthlyUsd: totalFee })));
 </script>
 
 <section class="pool-subsidy" aria-labelledby="pool-subsidy-heading">
 	<div class="head">
 		<div>
-			<p class="eyebrow">Accounts</p>
+			<p class="eyebrow">{rows.some(row => row.valueUsd === null) ? `Across ${rows.length} Accounts` : 'Accounts'}</p>
 			<h2 id="pool-subsidy-heading">{windowLabel}</h2>
 		</div>
 		<strong class="multiple">{multiple}</strong>
@@ -41,7 +35,7 @@
 					<small>{row.provider}{row.account ? ` · ${row.account}` : ''}</small>
 				</span>
 				<span class="figures">
-					<strong>{money(row.valueUsd)}</strong>
+					<strong>{row.valueUsd === null ? '—' : money(row.valueUsd)}</strong>
 					<small>{row.feeUsd === null ? 'Fee unknown' : `for ${money(row.feeUsd)} fee`}</small>
 				</span>
 			</li>
@@ -50,7 +44,7 @@
 
 	<p class="total">
 		<span>API-priced value</span>
-		<strong>{money(totalValue)}</strong>
+		<strong>{value === null ? '—' : money(value)}</strong>
 		<span>{wholePlanFee ? 'shared Account fee' : 'Account fees'}</span>
 		<strong>{totalFee === null ? 'Unknown' : money(totalFee)}</strong>
 	</p>
