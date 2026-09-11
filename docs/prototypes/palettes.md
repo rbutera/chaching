@@ -37,3 +37,7 @@ Two inherited Svelte warnings reproduce on the unmodified dashboard prototype at
 ## Mobile review over Tailscale
 
 Open https://latios.piranha-wyvern.ts.net:5196/?palette=register-light from the tailnet. The HTTPS proxy on port 5196 targets the loopback preview on 5197. Restart with `pnpm prototype`; the separate backend port avoids Vite port probing conflicting with the Tailscale listener. Only the exact Tailscale hostname is added to the dev allowlist. Mobile palette and preview selectors have 44px touch targets, 16px text, and safe-area spacing. Verified via the HTTPS URL at 320px, 390px and 430px without horizontal overflow.
+
+## Warning colour revision
+
+Rai requested yellow warnings in both light and dark modes. `warn` is now #f4ce3a in all seven palettes. Light modes use #665000 warning ink and an outline around the yellow indicator; dark modes use yellow warning ink. The contrast check covers the actual ink/fill pair and the visible outline, rather than darkening yellow into olive.

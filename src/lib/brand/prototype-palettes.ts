@@ -26,7 +26,7 @@ export function paletteVars(p: Palette) {
 		'text': p.text, 'text-muted': p.muted, 'text-dim': p.dim, 'fg': p.text, 'fg-muted': p.muted, 'fg-dim': p.dim,
 		'accent': p.accent, 'accent-ink': accentInk, 'accent-bright': p.accent, 'accent-press': p.accent, 'focus-ring': p.accent,
 		'accent-soft': p.surfaces[2], 'accent-line': p.accent, 'text-on-gold': p.surfaces[0],
-		'good': p.green, 'bad': p.red, 'warn': p.yellow, 'info': p.blue,
+		'good': p.green, 'bad': p.red, 'warn': '#f4ce3a', 'warn-ink': p.scheme === 'light' ? '#665000' : '#f4ce3a', 'info': p.blue,
 		'm-claude': p.orange, 'm-codex': p.blue, 'm-opencode': p.muted, 'm-cursor': p.muted, 'm-pi': p.purple, 'm-unknown': p.muted,
 		'p-claude': p.orange, 'p-codex': p.blue, 'p-opencode': p.muted, 'p-cursor': p.muted, 'p-pi': p.purple, 'p-unknown': p.muted,
 		'spend-calm': p.green, 'spend-warm': p.id.startsWith('register') ? p.accent : p.orange, 'spend-hot': p.orange, 'spend-alarm': p.red,
@@ -42,7 +42,7 @@ export const semanticGroups = {
 	'Accent': ['accent','focus-ring'],
 	'Providers': ['p-claude','p-codex','p-opencode','p-cursor','p-pi','p-unknown'],
 	'Models by provider': ['m-claude','m-codex','m-opencode','m-cursor','m-pi','m-unknown'],
-	'Status': ['good','bad','warn','info'],
+	'Status': ['good','bad','warn','warn-ink','info'],
 	'Spend': ['spend-calm','spend-warm','spend-hot','spend-alarm'],
 	'Cache': ['cache-hit','cache-miss','cache-write'],
 	'Chrome': ['chrome-brass','chrome-ember','chrome-edge']
