@@ -18,6 +18,8 @@ describe('BrandMark', () => {
 		expect(svg).not.toBeNull();
 		// The full lockup uses the wide 244×48 viewBox (not the 24×24 mark box).
 		expect(svg?.getAttribute('viewBox')).toBe('0 0 244 48');
+		expect(svg?.querySelector('g')?.getAttribute('fill')).toBe('currentColor');
+		expect(svg?.querySelector(':scope > path')?.getAttribute('fill')).toBe('var(--text)');
 		// Mark group (3 paths) + the outlined wordmark path = at least 4 paths.
 		expect(svg?.querySelectorAll('path').length).toBeGreaterThanOrEqual(4);
 		// No leftover text-based wordmark element.
