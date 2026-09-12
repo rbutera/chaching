@@ -11,7 +11,7 @@ export function verifyReports(reports, requirePostgres) {
     ...(requirePostgres ? [
       ['engine.sync.integration.test.ts', 1],
       ['sync/store.integration.test.ts', 1],
-      ['sync/migration.integration.test.ts', 1],
+      ['cli/src/migration.integration.test.ts', 1],
       ['pool-rollout.integration.test.ts', 3]
     ] : [])
   ];
