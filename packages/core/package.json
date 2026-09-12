@@ -1,0 +1,36 @@
+{
+	"name": "@chaching/core",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./sync/store": "./src/sync/store.ts",
+		"./config": "./src/config.ts",
+		"./sync/manager": "./src/sync/manager.ts",
+		"./pricing/cost": "./src/pricing/cost.ts",
+		"./account-discovery": "./src/account-discovery.ts",
+		"./whatif/engine": "./src/whatif/engine.ts",
+		"./sync/overlay": "./src/sync/overlay.ts",
+		"./engine": "./src/engine.ts",
+		"./pricing/modelsdev": "./src/pricing/modelsdev.ts",
+		"./fs-utils": "./src/fs-utils.ts",
+		"./ingest/parse": "./src/ingest/parse.ts",
+		"./ingest/discover": "./src/ingest/discover.ts",
+		"./history/store": "./src/history/store.ts",
+		"./rollup/rollup": "./src/rollup/rollup.ts",
+		"./runtime-assets": "./src/runtime-assets.ts",
+		"./providers/tokenmaxx/sqlite": "./src/providers/tokenmaxx/sqlite.ts"
+	},
+	"dependencies": {
+		"@chaching/shared": "workspace:*",
+		"pg": "8.22.0",
+		"zod": "3.25.76"
+	},
+	"devDependencies": {
+		"@types/node": "24.13.2",
+		"typescript": "6.0.3",
+		"vitest": "4.1.7",
+		"@types/pg": "8.20.0",
+		"tsup": "8.5.1",
+		"tsx": "4.22.4"
+	}
+}

@@ -1,0 +1,403 @@
+// Subcommand router — hand-rolled per design decision D3.
+// Surface: chaching [stats|receipt|serve|mcp|init|provider|doctor|--version|--help]
+// Unknown subcommands → usage + exit(1).
+
+import { runStats } from './commands/stats';
+import { runReceipt, type ReceiptFlags } from './commands/receipt';
+import { runWrapped, type WrappedFlags } from './commands/wrapped';
+import { runWhatif, type WhatifFlags } from './commands/whatif';
+import { runServe } from './commands/serve';
+import { runMcp } from './mcp/server';
+import { runInit } from './commands/init';
+import { runProvider } from './commands/provider';
+import { runDoctor } from './commands/doctor';
+import { runSync } from './commands/sync';
+import { printUsage, printVersion } from './help';
+import { configFilePath } from '@chaching/core/config';
+import { existsSync } from 'node:fs';
+import { noArt } from './tui/theme';
+import { ACCOUNT_SPEND_FILTER_UNAVAILABLE } from '@chaching/shared/accounts';
+import { isCalendarDay } from '@chaching/shared/view-model';
+
+/** Known global flags that may appear before the subcommand token. */
+const GLOBAL_FLAGS = new Set(['--no-art', '--no-color']);
+
+/** Parse raw argv (after slice(2)) and dispatch. */
+export async function run(argv: string[]): Promise<void> {
+	// Global flags first (checked across all argv positions)
+	if (argv.includes('--version') || argv.includes('-v')) {
+		printVersion();
+		return;
+	}
+	if (argv.includes('--help') || argv.includes('-h')) {
+		printUsage(argv);
+		return;
+	}
+
+	// Strip recognized global flags so they don't block subcommand detection.
+	// e.g. `chaching --no-art stats` → subcommand='stats', rest=['--no-art']
+	const stripped = argv.filter((a) => !GLOBAL_FLAGS.has(a));
+	const globalArgs = argv.filter((a) => GLOBAL_FLAGS.has(a));
+
+	const [subcommand, ...rest] = stripped;
+
+	// A leading flag that isn't a recognized global is a bare-dashboard invocation
+	// with unknown options — route everything to runDefault (legacy behaviour).
+	if (subcommand !== undefined && subcommand.startsWith('-')) {
+		await runDefault(argv);
+		return;
+	}
+
+	switch (subcommand) {
+		case undefined:
+		case '':
+			// Bare invocation: first-run detection (D5)
+			await runDefault(rest);
+			return;
+
+		case 'stats':
+			// Merge global flags (like --no-art) that appeared before the subcommand
+			await runStats(parseReportFlags([...globalArgs, ...rest], 'stats'));
+			return;
+
+		case 'receipt':
+			// Same global-flag merge as stats (--no-art / --no-color before the subcommand).
+			await runReceipt(parseReportFlags([...globalArgs, ...rest], 'receipt'));
+			return;
+
+		case 'wrapped':
+			// Same global-flag merge as receipt (--no-art / --no-color before the subcommand).
+			await runWrapped(parseWrappedFlags([...globalArgs, ...rest]));
+			return;
+
+		case 'whatif':
+			// Same global-flag merge as stats (--no-art / --no-color before the subcommand).
+			await runWhatif(parseWhatifFlags([...globalArgs, ...rest]));
+			return;
+
+		case 'serve':
+			await runServe();
+			return;
+
+		case 'mcp':
+			// Long-running stdio server; exempt from the launcher's force-exit exactly
+			// like `serve` (stdin keeps the process alive). See bin/chaching.js.
+			await runMcp();
+			return;
+
+		case 'init':
+			await runInit();
+			return;
+
+		case 'provider':
+			await runProvider(rest);
+			return;
+
+		case 'doctor':
+			// Merge global flags (like --no-art) that appeared before the subcommand.
+			await runDoctor([...globalArgs, ...rest]);
+			return;
+
+		case 'sync':
+			await runSync(rest);
+			return;
+
+		default:
+			console.error(`chaching: unknown subcommand '${subcommand}'\n`);
+			printUsage(argv);
+			process.exit(1);
+	}
+}
+
+/** Bare `chaching` — first-run check then the live Ink TUI dashboard (wave 4). */
+async function runDefault(rest: string[]): Promise<void> {
+	const cfgPath = configFilePath();
+	const hasConfig = existsSync(cfgPath);
+
+	if (!hasConfig) {
+		// D5: first-run → wizard, then dashboard
+		await runInit();
+	}
+
+	const { runDashboard } = await import('./tui/index');
+	await runDashboard({ argv: rest });
+}
+
+/**
+ * Parse `chaching wrapped` flags. Mirrors the receipt parser's discipline (unknown
+ * flag → error + nonzero exit) and adds `--month YYYY-MM`. `--period` is accepted
+ * for symmetry with the other commands but `month` is the only valid value — the
+ * recap is inherently monthly, so any other period is rejected rather than silently
+ * ignored.
+ */
+function parseWrappedFlags(argv: string[]): WrappedFlags {
+	const flags: WrappedFlags = {};
+
+	flags.noArt = noArt(argv);
+
+	const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+	const setMonth = (m: string): void => {
+		if (!MONTH_RE.test(m)) {
+			console.error(`chaching wrapped: --month must be YYYY-MM (e.g. 2026-07), got '${m}'`);
+			process.exit(1);
+		}
+		flags.month = m;
+	};
+
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+
+		if (arg === '--json') {
+			flags.json = true;
+		} else if (arg === '--redact') {
+			flags.redact = true;
+		} else if (arg === '--no-art') {
+			// already handled via noArt(); skip
+		} else if (arg === '--png') {
+			flags.png = true;
+			const next = argv[i + 1];
+			if (next && !next.startsWith('-')) {
+				flags.pngPath = next;
+				i++;
+			}
+		} else if (arg.startsWith('--png=')) {
+			flags.png = true;
+			const p = arg.slice('--png='.length);
+			if (p) flags.pngPath = p;
+		} else if (arg === '--month') {
+			const m = argv[i + 1];
+			if (!m || m.startsWith('--')) {
+				console.error(`chaching wrapped: --month requires a value (YYYY-MM)`);
+				process.exit(1);
+			}
+			i++;
+			setMonth(m);
+		} else if (arg.startsWith('--month=')) {
+			const m = arg.slice('--month='.length);
+			if (!m) {
+				console.error(`chaching wrapped: --month requires a value (YYYY-MM)`);
+				process.exit(1);
+			}
+			setMonth(m);
+		} else if (arg === '--period') {
+			const p = argv[i + 1];
+			if (!p || p.startsWith('--')) {
+				console.error(`chaching wrapped: --period requires a value (month)`);
+				process.exit(1);
+			}
+			i++;
+			if (p !== 'month') {
+				console.error(`chaching wrapped: --period must be 'month' (the recap is monthly), got '${p}'`);
+				process.exit(1);
+			}
+		} else if (arg.startsWith('--period=')) {
+			const p = arg.slice('--period='.length);
+			if (p !== 'month') {
+				console.error(`chaching wrapped: --period must be 'month' (the recap is monthly), got '${p}'`);
+				process.exit(1);
+			}
+		} else if (arg.startsWith('-')) {
+			console.error(`chaching wrapped: unknown flag '${arg}'`);
+			console.error(`Run \`chaching --help\` for usage.`);
+			process.exit(1);
+		}
+	}
+
+	return flags;
+}
+
+/**
+ * Parse `chaching whatif` flags (hand-rolled, per D3). Supports `--period`
+ * (day|week|month|quarter|all, default month applied downstream), `--model <id>`
+ * (the alternate-model reprice target; omitted → derived from the window), and
+ * `--json`. Unknown flag → error + nonzero exit (same discipline as stats).
+ */
+function parseWhatifFlags(argv: string[]): WhatifFlags {
+	const flags: WhatifFlags = {};
+
+	flags.noArt = noArt(argv);
+
+	const setPeriod = (p: string): void => {
+		if (p === 'day' || p === 'week' || p === 'month' || p === 'quarter' || p === 'all') {
+			flags.period = p;
+		} else {
+			console.error(
+				`chaching whatif: unknown period '${p}' (must be day|week|month|quarter|all)`
+			);
+			process.exit(1);
+		}
+	};
+
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+
+		if (arg === '--json') {
+			flags.json = true;
+		} else if (arg === '--no-art') {
+			// already handled via noArt(); skip
+		} else if (arg === '--period') {
+			const p = argv[i + 1];
+			if (!p || p.startsWith('--')) {
+				console.error(`chaching whatif: --period requires a value (day|week|month|quarter|all)`);
+				process.exit(1);
+			}
+			i++;
+			setPeriod(p);
+		} else if (arg.startsWith('--period=')) {
+			const p = arg.slice('--period='.length);
+			if (!p) {
+				console.error(`chaching whatif: --period requires a value (day|week|month|quarter|all)`);
+				process.exit(1);
+			}
+			setPeriod(p);
+		} else if (arg === '--model') {
+			const m = argv[i + 1];
+			if (!m || m.startsWith('--')) {
+				console.error(`chaching whatif: --model requires a value (a model id)`);
+				process.exit(1);
+			}
+			i++;
+			flags.model = m;
+		} else if (arg.startsWith('--model=')) {
+			const m = arg.slice('--model='.length);
+			if (!m) {
+				console.error(`chaching whatif: --model requires a value (a model id)`);
+				process.exit(1);
+			}
+			flags.model = m;
+		} else if (arg.startsWith('-')) {
+			console.error(`chaching whatif: unknown flag '${arg}'`);
+			console.error(`Run \`chaching --help\` for usage.`);
+			process.exit(1);
+		}
+	}
+
+	return flags;
+}
+
+function parseReportFlags(argv: string[], command: 'stats' | 'receipt'): ReceiptFlags {
+	const flags: ReceiptFlags = {};
+	const providers: string[] = [];
+	const models: string[] = [];
+	const machines: string[] = [];
+	let from: string | undefined;
+	let to: string | undefined;
+
+	flags.noArt = noArt(argv);
+
+	const setPeriod = (p: string): void => {
+		if (p === 'day' || p === 'week' || p === 'month' || p === 'quarter' || p === 'all') {
+			// Store every value verbatim (including 'all'). The receipt command
+			// treats an UNSET period as the monthly default; an explicit `--period all`
+			// must therefore set 'all' so it can override that default.
+			flags.period = p;
+		} else {
+			console.error(
+				`chaching ${command}: unknown period '${p}' (must be day|week|month|quarter|all)`
+			);
+			process.exit(1);
+		}
+	};
+
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+		if (command === 'stats' && ['--png', '--redact', '--reveal', '--no-redact'].some(flag => arg === flag || arg.startsWith(flag + '='))) {
+			console.error(`chaching stats: unknown flag '${arg}'`);
+			process.exit(1);
+		}
+
+
+		if (arg === '--json') {
+			flags.json = true;
+		} else if (arg === '--redact') {
+			// Opt IN to scrubbing username/hostname/paths before sharing.
+			flags.redact = true;
+		} else if (arg === '--reveal' || arg === '--no-redact') {
+			// Deprecated no-ops: showing real details is now the default. Accepted so
+			// old muscle-memory / scripts don't hard-error.
+		} else if (arg === '--no-art') {
+			// already handled via noArt(); skip
+		} else if (arg === '--png') {
+			flags.png = true;
+			// optional value: a following non-flag token is the path
+			const next = argv[i + 1];
+			if (next && !next.startsWith('-')) {
+				flags.pngPath = next;
+				i++;
+			}
+		} else if (arg.startsWith('--png=')) {
+			flags.png = true;
+			const p = arg.slice('--png='.length);
+			if (p) flags.pngPath = p;
+		} else if (arg === '--period') {
+			const p = argv[i + 1];
+			if (!p || p.startsWith('--')) {
+				console.error(`chaching ${command}: --period requires a value (day|week|month|quarter|all)`);
+				process.exit(1);
+			}
+			i++;
+			setPeriod(p);
+		} else if (arg.startsWith('--period=')) {
+			const p = arg.slice('--period='.length);
+			if (!p) {
+				console.error(`chaching ${command}: --period requires a value (day|week|month|quarter|all)`);
+				process.exit(1);
+			}
+			setPeriod(p);
+		} else if (arg === '--provider') {
+			const raw = argv[i + 1];
+			if (!raw || raw.startsWith('--')) {
+				console.error(`chaching ${command}: --provider requires a value`);
+				process.exit(1);
+			}
+			i++;
+			providers.push(...raw.split(',').map((s) => s.trim()).filter(Boolean));
+		} else if (arg.startsWith('--provider=')) {
+			const raw = arg.slice('--provider='.length);
+			if (!raw) {
+				console.error(`chaching ${command}: --provider requires a value`);
+				process.exit(1);
+			}
+			providers.push(...raw.split(',').map((s) => s.trim()).filter(Boolean));
+		} else if (arg === '--account' || arg.startsWith('--account=')) {
+			console.error(`chaching ${command}: ${ACCOUNT_SPEND_FILTER_UNAVAILABLE}`);
+			process.exit(1);
+		} else if (['--model', '--machine'].some(flag => arg === flag || arg.startsWith(flag + '='))) {
+			const flag = arg.split('=')[0];
+			const raw = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : argv[++i];
+			if (!raw || raw.startsWith('--') || !raw.split(',').some((value) => value.trim())) {
+				console.error(`chaching ${command}: ${flag} requires a value`);
+				process.exit(1);
+			}
+			const values = flag === '--model' ? models : machines;
+			values.push(...raw.split(',').map((value) => value.trim()).filter(Boolean));
+		} else if (arg === '--from' || arg.startsWith('--from=') || arg === '--to' || arg.startsWith('--to=')) {
+			const key = arg.startsWith('--from') ? 'from' : 'to';
+			const value = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : argv[++i];
+			if (!value || !isCalendarDay(value)) {
+				console.error(`chaching ${command}: --${key} requires a date in YYYY-MM-DD`);
+				process.exit(1);
+			}
+			if (key === 'from') from = value;
+			else to = value;
+		} else if (arg.startsWith('-')) {
+			console.error(`chaching ${command}: unknown flag '${arg}'`);
+			console.error(`Run \`chaching --help\` for usage.`);
+			process.exit(1);
+		}
+	}
+
+	if (providers.length > 0) flags.providers = providers;
+	if (models.length > 0) flags.models = models;
+	if (machines.length > 0) flags.machines = machines;
+
+	if (from !== undefined || to !== undefined) {
+		if (!from || !to || from > to) {
+			console.error(`chaching ${command}: --from and --to must both be supplied in date order`);
+			process.exit(1);
+		}
+		flags.range = { from, to };
+	}
+
+	return flags;
+}

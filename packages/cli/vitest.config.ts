@@ -1,0 +1,2 @@
+import { defineConfig } from 'vitest/config';
+export default defineConfig({ test: { environment: 'node', env: { CHACHING_REPO_ROOT: new URL('../../', import.meta.url).pathname, CHACHING_PACKAGE_ROOT: process.env.CHACHING_PACKAGE_ROOT ?? new URL('../../dist/chaching', import.meta.url).pathname }, include: ['src/**/*.{test,spec}.{js,ts,tsx}', 'scripts/**/*.{test,spec}.{js,ts,tsx}'], passWithNoTests: true } });

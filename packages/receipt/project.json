@@ -1,0 +1,48 @@
+{
+	"name": "receipt",
+	"root": "packages/receipt",
+	"sourceRoot": "packages/receipt/src",
+	"projectType": "library",
+	"tags": [
+		"layer:receipt"
+	],
+	"targets": {
+		"typecheck": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec tsc --noEmit",
+				"cwd": "packages/receipt",
+				"forwardAllArgs": true
+			}
+		},
+		"test": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec vitest run",
+				"cwd": "packages/receipt",
+				"forwardAllArgs": true
+			}
+		},
+		"lint": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec eslint src",
+				"cwd": "packages/receipt",
+				"forwardAllArgs": true
+			}
+		},
+		"assets": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "node ../../tools/check-font-assets.mjs",
+				"cwd": "packages/receipt",
+				"forwardAllArgs": true
+			},
+			"inputs": [
+				"{projectRoot}/assets/**/*",
+				"{workspaceRoot}/tools/check-font-assets.mjs"
+			],
+			"cache": true
+		}
+	}
+}

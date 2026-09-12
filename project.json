@@ -1,0 +1,56 @@
+{
+	"name": "distribution",
+	"implicitDependencies": [
+		"cli",
+		"web",
+		"shared",
+		"receipt"
+	],
+	"targets": {
+		"package": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "node tools/assemble-package.mjs",
+				"cwd": ".",
+				"forwardAllArgs": true
+			},
+			"dependsOn": [
+				{
+					"target": "build",
+					"projects": [
+						"cli",
+						"web"
+					]
+				},
+				{
+					"target": "assets",
+					"projects": [
+						"receipt"
+					]
+				}
+			],
+			"inputs": [
+				"{workspaceRoot}/bin/**/*",
+				"{workspaceRoot}/tools/assemble-package.mjs",
+				"{workspaceRoot}/docs/**/*",
+				"{workspaceRoot}/CONFIG.md",
+				"{workspaceRoot}/config.example.json",
+				"{workspaceRoot}/docker-compose.sync.yml",
+				"{workspaceRoot}/LICENSE",
+				"{workspaceRoot}/README.md",
+				"globals",
+				"^production",
+				{
+					"env": "CHACHING_BASE_PATH"
+				},
+				{
+					"runtime": "node -p \"process.platform + '-' + process.arch + '-' + process.versions.node\""
+				}
+			],
+			"outputs": [
+				"{workspaceRoot}/dist/chaching"
+			],
+			"cache": true
+		}
+	}
+}

@@ -157,4 +157,9 @@ ls_additional_workspace_folders: []
 #     - "./subproject1"
 #     - "./subproject2"
 ls_workspace_folders:
-- .
+- packages/shared
+- packages/core
+- packages/receipt
+- packages/cli
+- apps/web
+- apps/site

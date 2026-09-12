@@ -9,38 +9,39 @@ chaching is a local, multi-provider AI token-spend dashboard for Claude Code, Co
 ## Commands
 
 ```sh
-npm run dev          # SvelteKit web dev server on :5178 (hot reload)
-npm run build        # full build: build:sk (vite/adapter-node) + build:cli (tsup)
-npm run build:cli    # CLI bundle only → dist/cli/  (pretest runs this automatically)
-npm run start        # run the built CLI (bare = TUI); `npm run start -- serve` for web
-npm run check        # svelte-check (type checking); use this as the "lint"/typecheck gate
-npm test             # vitest run (runs build:cli first via pretest)
-npm run pack:dry     # inspect publishable package contents
+pnpm install         # pinned pnpm, isolated workspace dependencies
+pnpm dev             # web development server
+pnpm check           # architecture controls and all workspace typechecks
+pnpm test            # library, component and packaged CLI tests
+pnpm build           # CLI and dashboard builds
+pnpm package         # assemble the sole public distribution in dist/chaching
+pnpm verify:package  # install and exercise the tarball outside the repository
+pnpm start -- serve  # serve the assembled dashboard
 ```
 
 Run a single test file or pattern:
 
 ```sh
-npx vitest run src/lib/core/pricing/cost.test.ts
+pnpm --dir packages/core exec vitest run src/pricing/cost.test.ts
 npx vitest run -t "freeze"           # by test-name substring
 npx vitest                            # watch mode
 ```
 
 **Node >= 24.16 is mandatory** (`engine-strict=true` in `.npmrc`). The history DB and OpenCode provider use Node's built-in `node:sqlite`, which shipped in 24.16. There are no native addons or build steps beyond bundling.
 
-**Use `pnpm`** — it is the canonical package manager (`pnpm install`, `pnpm dev`, `pnpm test`, etc.). A `package-lock.json` is also present but `pnpm-lock.yaml` is authoritative.
+**Use `pnpm`** — it is the canonical package manager (`pnpm install`, `pnpm dev`, `pnpm test`, etc.). `pnpm-lock.yaml` is the only lockfile. Node 26.7.0 is pinned for development; the supported floor is 24.16.0.
 
 ## Architecture
 
 ### One engine, two consumers
 
-`src/lib/core/engine.ts` is the framework-free ingestion engine and the heart of the app. It runs **one cold scan per engine** (stream every enabled provider's source to EOF, parse, de-dup, build an in-memory `Rollup` keyed by `(day, provider, model)`), then keeps every provider live: Claude Code logs are tailed via `fs.watch` + an mtime-poll fallback; codex + opencode are re-polled every 15s (codex re-parses only mtime-fresh session files, opencode re-reads only when the db/-wal mtime moved — dedup makes the overlap safe); cursor polls its Admin API. Deltas fan out to subscribers as `RollupDelta`s.
+`packages/core/src/engine.ts` is the framework-free ingestion engine and the heart of the app. It runs **one cold scan per engine** (stream every enabled provider's source to EOF, parse, de-dup, build an in-memory `Rollup` keyed by `(day, provider, model)`), then keeps every provider live: Claude Code logs are tailed via `fs.watch` + an mtime-poll fallback; codex + opencode are re-polled every 15s (codex re-parses only mtime-fresh session files, opencode re-reads only when the db/-wal mtime moved — dedup makes the overlap safe); cursor polls its Admin API. Deltas fan out to subscribers as `RollupDelta`s.
 
 - `createEngine()` → live engine (watchers + Cursor polling); used by `chaching serve` and the TUI.
 - `runOnce()` → single cold scan, snapshot, dispose (no lingering timers); used by `stats` and `receipt`.
-- The SvelteKit server holds **one engine per Node process** via `src/lib/server/service.ts` (`getService()` singleton), streaming snapshots/deltas over SSE at `GET /api/feed`. The web client pauses when the tab is hidden.
+- The SvelteKit server holds **one engine per Node process** via `apps/web/src/lib/server/service.ts` (`getService()` singleton), streaming snapshots/deltas over SSE at `GET /api/feed`. The web client pauses when the tab is hidden.
 
-### Providers (`src/lib/core/providers/`)
+### Providers (`packages/core/src/providers/`)
 
 Each provider ingests into the same `Rollup` via `UsageRecord`s, de-duplicated by `rec.key`:
 - **claude** — tails `~/.claude` + `~/.config/claude` `**/*.jsonl`; dedup key `message.id:requestId`. The only *line-tailed* provider.
@@ -50,7 +51,7 @@ Each provider ingests into the same `Rollup` via `UsageRecord`s, de-duplicated b
 
 Provider ingest failures are recorded in `ProviderStatus`, never thrown — they degrade coverage instead of crashing.
 
-### History: freeze-past-days (`src/lib/core/history/`)
+### History: freeze-past-days (`packages/core/src/history/`)
 
 Claude Code prunes logs at ~30 days. chaching keeps `~/.local/share/chaching/history.db` and **permanently snapshots each completed past day** (`day < today UTC`) before logs prune. Critical invariant: a day is frozen **only when the scan is clean** — `scanIsPartial()` (any unreadable file or provider error) gates freezing so a partial copy is never locked in. On startup, frozen aggregates seed the rollup *before* any live `rollup.add` so live tailing of already-frozen days is skipped (no double-count). A long-running process re-freezes across UTC midnight via `maybeFreezeLive()`.
 
@@ -58,21 +59,16 @@ Claude Code prunes logs at ~30 days. chaching keeps `~/.local/share/chaching/his
 
 Days are classified `frozen` / `partial` (today, or this run had errors) / `missing` (gap) / `zero` (real quiet day) — the UI must never render incomplete data as "$0". `coverageInput()` in the engine is the single source of the per-day facts (canonical today, partial signal, history-enabled) shared by snapshot and every delta, so the two never drift.
 
-### Pricing (`src/lib/core/pricing/`)
+### Pricing
 
-Claude/Codex cost is always **computed** (`tokens × per-token price`), never read from a cost field. Resolution order (first hit wins): hand-maintained `overrides.ts` → vendored LiteLLM snapshot (`static/pricing/litellm-prices.json`) → normalised/family key → **unknown → null** (flagged, never silently zero).
+`packages/shared/src/pricing/catalog.ts` owns the pure provider-aware resolver. Core fetches catalogs daily and after missing exact-model prices, persists validated snapshots, and retains the last good snapshot offline. The browser receives the same catalog revision with the usage snapshot. Retained monetary components preserve known-rate usage; exact prices repair earlier estimates and missing values without changing token counts. Zero is a known free rate; null remains unknown.
 
-**Two price maps, two resolvers.** `cost.ts` (LiteLLM + overrides) prices Claude/Codex by model id. `modelsdev.ts` (`resolveModelsDevPrice(providerID, modelID)`) prices OpenCode/Zen/Go/Cursor-ACP from the vendored `static/pricing/modelsdev-prices.json` (models.dev), per-million→per-token, provider-aware so cache economics stay accurate (Anthropic catalogs carry `cache_write`; OpenAI doesn't). It maps `cursor-acp`→anthropic, normalises ids like `opus-4.6`→`claude-opus-4-6`, prefers canonical catalogs over aggregator catalogs in cross-catalog fallback, and returns `null` when truly unknown. Both resolvers feed the **single** per-token formula `costFromPriceEntry` (exported from `cost.ts`) — don't re-implement it. Refresh the models.dev snapshot with `scripts/gen-modelsdev-prices.ts`. Genuinely-free models price at `$0` (intentional, distinct from `null` unknown).
+### CLI (`packages/cli/src/`)
 
-- **Client/server split is enforced**: `src/lib/pricing-client.ts` is plain constants with **no Node imports** so the full price table stays out of the browser bundle. It *mirrors* `overrides.ts`/the snapshot — keep them in sync. `client-safety.test.ts` guards this.
-- To add a missing model, add an exact-id row to `overrides.ts` (wins over the snapshot). Refresh the snapshot with the `jq` pipeline in `README.md` ("Refresh the price map").
-
-### CLI (`src/cli/`)
-
-- `bin/chaching.js` is a thin launcher → `dist/cli/index.js`. One-shot commands are force-`exit(0)`'d (Ink/clack leave stdin handles open); `serve` is exempt because its listening socket keeps the process alive.
+- `bin/chaching.js` is a thin launcher → `dist/chaching/cli/index.js`. One-shot commands are force-`exit(0)`'d (Ink/clack leave stdin handles open); `serve` is exempt because its listening socket keeps the process alive.
 - `router.ts` is a **hand-rolled** subcommand dispatcher and arg parser (no third-party arg lib, per design decision "D3"). Subcommands: `stats`, `receipt`, `serve`, `init`, `provider`, plus bare (TUI). `serve` lazy-imports the built SvelteKit server.
-- TUI is React/Ink under `src/cli/tui/` (`.tsx`, automatic JSX runtime).
-- Receipt rendering lives in `src/cli/receipt/`; PNG export lazily `import()`s `satori` + `@resvg/resvg-js` (kept external/optional — see build notes).
+- TUI is React/Ink under `packages/cli/src/tui/` (`.tsx`, automatic JSX runtime).
+- Receipt rendering lives in `packages/receipt/src/receipt/`; PNG export lazily `import()`s `satori` + `@resvg/resvg-js` (kept external/optional — see build notes).
 
 ### Receipt/dashboard period semantics
 
@@ -80,14 +76,20 @@ Claude/Codex cost is always **computed** (`tokens × per-token price`), never re
 
 ## Build gotchas
 
-- **`tsup.config.ts` post-build step rewrites `from "sqlite"` → `from "node:sqlite"`** because esbuild strips the `node:` prefix from the experimental builtin. Don't remove `onSuccess`.
-- `satori` and `@resvg/resvg-js` are kept **external** in both tsup and adapter-node (they're `optionalDependencies` + listed in `dependencies` so adapter-node externalizes the native binding). They must remain runtime-resolved, never bundled — a CLI-only install can skip the native renderer.
-- Svelte is in **forced runes mode** (`svelte.config.js`) for all non-`node_modules` files.
+- **`packages/cli/tsup.config.ts` post-build step rewrites `from "sqlite"` → `from "node:sqlite"`** because esbuild strips the `node:` prefix from the experimental builtin. Don't remove `onSuccess`.
+- `satori` and `@resvg/resvg-js` are kept **external** in both tsup and adapter-node (the assembled package declares them as optional runtime dependencies). They must remain runtime-resolved, never bundled — a CLI-only install can skip the native renderer.
+- Svelte is in **forced runes mode** (`svelte.config.js`) only for each application’s own source files.
 - Vitest defaults to the `node` environment for speed; component tests opt into jsdom per-file with `// @vitest-environment jsdom`.
-- **Serve base path vs origin.** A subpath mount (`/chaching`) is SvelteKit `kit.paths.base`, baked in at **build time** from `CHACHING_BASE_PATH` (via `normalizeBasePath` in `src/lib/core/base-path.js` — kept as plain `.js` because `svelte.config.js` loads as raw Node ESM and can't import a `.ts`). The web client must therefore call internal endpoints through `resolve()` from `$app/paths` (e.g. `resolve('/api/feed')`), never a bare `/api/...`. The public **origin** is separate and runtime: adapter-node's `ORIGIN` env (or `server.origin` config, applied in `serve.ts`). Assets resolve relatively (SvelteKit `paths.relative` default), so a subpath build needs no asset-URL baking. **A subpath deployment behind a prefix-preserving reverse proxy MUST be built with `CHACHING_BASE_PATH` set** — a bare `npm run build` produces a root-path build that 404s every proxied request. After deploying, verify the built artifact itself serves `<base>/` (e.g. probe it on a scratch port) rather than trusting a live probe fired straight after a restart, which can race and report a stale 200.
+- **Serve base path vs origin.** A subpath mount (`/chaching`) is SvelteKit `kit.paths.base`, baked in at **build time** from `CHACHING_BASE_PATH` (via `normalizeBasePath` in `packages/shared/src/base-path.js` — kept as plain `.js` because `svelte.config.js` loads as raw Node ESM and can't import a `.ts`). The web client must therefore call internal endpoints through `resolve()` from `$app/paths` (e.g. `resolve('/api/feed')`), never a bare `/api/...`. The public **origin** is separate and runtime: adapter-node's `ORIGIN` env (or `server.origin` config, applied in `serve.ts`). Assets resolve relatively (SvelteKit `paths.relative` default), so a subpath build needs no asset-URL baking. **A subpath deployment behind a prefix-preserving reverse proxy MUST be built with `CHACHING_BASE_PATH` set** — a bare `pnpm build` produces a root-path build that 404s every proxied request. After deploying, verify the built artifact itself serves `<base>/` (e.g. probe it on a scratch port) rather than trusting a live probe fired straight after a restart, which can race and report a stale 200.
 
 ## Conventions
 
 - Cost honesty is a hard rule: prefer "unknown"/null and explicit coverage marks over a fabricated `$0`. Comparisons only render against a real prior window.
 - Code comments in this repo reference design-decision tags (e.g. "D2", "D3", "D5") — preserve them and follow the documented invariant when editing nearby code.
 - Receipts show real user/host/paths by default; `--redact` (CLI) / `?redact=1` (web) scrubs them.
+
+## Workspace boundaries
+
+The six private workspaces are shared, core, receipt, CLI, dashboard, and site. Shared has no first-party dependencies; core and receipt depend on shared; CLI depends on those three. Browser imports remain within shared and pure receipt modules. Fetching, persistence, native PNG rendering, and core imports stay on the server. Use explicit package export subpaths across workspaces and relative imports within one workspace.
+
+When changing builds, boundaries, or packaging, read `docs/specs/nx-monorepo.md` and run `pnpm boundaries` plus the installed-package verification. The site builds separately from the CLI/dashboard distribution.

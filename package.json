@@ -1,8 +1,8 @@
 {
-	"name": "chaching",
+	"name": "chaching-workspace",
 	"version": "1.18.0",
 	"description": "Local multi-provider AI token spend dashboard for Claude Code, Codex, OpenCode, Pi, OMP, and Cursor.",
-	"private": false,
+	"private": true,
 	"type": "module",
 	"license": "PolyForm-Noncommercial-1.0.0",
 	"author": "Rai Butera",
@@ -14,21 +14,6 @@
 	"bugs": {
 		"url": "https://github.com/rbutera/chaching/issues"
 	},
-	"bin": {
-		"chaching": "bin/chaching.js"
-	},
-	"files": [
-		"bin/",
-		"build/",
-		"dist/",
-		"static/",
-		"docs/",
-		"CONFIG.md",
-		"config.example.json",
-		"docker-compose.sync.yml",
-		"LICENSE",
-		"README.md"
-	],
 	"engines": {
 		"node": ">=24.16.0"
 	},
@@ -43,82 +28,37 @@
 		"cursor",
 		"dashboard"
 	],
-	"publishConfig": {
-		"access": "public"
-	},
+	"packageManager": "pnpm@10.32.1",
 	"scripts": {
-		"dev": "vite dev",
-		"gen:favicons": "tsx scripts/gen-favicons.ts",
-		"gen:og": "tsx scripts/gen-og.ts",
-		"gen:assets": "npm run gen:favicons && npm run gen:og",
-		"prebuild": "npm run gen:assets",
-		"build": "npm run build:sk && npm run build:cli",
-		"build:sk": "vite build",
-		"build:cli": "tsup",
-		"preview": "vite preview",
-		"prepare": "svelte-kit sync || echo ''",
-		"prepack": "npm run build",
-		"prepublishOnly": "npm test && npm run check",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"pretest": "npm run build:cli",
-		"test": "vitest run",
-		"start": "node bin/chaching.js",
-		"pack:dry": "npm pack --dry-run"
+		"dev": "pnpm exec nx run web:dev",
+		"build": "pnpm exec nx run-many -t build --projects=cli,web",
+		"build:cli": "pnpm exec nx run cli:build",
+		"build:sk": "pnpm exec nx run web:build",
+		"check": "pnpm boundaries && pnpm exec nx run-many -t typecheck",
+		"test": "pnpm exec nx run-many -t test",
+		"package": "pnpm exec nx run distribution:package",
+		"boundaries": "node tools/check-boundaries.mjs",
+		"verify:package": "node tools/verify-package.mjs",
+		"gen:assets": "pnpm exec nx run web:assets",
+		"preview": "pnpm exec nx run web:preview",
+		"start": "node dist/chaching/bin/chaching.js",
+		"pack:dry": "pnpm --dir dist/chaching pack --dry-run"
 	},
 	"devDependencies": {
-		"@fontsource/inter": "5.2.8",
-		"@fontsource/jetbrains-mono": "5.2.8",
-		"@resvg/resvg-js": "2.6.2",
-		"@sveltejs/adapter-node": "5.5.4",
-		"@sveltejs/kit": "^2.57.0",
-		"@sveltejs/vite-plugin-svelte": "^7.0.0",
-		"@testing-library/jest-dom": "6.9.1",
-		"@testing-library/svelte": "5.3.1",
-		"@testing-library/user-event": "14.6.1",
-		"@types/canvas-confetti": "1.9.0",
-		"@types/culori": "4.0.1",
-		"@types/d3-array": "3.2.2",
-		"@types/d3-scale": "4.0.9",
-		"@types/d3-shape": "3.1.8",
-		"@types/d3-time": "3.0.4",
+		"nx": "23.1.2",
+		"@nx/eslint-plugin": "23.1.2",
+		"eslint": "10.9.1",
+		"eslint-config-prettier": "10.1.8",
+		"@typescript-eslint/parser": "8.68.0",
+		"typescript-eslint": "8.68.0",
+		"svelte-eslint-parser": "1.8.1",
+		"svelte": "5.56.4",
+		"typescript": "6.0.3",
 		"@types/node": "24.13.2",
-		"@types/pg": "8.20.0",
-		"@types/react": "19.2.17",
-		"culori": "4.0.2",
-		"ink-testing-library": "4.0.0",
-		"jsdom": "29.1.1",
-		"satori": "0.26.0",
-		"sharp": "0.35.1",
-		"svelte": "^5.55.2",
-		"svelte-check": "^4.4.6",
-		"tsup": "8.5.1",
-		"tsx": "4.22.4",
-		"typescript": "^6.0.2",
-		"vite": "^8.0.7",
-		"vitest": "4.1.7"
+		"vitest": "4.1.7",
+		"tsx": "4.22.4"
 	},
-	"dependencies": {
-		"@clack/prompts": "1.5.1",
-		"@modelcontextprotocol/sdk": "1.29.0",
-		"@number-flow/svelte": "0.4.1",
-		"@resvg/resvg-js": "2.6.2",
-		"@tanstack/svelte-table": "9.0.0-beta.12",
-		"@tanstack/svelte-virtual": "3.13.29",
-		"ansi-styles": "6.2.3",
-		"canvas-confetti": "1.9.4",
-		"d3-array": "3.2.4",
-		"d3-scale": "4.0.2",
-		"d3-shape": "3.2.0",
-		"d3-time": "3.1.0",
-		"ink": "7.0.5",
-		"pg": "8.22.0",
-		"react": "19.2.7",
-		"satori": "0.26.0",
-		"zod": "^3.25.76"
-	},
-	"optionalDependencies": {
-		"@resvg/resvg-js": "2.6.2",
-		"satori": "0.26.0"
+	"nx": {
+		"includedScripts": []
 	}
 }
