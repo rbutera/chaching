@@ -81,7 +81,7 @@
     "apps/web/src/routes/api/sync/+server.ts": "9778784b2320711472bc2fd235e0bd3399978b841e1b7cd0caa730015142bc97",
     "apps/web/src/routes/api/whatif/+server.ts": "9d195fe7f270ef7a99581cd20c74f84bd0d54de956e3b44e08ce84eb7a2be679",
     "apps/web/src/test-setup.ts": "365549fe2603f46752d89ec83d6dce2355a4e09ef14cb5a27b7a4c08f55acf1f",
-    "apps/web/svelte.config.js": "7a66d50668fd6b20ec37d0ecd51f98a607d31eb8f4ce2eb7e6722e41722b1d3e",
+    "apps/web/svelte.config.js": "56bb50b42f4c44d025dc0cee4a8a694076451add46d9b12ba9aedd4c3fd50b7f",
     "apps/web/vite.config.ts": "c8a6dedfdd78ae2042002c3e2fcc861447f30ea29f1c922330ece08afcdfb094",
     "packages/cli/src/cli-test-harness.ts": "2d06206283b2b808572fece03fe77bfa33e3db8d576b3cfcb5a80e7ca406200e",
     "packages/cli/src/commands/doctor.ts": "40f55189c805032f026b501c23877a6b82e77b18d311f9e2b3dd28d10b31424a",
@@ -221,10 +221,10 @@
   "outputs": {
     "receipt.png": "ffe930ef613ca86b6322df5cde1743330a934ae59625298ba522a65f9702b9fa",
     "wrapped.png": "07709951fceee17580d8de72ef3b21a9afca3cf1af93cdacef418fd5fe99040a",
-    "dashboard.png": "09e549a72436f763d24606f235ecfad089c0b180d98010e10c216d0cf874d6c9",
+    "dashboard.png": "1db97a663d2b02d033e695c1dabab095d806e0358a58ef647f9cc73b167b522d",
     "dashboard-corner.png": "e1811815286a31add7ccb16d59ab0d0b44c72683a0277f493276f0ba0597d48e",
     "dashboard-narrow.png": "0a07fff58fc9167fd3e046ae43714834630f018977e602950e5c4ca2de3cb7bb",
-    "terminal.mp4": "d329467db4dc1979a621bc627c1447c3214db26f26211fa5d76a4107c7a773cc",
+    "terminal.mp4": "b9acf2b3d1100b18b3d7ba32bfe33b25d7062b373855e9c58cadfdd126ce2b8a",
     "terminal.png": "4fb9fc245873e7113e207a789a87ce535d0240fc50be9c2ef6f000c24055cabf",
     "og.png": "10dd02b83c6afbbb276b6b971d175bc3aff963cdd1c634c41531b2c88d241a74"
   }
