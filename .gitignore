@@ -31,3 +31,11 @@ reports/
 apps/web/static/fonts/
 
 /artifacts/
+
+# Generated public marketing pages and review evidence
+/apps/site/index.html
+/apps/site/docs/
+/apps/site/changelog/
+/apps/site/licence/
+/apps/site/.impeccable/build/
+/apps/site/.impeccable/review/

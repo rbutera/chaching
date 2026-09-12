@@ -12,7 +12,7 @@ const packageRoot = process.env.CHACHING_PACKAGE_ROOT!;
 const baseUrl = process.env.CHACHING_TEST_DATABASE_URL;
 const enabled = baseUrl && process.env.CHACHING_TEST_PG_TOOLS === '1';
 const suite = enabled ? describe : describe.skip;
-suite.each([2, 3, 4])('Packaged pool rollout from schema %i', sourceVersion => {
+suite.each([2, 3, 4, 5])('Packaged pool rollout from schema %i', sourceVersion => {
  let directory: string;
  const database = 'chaching_rollout_' + randomUUID().replaceAll('-', '');
  const role = database + '_role';
@@ -40,9 +40,11 @@ suite.each([2, 3, 4])('Packaged pool rollout from schema %i', sourceVersion => {
    INSERT INTO chaching_sync.subscription(pool_id,id,provider,name,tier,monthly_usd) VALUES('pool','paid','claude','Paid','custom',123);
    INSERT INTO chaching_sync.machine_subscription VALUES('pool','one','claude','paid');
    INSERT INTO chaching_sync.machine_day_agg VALUES('pool','machine:one','one','2026-09-01','claude','model',100,20,0,0,0,0,0,0,1,12.5,0,false,now());`);
-  if (sourceVersion === 4) {
+  if (sourceVersion >= 4) {
    const store = new PostgresSyncStore(url); await store.open(); await store.close();
-   await db.query('ALTER TABLE chaching_sync.machine_day_agg DROP COLUMN monetary; UPDATE chaching_sync.schema_version SET version=4');
+   await db.query('DROP TABLE chaching_sync.machine_session_activity');
+   if (sourceVersion === 4) await db.query('ALTER TABLE chaching_sync.machine_day_agg DROP COLUMN monetary');
+   await db.query('UPDATE chaching_sync.schema_version SET version=$1', [sourceVersion]);
   }
  }, 30000);
  afterAll(async () => {
@@ -95,7 +97,7 @@ suite.each([2, 3, 4])('Packaged pool rollout from schema %i', sourceVersion => {
   await db.query(`DROP OWNED BY ${role}`);
   await admin.query(`DROP ROLE ${role}`);
   expect(() => run('restore',rollout,'--clients-stopped')).toThrow();
-  expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows[0].version).toBe(5);
+  expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows[0].version).toBe(6);
   await admin.query(`CREATE ROLE ${role}`);
   expect(run('restore',rollout,'--clients-stopped')).toContain('verified');
   expect((await db.query(`SELECT monthly_usd FROM chaching_sync.${accountTable}`)).rows[0].monthly_usd).toBe(123);

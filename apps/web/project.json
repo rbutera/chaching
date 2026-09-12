@@ -75,6 +75,7 @@
 				"production",
 				"^production",
 				"{workspaceRoot}/packages/receipt/assets/**/*",
+				"{workspaceRoot}/apps/site/public/shots/receipt.png",
 				"{workspaceRoot}/tools/copy-web-assets.mjs",
 				{
 					"runtime": "node -p \"process.platform + process.arch + process.versions.node\""

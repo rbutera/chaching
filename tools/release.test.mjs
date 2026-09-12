@@ -75,7 +75,7 @@ const suffixes = ['Linux / Node 24.16.0', 'Linux / Node 26.7.0', 'macOS / Node 2
 if (path.includes('/jobs?')) console.log(JSON.stringify([{jobs:suffixes.map(name=>({name:'gate / '+name,conclusion:process.env.TEST_GATE || 'success'}))}]));
 else if (path.includes('/attempts/')) console.log(JSON.stringify({repository:{full_name:'rbutera/chaching'},head_repository:{full_name:'rbutera/chaching'},event:'workflow_dispatch',path:'.github/workflows/release.yml',head_sha:process.env.TEST_WORKFLOW_SHA}));
 else if (path.includes('/releases?')) console.log(JSON.stringify([state?[state]:[]]));
-else if (path.includes('/releases/tags/')) console.log(JSON.stringify(state));
+else if (path.includes('/releases/tags/')) {if(state?.draft)process.exit(1);console.log(JSON.stringify(state));}
 else if (args[0]==='release' && args[1]==='create') save({tag_name:args[2],body:readFileSync(option('--notes-file'),'utf8'),draft:true,prerelease:false,assets:[]});
 else if (args[0]==='release' && args[1]==='upload') {
  if(process.env.TEST_UPLOAD_FAILURE && !existsSync('upload-retried')) {writeFileSync('upload-retried','1');process.exit(1);}

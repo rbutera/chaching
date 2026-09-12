@@ -42,7 +42,11 @@
 		"gen:assets": "pnpm exec nx run web:assets",
 		"preview": "pnpm exec nx run web:preview",
 		"start": "node dist/chaching/bin/chaching.js",
-		"pack:dry": "pnpm --dir dist/chaching pack --dry-run"
+		"pack:dry": "pnpm --dir dist/chaching pack --dry-run",
+		"site:dev": "pnpm --dir apps/site dev",
+		"site:build": "pnpm --dir apps/site build",
+		"site:refresh": "pnpm package && pnpm exec tsx tools/marketing/brand.ts && pnpm exec tsx tools/marketing/refresh.ts && pnpm --dir apps/web exec tsx scripts/gen-og.ts && node tools/marketing/freshness.mjs --write",
+		"site:check": "node tools/marketing/inspect.mjs"
 	},
 	"devDependencies": {
 		"nx": "23.1.2",
@@ -56,7 +60,9 @@
 		"typescript": "6.0.3",
 		"@types/node": "24.13.2",
 		"vitest": "4.1.7",
-		"tsx": "4.22.4"
+		"tsx": "4.22.4",
+		"marked": "17.0.4",
+		"playwright": "1.58.2"
 	},
 	"nx": {
 		"includedScripts": []

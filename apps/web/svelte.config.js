@@ -1,4 +1,5 @@
 import adapter from '@sveltejs/adapter-node';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 const appSource = fileURLToPath(new URL('./src/', import.meta.url)).replaceAll('\\', '/');
@@ -18,6 +19,7 @@ const config = {
 		runes: ({ filename }) => resolve(filename).replaceAll('\\', '/').startsWith(appSource) ? true : undefined
 	},
 	kit: {
+		version: { name: JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version },
 		// adapter-node bundles everything NOT in package.json `dependencies` and
 		// externalizes what IS. @resvg/resvg-js (a native .node binding rollup can't
 		// parse) + satori are listed in `dependencies` so the /api/receipt.png route's

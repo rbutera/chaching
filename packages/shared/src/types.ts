@@ -54,6 +54,22 @@ export interface DayModelAgg {
 	monetary?: MonetaryComponents;
 }
 
+/** Actual observed activity, never interpolated from session endpoints. */
+export interface SessionDay {
+	day: string;
+	project: string;
+	requests: number;
+	cost: number;
+	costUnknownRequests: number;
+}
+
+export interface SessionActivity {
+	provider: string;
+	sessionId: string;
+	machineId?: string;
+	activity: SessionDay[];
+}
+
 /** Per-session summary for the session index / drill-down. */
 export interface SessionSummary {
 	sessionId: string;
@@ -106,6 +122,9 @@ export type CoverageMap = Record<string, DayCoverage>;
 
 /** The full snapshot pushed to the client over SSE on connect. */
 export interface RollupSnapshot {
+	/** Present only when this snapshot actually includes the selected pool overlay. */
+	poolId?: string;
+	activity?: SessionActivity[];
 	pricing?: PricingCatalog;
 	generatedAt: number;
 	earliestDay: string | null;

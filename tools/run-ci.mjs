@@ -18,6 +18,8 @@ run(process.execPath, ['--test', 'tools/verify-ci-tests.test.mjs', 'tools/nx-cac
 pnpm('boundaries');
 pnpm('check');
 pnpm('build');
+pnpm('site:build');
+run(process.execPath, ['--test', 'tools/marketing/freshness.test.mjs']);
 run('git', ['diff', '--exit-code']);
 const projects = JSON.parse(run('pnpm', ['exec', 'nx', 'show', 'projects', '--withTarget=test', '--json'], true));
 if (!Array.isArray(projects) || !projects.length) throw new Error('Nx found no test projects');
@@ -49,6 +51,14 @@ writeFileSync('artifacts/manifest.json', JSON.stringify({
 }, null, 2) + '\n');
 
 if (process.env.CHACHING_CI_SUBPATH === '1') {
+  pnpm('exec', 'nx', 'run-many', '-t', 'build', '--projects=cli,web', '--skip-nx-cache');
+  run(process.execPath, ['tools/assemble-package.mjs']);
+  mkdirSync('artifacts/rebuilt');
+  pnpm('--dir', 'dist/chaching', 'pack', '--pack-destination', resolve('artifacts/rebuilt'));
+  if (!readFileSync(`artifacts/${archive}`).equals(readFileSync(`artifacts/rebuilt/${archive}`))) {
+    throw new Error('Uncached rebuild changed the tested package bytes; release recovery would fail');
+  }
+  rmSync('artifacts/rebuilt', { recursive: true });
   delete environment.CHACHING_PACKAGE_TARBALL;
   environment.CHACHING_BASE_PATH = '/ci-subpath';
   pnpm('build:sk');

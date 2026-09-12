@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0e0d0b">
+  <title>{{title}} · Chaching!</title>
+  <meta name="description" content="A local cash register for your coding agents. Watch token spend in your terminal or browser, see cache savings, and get a receipt.">
+  <link rel="canonical" href="https://chaching.fyi/{{path}}">
+  <meta property="og:title" content="{{title}} · Chaching!">
+  <meta property="og:description" content="A local cash register for the money your coding agents are quietly setting on fire.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://chaching.fyi/shots/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/space-grotesk-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/brand.css">
+  <link rel="stylesheet" href="/src/style.css">
+  <script type="module" src="/src/main.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header wrap">
+    <a class="brand" href="/" aria-label="Chaching home"><img src="/logo.svg" alt="Chaching!" width="205" height="40"></a>
+    <nav aria-label="Main navigation"><a href="/docs/">Docs</a><a href="/changelog/">Changelog</a><a href="https://github.com/rbutera/chaching">GitHub <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 17 17 7M7 7h10v10"/></svg></a></nav>
+  </header>
+  <main id="main" class="{{mainClass}}">{{content}}</main>
+  <footer class="site-footer wrap">
+    <a class="brand" href="/" aria-label="Chaching home"><img src="/logo.svg" alt="Chaching!" width="170" height="34" loading="lazy"></a>
+    <p>PolyForm Noncommercial. <a href="/licence/">Licence</a> · <a href="mailto:rai@rbutera.com">Commercial licensing</a></p>
+    <a href="https://github.com/rbutera/chaching">Made by Rai. Source on GitHub.</a>
+  </footer>
+  <p class="copy-status sr-only" role="status" aria-live="polite"></p>
+</body>
+</html>
