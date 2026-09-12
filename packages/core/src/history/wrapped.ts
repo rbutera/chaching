@@ -1,9 +1,15 @@
+import { isNoKey } from '../ingest/dedup';
+import { isPoolGlobalUsage } from '../sync/record-key';
 import type { SessionDay, UsageRecord } from '@chaching/shared/types';
+
+export function hasSessionEvidence(record: UsageRecord): boolean {
+	return !!record.sessionId && !isNoKey(record.key) && !isPoolGlobalUsage(record);
+}
 
 export function sessionActivity(records: Iterable<UsageRecord>): Map<string, SessionDay[]> {
 	const sessions = new Map<string, Map<string, SessionDay>>();
 	for (const record of records) {
-		if (record.key.startsWith('cursor:') || !record.sessionId) continue;
+		if (!hasSessionEvidence(record)) continue;
 		const key = JSON.stringify([record.provider, record.sessionId]);
 		const days = sessions.get(key) ?? new Map<string, SessionDay>();
 		const dayKey = JSON.stringify([record.day, record.project]);

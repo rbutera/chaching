@@ -19,6 +19,8 @@ it('retains actual days across restart and partial rescans, without fabricating 
 		const records = [record('opencode:one', '2025-12-31'), record('opencode:two', '2026-01-02'), record('opencode:three', '2026-01-02', null)];
 		for (const row of records) store.retainWrappedEvidence(row);
 		store.retainWrappedEvidence(record('cursor:admin', '2026-01-01', 10000));
+		store.retainWrappedEvidence(record('__nokey__:0', '2026-01-01', 10000));
+		expect(sessionActivity([record('__nokey__:1', '2026-01-01')]).size).toBe(0);
 		store.close(); store.open(path);
 		store.retainWrappedEvidence(records[1]);
 		const saved = store.loadWrappedEvidence();

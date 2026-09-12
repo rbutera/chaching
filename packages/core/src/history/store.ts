@@ -1,3 +1,4 @@
+import { hasSessionEvidence } from './wrapped';
 // Durable local history: finalized aggregates plus record-level monetary evidence.
 // Current-day contributions are retained before publication; frozen legacy aggregates
 // remain authoritative when they have no proven record identities.
@@ -405,7 +406,7 @@ export class HistoryStore {
 	}
 
 	retainWrappedEvidence(record: UsageRecord): void {
-		if (record.key.startsWith('cursor:') || !record.sessionId) return;
+		if (!hasSessionEvidence(record)) return;
 		this.require().prepare(`INSERT INTO wrapped_evidence
 			(provider, record_key, day, session_id, project, cost) VALUES (?, ?, ?, ?, ?, ?)
 			ON CONFLICT(provider, record_key) DO NOTHING`)

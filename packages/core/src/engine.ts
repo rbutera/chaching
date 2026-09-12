@@ -1,5 +1,5 @@
 import type { SessionActivity } from '@chaching/shared/types';
-import { sessionActivity } from './history/wrapped';
+import { sessionActivity, hasSessionEvidence } from './history/wrapped';
 // Framework-free ingestion engine. ONE cold scan per engine (not per request),
 // then per-provider liveness: claude is tailed via fs.watch (recursive) + an
 // mtime-poll fallback; codex + opencode are re-polled incrementally on an interval
@@ -787,6 +787,7 @@ class Ingestion {
 	}
 
 	private captureWrappedRecord(record: UsageRecord): UsageRecord {
+		if (!hasSessionEvidence(record)) return record;
 		if (this.historyStore) this.historyStore.retainWrappedEvidence(record);
 		else this.wrappedRecords.set(JSON.stringify([record.provider, record.key]), record);
 		return record;
