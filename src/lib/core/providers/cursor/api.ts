@@ -60,6 +60,7 @@ export function cursorEventToRecord(event: CursorUsageEvent): UsageRecord {
 		sessionId: `cursor:${event.timestamp}:${owner}`,
 		project: owner,
 		isSidechain: Boolean(event.isHeadless),
+		reportedCost: true,
 		cost: event.chargedCents / 100
 	};
 }

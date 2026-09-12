@@ -99,6 +99,7 @@ export function parseLine(line: string, ctx: ParseContext): UsageRecord | null {
 	return {
 		key: makeKey(msg.id ?? null, obj.requestId ?? null),
 		provider: 'claude',
+		billingProvider: 'anthropic',
 		timestamp: ts,
 		day,
 		model,

@@ -59,6 +59,11 @@ export class BlockAccumulator {
 		b.cost += cost;
 	}
 
+	correctCost(timestamp: number, delta: number): void {
+		const block = this.blocks.get(Math.floor(timestamp / FIVE_HOURS_MS) * FIVE_HOURS_MS);
+		if (block) block.cost += delta;
+	}
+
 	snapshot(now: number): BlockSummary[] {
 		return [...this.blocks.values()]
 			.map((b) => ({ ...b, tokens: { ...b.tokens }, isActive: now < b.endTs }))

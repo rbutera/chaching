@@ -18,8 +18,8 @@ export async function runSync(argv: string[]): Promise<void> {
 		try {
 			const before = await store.readSchemaVersion();
 			if (rest.includes('--migrate')) {
-				if (before !== 2 && before !== 3 && before !== SCHEMA_VERSION)
-					throw new Error(`Schema migration requires version 2, 3 or ${SCHEMA_VERSION}; found ${before ?? 'missing'}.`);
+				if (before !== 2 && before !== 3 && before !== 4 && before !== SCHEMA_VERSION)
+					throw new Error(`Schema migration requires version 2, 3, 4 or ${SCHEMA_VERSION}; found ${before ?? 'missing'}.`);
 				await store.open();
 			}
 			console.log(JSON.stringify({ before, version: await store.readSchemaVersion(), target: SCHEMA_VERSION }));

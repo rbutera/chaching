@@ -14,13 +14,13 @@
 	const WRITE = tokens.cache.write.hex; // billed writes
 
 	let hasReads = $derived(breakdown.cacheReadTokens > 0);
-	let billedTotal = $derived(breakdown.cacheReadCost + breakdown.cacheWriteCost);
+	let billedTotal = $derived(breakdown.cacheReadCost === null || breakdown.cacheWriteCost === null ? null : breakdown.cacheReadCost + breakdown.cacheWriteCost);
 </script>
 
 <div class="cache-panel" style={`--read:${READ};--write:${WRITE}`}>
 	<div class="head">
 		<h2 class="title">Cache — billed, not free</h2>
-		<span class="billed-total num" title="Total billed cache cost in this scope">{money(billedTotal)}</span>
+		<span class="billed-total num" title="Total billed cache cost in this scope">{billedTotal === null ? '—' : money(billedTotal)}</span>
 	</div>
 	<p class="blurb">
 		Cache reads are charged at the cache-read rate and writes at the cache-write rate. Cheaper than
@@ -32,20 +32,20 @@
 			<span class="dot read" aria-hidden="true"></span>
 			<span class="label">Cache reads <span class="muted">billed</span></span>
 			<span class="tok num">{compactTokens(breakdown.cacheReadTokens)}</span>
-			<span class="cost num">{money(breakdown.cacheReadCost)}</span>
+			<span class="cost num">{breakdown.cacheReadCost === null ? '—' : money(breakdown.cacheReadCost)}</span>
 		</li>
 		<li class="row">
 			<span class="dot write" aria-hidden="true"></span>
 			<span class="label">Cache writes <span class="muted">billed</span></span>
 			<span class="tok num">{compactTokens(breakdown.cacheWriteTokens)}</span>
-			<span class="cost num">{money(breakdown.cacheWriteCost)}</span>
+			<span class="cost num">{breakdown.cacheWriteCost === null ? '—' : money(breakdown.cacheWriteCost)}</span>
 		</li>
 	</ul>
 
 	<div class="saved">
 		{#if hasReads}
 			<span class="saved-label">Saved vs uncached</span>
-			<span class="saved-val num">{money(breakdown.savedVsUncached)}</span>
+			<span class="saved-val num">{breakdown.savedVsUncached === null ? '—' : money(breakdown.savedVsUncached)}</span>
 		{:else}
 			<span class="saved-label muted">No cache reads in this period</span>
 			<span class="saved-val num muted">{money(0)}</span>

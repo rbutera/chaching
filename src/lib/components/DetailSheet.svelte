@@ -29,7 +29,7 @@
 		zeroTokens,
 		type ModelTotal
 	} from '$lib/core/aggregate';
-	import { resolvePriceClient } from '$lib/pricing-client';
+	import type { MonetaryComponents } from '$lib/core/pricing/catalog';
 
 	let {
 		drill,
@@ -58,6 +58,7 @@
 				crumb: `Session · ${s.sessionId.slice(0, 8)}`,
 				tokens: s.tokens,
 				cost: s.cost,
+				monetary: s.monetary,
 				requests: s.requests,
 				timeRange: fmtTimeRange(s.firstTs, s.lastTs),
 				models: s.models,
@@ -81,6 +82,7 @@
 			crumb: `Period · ${from}${to && to !== from ? ` → ${to}` : ''}`,
 			tokens: totals.tokens,
 			cost: totals.cost,
+			monetary: undefined,
 			requests: totals.requests,
 			timeRange: from === to ? from : `${from} → ${to}`,
 			models: modelTotals.map((m) => m.model),
@@ -113,26 +115,27 @@
 	let totalTok = $derived(totalTokens(slice.tokens));
 	let delta = $derived(slice.prior ? pctDelta(slice.cost, slice.prior.cost) : null);
 
-	// cost-math lines per model (input/output/cache × rate)
+	// Retained monetary components explain the stored total.
 	let costMath = $derived.by(() => {
 		const list = slice.modelTotals;
-		const tokenSet: { model: string; tokens: TokenCounts; cost: number }[] = list
-			? list.map((m) => ({ model: m.model, tokens: m.tokens, cost: m.cost }))
+		const tokenSet: { model: string; tokens: TokenCounts; cost: number; monetary?: MonetaryComponents }[] = list
+			? list.map((m) => ({ model: m.model, tokens: m.tokens, cost: m.cost, monetary: m.monetary }))
 			: slice.models.length === 1
-				? [{ model: slice.models[0], tokens: slice.tokens, cost: slice.cost }]
+				? [{ model: slice.models[0], tokens: slice.tokens, cost: slice.cost, monetary: slice.monetary }]
 				: [];
 		return tokenSet.map((row) => {
-			const p = resolvePriceClient(row.model);
+			const p = row.monetary;
 			return {
 				model: row.model,
 				cost: row.cost,
 				lines: p
 					? [
-							{ k: 'input', n: row.tokens.input, rate: p.input },
-							{ k: 'output', n: row.tokens.output, rate: p.output },
-							{ k: 'cache write', n: row.tokens.cacheCreation, rate: p.cacheCreation },
-							{ k: 'cache read', n: row.tokens.cacheRead, rate: p.cacheRead }
-						].filter((l) => l.n > 0)
+							{ k: 'input', n: row.tokens.input, cost: p.input },
+							{ k: 'output', n: row.tokens.output, cost: p.output },
+							{ k: 'cache write', n: row.tokens.cacheCreation, cost: p.cacheCreation },
+							{ k: 'cache read', n: row.tokens.cacheRead, cost: p.cacheRead },
+							{ k: 'tools', n: 0, cost: p.tools }
+						].filter((l) => l.n > 0 || l.cost > 0)
 					: null
 			};
 		});
@@ -256,14 +259,12 @@
 									<tr>
 										<td>{l.k}</td>
 										<td class="num">{int(l.n)}</td>
-										<td class="num">× ${(l.rate * 1e6).toFixed(2)}/M</td>
-										<td class="num">{moneyPrecise(l.n * l.rate)}</td>
+
+										<td class="num">{moneyPrecise(l.cost)}</td>
 									</tr>
 								{/each}
 							</tbody>
 						</table>
-					{:else}
-						<p class="unknown">No price for this model — cost shown as unknown.</p>
 					{/if}
 				</div>
 			{/each}

@@ -56,7 +56,12 @@ const HAIKU: PriceEntry = {
 	cache_read_input_token_cost: 1e-7
 };
 
-function gpt56(input: number, output: number, cacheWrite: number, cacheRead: number): PriceEntry {
+function gpt56(
+	input: number,
+	output: number,
+	cacheWrite: number,
+	cacheRead: number
+): PriceEntry {
 	return {
 		input_cost_per_token: input,
 		output_cost_per_token: output,
@@ -70,6 +75,9 @@ function gpt56(input: number, output: number, cacheWrite: number, cacheRead: num
 
 /** Exact-id overrides. Add a row here the moment a new model id appears unpriced. */
 export const PRICE_OVERRIDES: Record<string, PriceEntry> = {
+	'claude-fable-5-1': { ...FABLE, cache_read_input_token_cost: 2.5e-7 },
+	'claude-mythos-5-1': { ...FABLE, cache_read_input_token_cost: 2.5e-7 },
+	'gpt-6-astra': gpt56(1e-5, 5e-5, 1.25e-5, 1e-6),
 	'gpt-5.6-sol': gpt56(5e-6, 3e-5, 6.25e-6, 5e-7),
 	'gpt-5.6-terra': gpt56(2.5e-6, 1.5e-5, 3.125e-6, 2.5e-7),
 	'gpt-5.6-luna': gpt56(1e-6, 6e-6, 1.25e-6, 1e-7),

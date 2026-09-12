@@ -156,14 +156,14 @@ export function renderReceiptText(model: ReceiptModel, e: RenderTextEnv = {}): s
 	lines.push('');
 	lines.push(centre('cache — billed, not free'));
 	if (model.cacheCost.cacheReadTokens > 0) {
-		lines.push(subRow('cache reads (billed)', money(model.cacheCost.cacheReadCost)));
+		lines.push(subRow('cache reads (billed)', (model.cacheCost.cacheReadCost === null ? '—' : money(model.cacheCost.cacheReadCost))));
 		lines.push(C.dim(subRow(`  ${compactTokens(model.cacheCost.cacheReadTokens)} reads @ cache rate`, '')));
 	} else {
 		lines.push(subRow('cache reads (billed)', money(0)));
 		lines.push(C.dim('  no cache reads in this period'));
 	}
 	if (model.cacheCost.cacheWriteTokens > 0) {
-		lines.push(subRow('cache writes (billed)', money(model.cacheCost.cacheWriteCost)));
+		lines.push(subRow('cache writes (billed)', (model.cacheCost.cacheWriteCost === null ? '—' : money(model.cacheCost.cacheWriteCost))));
 		lines.push(C.dim(subRow(`  ${compactTokens(model.cacheCost.cacheWriteTokens)} writes @ create rate`, '')));
 	} else {
 		lines.push(subRow('cache writes (billed)', money(0)));

@@ -91,6 +91,7 @@ export function createPiLineParser(ctx: PiParserContext): PiLineParser {
 			return {
 				key,
 				provider: 'pi',
+				billingProvider: priceProvider,
 				timestamp: ts,
 				day: isoDayUTC(ts),
 				model,

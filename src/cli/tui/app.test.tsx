@@ -27,7 +27,8 @@ function dmWithCache(
 		tokens: { input: cost * 1000, output: 0, cacheCreation: 0, cacheRead },
 		requests,
 		cost,
-		costUnknownRequests: 0
+		costUnknownRequests: 0,
+		monetary: {input:0,output:0,cacheCreation:0,cacheRead:cacheRead*0.000001,tools:0,cacheReadUncached:cacheRead*0.000005}
 	};
 }
 

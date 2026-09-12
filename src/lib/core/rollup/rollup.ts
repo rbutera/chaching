@@ -14,10 +14,11 @@ import type {
 	TokenCounts,
 	UsageRecord
 } from '../../types';
-import { computeCost, getPricingMeta, hasPrice } from '../pricing/cost';
+import { computeCost, getPricingMeta } from '../pricing/cost';
 import type { TokenmaxxAggregate } from '../providers/tokenmaxx/sqlite';
 import { isoDayUTC } from '../ingest/parse';
 import { BlockAccumulator } from './blocks';
+import type { MonetaryComponents } from '../pricing/catalog';
 
 const KEY_SEP = '\u001f';
 
@@ -110,7 +111,76 @@ function zeroExtra(): DayModelExtra {
 	return { cacheCreation1h: 0, cacheCreation5m: 0, webSearchRequests: 0, webFetchRequests: 0 };
 }
 
+interface MonetaryState {
+	requests: number;
+	tokens: TokenCounts;
+	components: MonetaryComponents;
+	uncachedSum: number;
+	uncachedUnknown: number;
+}
+
 export class Rollup {
+	private monetaryDays = new Map<string, MonetaryState>();
+	private monetarySessions = new Map<string, MonetaryState>();
+
+	private retainMonetary(record: UsageRecord, sign = 1): void {
+		const valuation = record.valuation;
+		if (!valuation || valuation.kind === 'missing') return;
+		for (const [map, key] of [
+			[this.monetaryDays, recordKey(record.day, record.provider, record.model, record.machineId, record.accountId)],
+			[this.monetarySessions, sessionKey(record.provider, record.sessionId, record.machineId, record.accountId)]
+		] satisfies [Map<string, MonetaryState>, string][]) {
+			const entry = map.get(key) ?? { requests: 0, tokens: zeroTokens(), components: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, tools: 0 }, uncachedSum: 0, uncachedUnknown: 0 };
+			entry.requests += sign;
+			for (const field of ['input', 'output', 'cacheCreation', 'cacheRead', 'tools'] as const) entry.components[field] += sign * valuation.components[field];
+			for (const field of ['input', 'output', 'cacheCreation', 'cacheRead'] as const) entry.tokens[field] += sign * record.tokens[field];
+			entry.uncachedSum += sign * (valuation.components.cacheReadUncached ?? 0);
+			entry.uncachedUnknown += sign * Number(valuation.components.cacheReadUncached === undefined);
+			entry.components.cacheReadUncached = entry.uncachedUnknown > 0 ? undefined : entry.uncachedSum;
+			map.set(key, entry);
+		}
+	}
+
+	private dayMonetary(row: DayModelAgg): MonetaryComponents | undefined {
+		const entry = this.monetaryDays.get(recordKey(row.day, row.provider, row.model, row.machineId, row.accountId));
+		return entry?.requests === row.requests && (['input', 'output', 'cacheCreation', 'cacheRead'] as const).every(field => entry.tokens[field] === row.tokens[field]) ? { ...entry.components } : undefined;
+	}
+
+	/** Frozen totals already exist; restore their missing hourly evidence and unfinished sessions. */
+	restoreFrozenValuations(records: readonly UsageRecord[]): void {
+		const recovered = new Rollup();
+		for (const record of records) {
+			recovered.add(record);
+			this.retainMonetary(record);
+		}
+		for (const [key, hour] of recovered.hourModel) this.hourModel.set(key, hour);
+		for (const record of records) this.blockAccumulator.add(record);
+		for (const [key, session] of recovered.sessions) if (!this.sessions.has(key)) this.sessions.set(key, session);
+	}
+
+	correctValuation(before: UsageRecord, after: UsageRecord): void {
+		const delta = (after.cost ?? 0) - (before.cost ?? 0);
+		const unknown = Number(after.cost == null) - Number(before.cost == null);
+		const dmKey = recordKey(before.day, before.provider, before.model, before.machineId, before.accountId);
+		const sKey = sessionKey(before.provider, before.sessionId, before.machineId, before.accountId);
+		const hKey = hourKey(Math.floor(before.timestamp / HOUR_MS) * HOUR_MS, before.provider, before.model);
+		for (const row of [this.dayModel.get(dmKey), this.sessions.get(sKey), this.hourModel.get(hKey)]) {
+			if (row) { row.cost += delta; row.costUnknownRequests += unknown; }
+		}
+		this.totalCost += delta;
+		this.totalCostUnknown += unknown;
+		this.modelCost.set(before.model, (this.modelCost.get(before.model) ?? 0) + delta);
+		this.providerCost.set(before.provider, (this.providerCost.get(before.provider) ?? 0) + delta);
+		this.blockAccumulator.correctCost(before.timestamp, delta);
+		this.retainMonetary(before, -1);
+		this.retainMonetary(after);
+		if (![...this.dayModel.values()].some(row => row.model === before.model && row.costUnknownRequests > 0)) this.unknownPriceModels.delete(before.model);
+		this.dirtyAny = true;
+		this.dirtyDayModel.add(dmKey); this.dirtySessions.add(sKey);
+		this.pubDirtyDays.add(dayKey(before.day, before.provider, before.model));
+		this.pubDirtyHours.add(hKey); this.pubDirtySessions.add(sKey);
+	}
+
 	/** key: `${day}\u001f${provider}\u001f${model}` */
 	private dayModel = new Map<string, DayModelAgg>();
 	/** parallel per-day-model extras (1h/5m/web) — persisted on freeze, omitted from snapshot. */
@@ -200,12 +270,13 @@ export class Rollup {
 		// Skip records for days already frozen in the DB — the DB copy is authoritative.
 		if (this.skipFrozenDays.has(rec.day)) return;
 
+		this.retainMonetary(rec);
 		this.recordsCounted++;
 		this.dirtyAny = true;
 
 		const cost = rec.cost ?? 0;
 		const unknown = rec.cost == null ? 1 : 0;
-		if (rec.cost == null && !hasPrice(rec.model)) {
+		if (rec.cost == null) {
 			this.unknownPriceModels.add(rec.model);
 		}
 
@@ -438,6 +509,16 @@ export class Rollup {
 				};
 				this.dayModel.set(dmKey, dm);
 			}
+			if (a.monetary) {
+				const previous = this.monetaryDays.get(dmKey);
+				const components = { ...a.monetary };
+				if (previous) for (const field of ['input', 'output', 'cacheCreation', 'cacheRead', 'tools', 'cacheReadUncached'] as const) components[field] = (components[field] ?? 0) + (previous.components[field] ?? 0);
+				const tokens = { ...(previous?.tokens ?? zeroTokens()) }; addTokens(tokens, a.tokens);
+				const uncachedSum = (previous?.uncachedSum ?? 0) + (a.monetary.cacheReadUncached ?? 0);
+				const uncachedUnknown = (previous?.uncachedUnknown ?? 0) + Number(a.monetary.cacheReadUncached === undefined);
+				components.cacheReadUncached = uncachedUnknown ? undefined : uncachedSum;
+				this.monetaryDays.set(dmKey, { requests: (previous?.requests ?? 0) + a.requests, tokens, components, uncachedSum, uncachedUnknown });
+			}
 			addTokens(dm.tokens, a.tokens);
 			dm.requests += a.requests;
 			dm.cost += a.cost;
@@ -461,7 +542,7 @@ export class Rollup {
 			this.recordsCounted += a.requests;
 			this.modelCost.set(a.model, (this.modelCost.get(a.model) ?? 0) + a.cost);
 			this.providerCost.set(a.provider, (this.providerCost.get(a.provider) ?? 0) + a.cost);
-			if (a.costUnknownRequests > 0 && !hasPrice(a.model)) this.unknownPriceModels.add(a.model);
+			if (a.costUnknownRequests > 0) this.unknownPriceModels.add(a.model);
 			if (this.earliestDay == null || a.day < this.earliestDay) this.earliestDay = a.day;
 			if (this.latestDay == null || a.day > this.latestDay) this.latestDay = a.day;
 		}
@@ -469,6 +550,7 @@ export class Rollup {
 		for (const s of sessions) {
 			const key = sessionKey(s.provider, s.sessionId, s.machineId, s.accountId);
 			if (this.sessions.has(key)) continue; // finalized session already present; don't double-add
+			if (s.monetary) this.monetarySessions.set(key, { requests: s.requests, tokens: { ...s.tokens }, components: { ...s.monetary }, uncachedSum: s.monetary.cacheReadUncached ?? 0, uncachedUnknown: Number(s.monetary.cacheReadUncached === undefined) });
 			// Reconstruct modelCounts preserving the persisted most-used-first order via
 			// descending synthetic counts (real per-model counts aren't persisted).
 			const modelCounts = new Map<string, number>();
@@ -503,6 +585,7 @@ export class Rollup {
 			const extra = this.dayModelExtra.get(key) ?? zeroExtra();
 			aggregates.push({
 				...dm,
+			monetary: this.dayMonetary(dm),
 				tokens: { ...dm.tokens },
 				cacheCreation1h: extra.cacheCreation1h,
 				cacheCreation5m: extra.cacheCreation5m,
@@ -533,6 +616,7 @@ export class Rollup {
 		const extra = this.dayModelExtra.get(dmKey) ?? zeroExtra();
 		return {
 			...dm,
+			monetary: this.dayMonetary(dm),
 			tokens: { ...dm.tokens },
 			cacheCreation1h: extra.cacheCreation1h,
 			cacheCreation5m: extra.cacheCreation5m,
@@ -740,6 +824,7 @@ export class Rollup {
 			tokens: { ...s.tokens },
 			requests: s.requests,
 			cost: s.cost,
+			monetary: this.monetarySessions.get(sessionKey(s.provider, s.sessionId, s.machineId, s.accountId))?.requests === s.requests ? this.monetarySessions.get(sessionKey(s.provider, s.sessionId, s.machineId, s.accountId))?.components : undefined,
 			costUnknownRequests: s.costUnknownRequests,
 			models
 		};
@@ -770,7 +855,7 @@ export class Rollup {
 				cost: this.totalCost,
 				costUnknownRequests: this.totalCostUnknown
 			},
-			dayModel: [...this.dayModel.values()].map((d) => ({ ...d, tokens: { ...d.tokens } })),
+			dayModel: [...this.dayModel.values()].map((d) => ({ ...d, monetary: this.dayMonetary(d), tokens: { ...d.tokens } })),
 			sessions: [...this.sessions.values()]
 				.map((s) => this.sessionSummary(s))
 				.sort((a, b) => b.lastTs - a.lastTs),
@@ -807,7 +892,7 @@ export class Rollup {
 		const dayModel: DayModelAgg[] = [];
 		for (const k of this.dirtyDayModel) {
 			const dm = this.dayModel.get(k);
-			if (dm) dayModel.push({ ...dm, tokens: { ...dm.tokens } });
+			if (dm) dayModel.push({ ...dm, monetary: this.dayMonetary(dm), tokens: { ...dm.tokens } });
 		}
 		const sessions: SessionSummary[] = [];
 		for (const id of this.dirtySessions) {

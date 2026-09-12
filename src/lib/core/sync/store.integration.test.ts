@@ -226,7 +226,7 @@ suite('PostgresSyncStore aggregate ledger', () => {
 				`SELECT version FROM chaching_sync.schema_version WHERE id = 1`
 			);
 			expect(first.rowCount).toBe(1);
-			expect(Number(first.rows[0].version)).toBe(4);
+			expect(Number(first.rows[0].version)).toBe(5);
 
 			// A second, independent store opens against the already-migrated schema without error:
 			// the fast-path SELECT sees the current version and skips the DDL + advisory lock.
@@ -270,5 +270,26 @@ suite('PostgresSyncStore aggregate ledger', () => {
 			await storeA.close();
 			await storeB.close();
 		}
+	});
+});
+
+suite('retained monetary peer publication', () => {
+	it('replaces corrected day and session components under their existing owner', async () => {
+		const {a, storeA, storeB} = await pooledPair();
+		const monetary = {input:1,output:2,cacheCreation:3,cacheRead:4,tools:0,cacheReadUncached:9};
+		try {
+			await storeA.publishDayAggregates(scopeFor(a), [dayAgg('2026-09-10', {cost:10,monetary})]);
+			await storeA.publishSessions(scopeFor(a), [{...session('codex','priced'), cost:10, monetary}]);
+			const initial = await storeB.loadAggregates(null);
+			expect(initial.dayAggregates[0].monetary).toEqual(monetary);
+			expect(initial.sessions[0].monetary).toEqual(monetary);
+			const corrected = {...monetary, input:0.5};
+			await storeA.publishDayAggregates(scopeFor(a), [dayAgg('2026-09-10', {cost:9.5,monetary:corrected})]);
+			await storeA.publishSessions(scopeFor(a), [{...session('codex','priced'), cost:9.5, monetary:corrected}]);
+			const after = await storeB.loadAggregates(initial.watermark);
+			expect(after.dayAggregates).toHaveLength(1);
+			expect(after.dayAggregates[0]).toMatchObject({cost:9.5,monetary:corrected,tokens:initial.dayAggregates[0].tokens});
+			expect(after.sessions[0]).toMatchObject({cost:9.5,monetary:corrected});
+		} finally {await storeA.close();await storeB.close();}
 	});
 });

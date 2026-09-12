@@ -149,16 +149,12 @@ describe('buildReceipt — billed cache cost + subsidisation footer', () => {
 		codex: { enabled: true, tier: 'plus', monthlyUsd: 20 }
 	};
 
-	it('always exposes the billed cache-cost breakdown (reads + writes), from resolvePrice', () => {
+	it('keeps legacy cache costs unavailable while preserving total burn', () => {
 		const m = buildReceipt(snap, { now: FIXED_NOW });
-		const opus = resolvePrice('claude-opus-4-8')!;
-		// only opus carries cache reads (2M) in the fixture; unknown model excluded from cost
+		// Legacy fixture has no retained monetary components.
 		expect(m.cacheCost.cacheReadTokens).toBe(2_005_000); // opus 2M + unknown 5k tokens counted
-		expect(m.cacheCost.cacheReadCost).toBeCloseTo(2_000_000 * opus.cache_read_input_token_cost, 8);
-		expect(m.cacheCost.savedVsUncached).toBeCloseTo(
-			2_000_000 * (opus.input_cost_per_token - opus.cache_read_input_token_cost),
-			8
-		);
+		expect(m.cacheCost.cacheReadCost).toBeNull();
+		expect(m.cacheCost.savedVsUncached).toBeNull();
 		// TOTAL BURN is untouched by the breakdown
 		expect(m.totalBurn).toBeCloseTo(sumGrain(grain).cost, 10);
 	});

@@ -1,6 +1,6 @@
 # Coordinated pool upgrade
 
-This procedure upgrades schema 2 or 3 to 4 using the same migration as Chaching. It affects **every pool in the database**. Do not start upgraded clients before backup, and do not start old clients against schema 4. No live rollout has been performed for PR 31.
+This procedure upgrades schema 2, 3 or 4 to 5 using the same migration as Chaching. It affects **every pool in the database**. Do not start upgraded clients before backup, and do not start old clients against schema 5. No live rollout has been performed for PR 31.
 
 The executable is [pool-rollout.mjs](pool-rollout.mjs), shipped in the npm package. It requires Node 24.16+, `tar`, and PostgreSQL `psql`, `pg_dump`, `pg_restore` on PATH. Use PostgreSQL tools matching the server major version. Automated recovery supports a dedicated Chaching database, with no application tables, functions or types outside `chaching_sync`. Use the same database role for backup and restore. Keep the existing database roles available so saved grants can be restored.
 
@@ -69,7 +69,7 @@ node "$ROLLOUT_SCRIPT" migrate "$ROLLOUT_DIR"
 node "$ROLLOUT_SCRIPT" verify "$ROLLOUT_DIR"
 ```
 
-Migration calls `chaching sync schema --migrate --clients-stopped`. It does not start sync or publish usage. PostgreSQL applies the existing DDL in one transaction. Migration is repeatable with the same rollout directory. Both commands verify schema 4 and unchanged normalized row inventories. Changed fees, links, usage or machine membership fail verification instead of being accepted as the new baseline.
+Migration calls `chaching sync schema --migrate --clients-stopped`. It does not start sync or publish usage. PostgreSQL applies the existing DDL in one transaction. Migration is repeatable with the same rollout directory. Both commands verify schema 5 and unchanged normalized row inventories. Changed fees, links, usage or machine membership fail verification instead of being accepted as the new baseline.
 
 Only after verification succeeds, switch each stopped machine to the exact staged target artifact and restart the upgraded clients. Check `chaching doctor`, pool membership, Account fees, recent spend and quotas. Missing observations remain unavailable; Account spend filtering is intentionally unsupported. Preserve backups until the upgraded clients have been checked on every machine.
 

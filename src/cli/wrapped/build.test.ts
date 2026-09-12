@@ -169,7 +169,7 @@ describe('buildWrapped — top model + project + biggest day', () => {
 		const snap = snapFrom(julyGrain);
 		const m = buildWrapped(snap, { now: NOW });
 		expect(m.cache.cacheReadTokens).toBe(2_800_000);
-		expect(m.cache.savedVsUncached).toBeGreaterThan(0);
+		expect(m.cache.savedVsUncached).toBeNull();
 	});
 });
 

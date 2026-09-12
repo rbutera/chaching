@@ -159,6 +159,7 @@ describe('mcp tools — cache_efficiency', () => {
 	it('prices cache reads/writes at the resolved rate for a single-model window', () => {
 		// One model, one day (today) so the whole day/week/month window is deterministic.
 		const grain = [dm(TODAY, 'claude', OPUS, toks(1000, 2000, 500, 40000), 12, 5)];
+		grain[0].monetary = {input:0,output:0,tools:0,cacheRead:40000*opusPrice.cache_read_input_token_cost,cacheCreation:500*opusPrice.cache_creation_input_token_cost,cacheReadUncached:40000*opusPrice.input_cost_per_token};
 		const r = cacheEfficiency(ctx(grain), 'day') as Record<string, unknown>;
 		expect(r.cacheReadTokens).toBe(40000);
 		expect(r.cacheWriteTokens).toBe(500);
@@ -178,7 +179,7 @@ describe('mcp tools — cache_efficiency', () => {
 		>;
 		expect(r.unknownTokens).toBe(9000);
 		expect(r.hasUnknownPricing).toBe(true);
-		expect(r.cacheReadCost).toBe(0);
+		expect(r.cacheReadCost).toBeNull();
 		expect(r.readSavingsPct).toBeNull();
 	});
 });

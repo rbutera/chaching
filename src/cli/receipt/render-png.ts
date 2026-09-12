@@ -363,8 +363,8 @@ function receiptElement(model: ReceiptModel, markDataUri: string, arrowDataUri: 
 	// ── Cache is BILLED (preserved v1.6.0 section, dashed-rule idiom) ─────────
 	children.push(dashedRule());
 	children.push(centerLine('cache — billed, not free', { size: SIZE_SEC, color: PAPER.muted, letterSpacing: ls(10, 0.12), uppercase: true, marginTop: px(2) }));
-	children.push(lineItem('cache reads (billed)', null, money(model.cacheCost.cacheReadCost)));
-	children.push(lineItem('cache writes (billed)', null, money(model.cacheCost.cacheWriteCost)));
+	children.push(lineItem('cache reads (billed)', null, (model.cacheCost.cacheReadCost === null ? '—' : money(model.cacheCost.cacheReadCost))));
+	children.push(lineItem('cache writes (billed)', null, (model.cacheCost.cacheWriteCost === null ? '—' : money(model.cacheCost.cacheWriteCost))));
 
 	// ── Subtotals ────────────────────────────────────────────────────────────
 	if (model.subtotals.length > 0) {

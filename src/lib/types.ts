@@ -1,3 +1,5 @@
+import type { PricingCatalog, Valuation, MonetaryComponents } from './core/pricing/catalog';
+
 // Shared types for chaching — used by both the server ingester and the client UI.
 
 /** The four billable token classes from Claude Code's message.usage. */
@@ -12,6 +14,10 @@ export interface TokenCounts {
 export interface UsageRecord {
 	/** dedup key: `${message.id}:${requestId}` (or a synthetic key if either is null) */
 	key: string;
+	billingProvider?: string;
+	promptTokens?: number;
+	reportedCost?: boolean;
+	valuation?: Valuation;
 	provider: string;
 	timestamp: number; // epoch ms (UTC)
 	day: string; // YYYY-MM-DD (UTC)
@@ -45,6 +51,7 @@ export interface DayModelAgg {
 	requests: number;
 	cost: number; // 0 if unknown-price contributed (see costUnknownRequests)
 	costUnknownRequests: number;
+	monetary?: MonetaryComponents;
 }
 
 /** Per-session summary for the session index / drill-down. */
@@ -62,6 +69,7 @@ export interface SessionSummary {
 	requests: number;
 	cost: number;
 	costUnknownRequests: number;
+	monetary?: MonetaryComponents;
 	models: string[]; // model mix, most-used first
 }
 
@@ -98,6 +106,7 @@ export type CoverageMap = Record<string, DayCoverage>;
 
 /** The full snapshot pushed to the client over SSE on connect. */
 export interface RollupSnapshot {
+	pricing?: PricingCatalog;
 	generatedAt: number;
 	earliestDay: string | null;
 	latestDay: string | null;

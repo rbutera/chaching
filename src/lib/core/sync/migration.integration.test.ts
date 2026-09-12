@@ -45,6 +45,19 @@ suite('Account schema migration', () => {
 		`);
 	});
 
+	it('additively upgrades an Account v4 pool without changing retained usage', async () => {
+		const first = new PostgresSyncStore(url, 'pool', 'one');
+		await first.open(); await first.close();
+		await db.query('ALTER TABLE chaching_sync.machine_day_agg DROP COLUMN monetary');
+		await db.query('UPDATE chaching_sync.schema_version SET version=4');
+		const migrated = new PostgresSyncStore(url, 'pool', 'one');
+		try {
+			await migrated.open();
+			expect(await migrated.readSchemaVersion()).toBe(5);
+			expect((await db.query('SELECT cost, monetary FROM chaching_sync.machine_day_agg')).rows).toEqual([{cost:12.5,monetary:null}]);
+		} finally {await migrated.close();}
+	});
+
 	it('exposes a read-only schema command and explicit repeatable migration without starting sync', async () => {
 		const previousUrl = process.env.CHACHING_DATABASE_URL;
 		process.env.CHACHING_DATABASE_URL = url;
@@ -54,7 +67,7 @@ suite('Account schema migration', () => {
 			await expect(runSync(['schema', '--migrate'])).rejects.toThrow('Stop every client');
 			await runSync(['schema', '--migrate', '--clients-stopped']);
 			await runSync(['schema', '--migrate', '--clients-stopped']);
-			expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows[0].version).toBe(4);
+			expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows[0].version).toBe(5);
 			expect((await db.query('SELECT count(*) FROM chaching_sync.machine')).rows[0].count).toBe('2');
 		} finally {
 			if (previousUrl === undefined) delete process.env.CHACHING_DATABASE_URL;
@@ -64,7 +77,7 @@ suite('Account schema migration', () => {
 
 	it('preserves bills, links and aggregate rows across concurrent migration and rerun', async () => {
 		const stores = Array.from({ length: 3 }, () => new PostgresSyncStore(url, 'pool', 'one'));
-		const before = await db.query(`SELECT row_to_json(t) AS row FROM chaching_sync.machine_day_agg t UNION ALL SELECT row_to_json(t) FROM chaching_sync.machine_hour_agg t UNION ALL SELECT row_to_json(t) FROM chaching_sync.machine_session_agg t`);
+		const before = await db.query(`SELECT to_jsonb(t) - 'monetary' AS row FROM chaching_sync.machine_day_agg t UNION ALL SELECT to_jsonb(t) FROM chaching_sync.machine_hour_agg t UNION ALL SELECT to_jsonb(t) FROM chaching_sync.machine_session_agg t`);
 		try {
 			await Promise.all(stores.map(store => store.open()));
 			await stores[0].open();
@@ -75,9 +88,9 @@ suite('Account schema migration', () => {
 			]));
 			expect(status.accounts).toHaveLength(2);
 			expect(status.mappings).toHaveLength(2);
-			const after = await db.query(`SELECT row_to_json(t) AS row FROM chaching_sync.machine_day_agg t UNION ALL SELECT row_to_json(t) FROM chaching_sync.machine_hour_agg t UNION ALL SELECT row_to_json(t) FROM chaching_sync.machine_session_agg t`);
+			const after = await db.query(`SELECT to_jsonb(t) - 'monetary' AS row FROM chaching_sync.machine_day_agg t UNION ALL SELECT to_jsonb(t) FROM chaching_sync.machine_hour_agg t UNION ALL SELECT to_jsonb(t) FROM chaching_sync.machine_session_agg t`);
 			expect(after.rows).toEqual(before.rows);
-			expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows).toEqual([{ version: 4 }]);
+			expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows).toEqual([{ version: 5 }]);
 		} finally { await Promise.all(stores.map(store => store.close())); }
 	});
 
@@ -172,7 +185,7 @@ suite('Account schema migration', () => {
 			await oldClient.query('BEGIN');
 			await expect(oldClient.query(v3)).rejects.toThrow(/account_schema_min_version/);
 			await oldClient.query('ROLLBACK');
-			expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows[0].version).toBe(4);
+			expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows[0].version).toBe(5);
 			expect((await db.query("SELECT to_regclass('chaching_sync.subscription') AS old")).rows[0].old).toBeNull();
 		} finally { oldClient.release(); await store.close(); }
 	});
@@ -189,11 +202,11 @@ suite('Account schema migration', () => {
 	});
 
 	it('rejects a future schema without attempting downgrade', async () => {
-		await db.query('UPDATE chaching_sync.schema_version SET version=5');
+		await db.query('UPDATE chaching_sync.schema_version SET version=6');
 		const store = new PostgresSyncStore(url, 'pool', 'one');
 		try {
-			await expect(store.open()).rejects.toThrow('Unsupported pool schema version 5');
-			expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows[0].version).toBe(5);
+			await expect(store.open()).rejects.toThrow('Unsupported pool schema version 6');
+			expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows[0].version).toBe(6);
 		} finally { await store.close(); }
 	});
 });
