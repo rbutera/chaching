@@ -78,7 +78,7 @@
 	<StatCard
 		label="top model"
 		value={topModel ? modelLabel(topModel.model) : '—'}
-		accent={topModel ? modelColor(topModel.model) : 'var(--m-other)'}
+		accent={topModel ? modelColor(topModel.model, topModel.provider) : 'var(--m-other)'}
 		sub={topModel ? `${money(topModel.cost)} · ${compactTokens(totalTokens(topModel.tokens))}` : ''}
 	/>
 </section>

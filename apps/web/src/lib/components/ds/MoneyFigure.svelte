@@ -109,7 +109,7 @@
 		color: var(--text);
 	}
 	.gold {
-		color: var(--accent);
+		color: var(--accent-ink);
 	}
 	.save {
 		color: var(--good);

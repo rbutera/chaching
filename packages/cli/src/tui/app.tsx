@@ -23,7 +23,7 @@ import {
 import { filterDays } from '@chaching/shared/aggregate';
 import { applyDelta } from '@chaching/shared/merge';
 import { cacheCostBreakdown } from '@chaching/shared/pricing/cache-breakdown';
-import { ACCENT, DIM, PERIOD_LABEL, bannerLine, color, noColor, scanningLine, emptyLine } from './theme';
+import { ACCENT, DIM, FG, BG, WARN, PERIOD_LABEL, bannerLine, color, noColor, scanningLine, emptyLine } from './theme';
 import {
 	CapBlock,
 	HelpFooter,
@@ -241,7 +241,7 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 	if (loading && snapshot.dayModel.length === 0) {
 		const scanMsg = noArt ? 'cold-scanning transcripts… (q to quit)' : `${scanningLine()} (q to quit)`;
 		return (
-			<Box flexDirection="column" paddingX={1}>
+			<Box flexDirection="column" paddingX={1} backgroundColor={color(BG)}>
 				{banner ? (
 					<Text color={color(ACCENT)} bold>
 						{banner}
@@ -257,9 +257,9 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 		view.providerFilter.size > 0 ? ` · ${[...view.providerFilter].join(', ')}` : '';
 
 	return (
-		<Box flexDirection="column" paddingX={1}>
+		<Box flexDirection="column" paddingX={1} backgroundColor={color(BG)}>
 			{banner ? (
-				<Text color={color(ACCENT)} bold>
+				<Text color={color(FG)} bold>
 					{banner}
 				</Text>
 			) : null}
@@ -275,7 +275,7 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 
 			{empty ? (
 				<Box flexDirection="column" marginTop={1}>
-					<Text color={color('yellow')}>{noArt ? 'No data found.' : emptyLine()}</Text>
+					<Text color={color(WARN)}>{noArt ? 'No data found.' : emptyLine()}</Text>
 					<Text color={color(DIM)}>Run `chaching init` to configure providers and start tracking spend.</Text>
 				</Box>
 			) : (

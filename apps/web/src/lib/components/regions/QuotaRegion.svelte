@@ -66,7 +66,7 @@
 	small,p{color:var(--text-muted);font-size:11px}
 	.windows{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px}
 	.window{color:var(--good)}
-	.window.low{color:var(--accent)}
+	.window.low{color:var(--accent-ink)}
 	.window.exhausted{color:var(--bad)}
 	.limit{color:var(--bad)}
 	.window-head{display:flex;justify-content:space-between;gap:8px;align-items:baseline;margin-bottom:7px}

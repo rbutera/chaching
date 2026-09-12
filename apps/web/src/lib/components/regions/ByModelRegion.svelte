@@ -27,7 +27,7 @@
 	);
 	let modelRows = $derived(modelTotals.map(model => ({
 		id: model.model, name: modelLabel(model.model), detail: model.model,
-		cost: model.cost, tokens: totalTokens(model.tokens), count: model.requests, color: modelColor(model.model), costUnknownRequests: model.costUnknownRequests
+		cost: model.cost, tokens: totalTokens(model.tokens), count: model.requests, color: modelColor(model.model, model.provider), costUnknownRequests: model.costUnknownRequests
 	})));
 	let poolFilterActive = $derived(dash.machineFilter.size > 0);
 	// Five-hour blocks currently carry no attribution dimension. Suppress this one

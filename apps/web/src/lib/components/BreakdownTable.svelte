@@ -83,7 +83,7 @@
 	button{font:inherit;border:0;background:none;color:inherit;padding:4px 0;cursor:pointer;max-width:100%}
 	button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 	.name>span,.filter{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-	.filter[aria-pressed=true]{color:var(--accent)}
+	.filter[aria-pressed=true]{color:var(--accent-ink)}
 	small{display:block;color:var(--text-muted);font-size:10px;margin-top:2px}
 	.track{height:3px;background:var(--surface-3);margin-top:6px;border-radius:2px;overflow:hidden}
 	.track span{display:block;height:100%;transition:width 400ms ease}

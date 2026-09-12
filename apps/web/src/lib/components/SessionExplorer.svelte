@@ -295,7 +295,7 @@
 						>
 							<span class="dots" aria-hidden="true">
 								{#each r.models.slice(0, 3) as m (m)}
-									<span class="dot" style={`background:${modelColor(m)}`}></span>
+									<span class="dot" style={`background:${modelColor(m, r.session.provider)}`}></span>
 								{/each}
 							</span>
 							<span class="proj">
@@ -483,7 +483,7 @@
 	}
 	.badge.unknown {
 		background: color-mix(in srgb, var(--warn) 20%, var(--surface-2));
-		color: var(--warn);
+		color: var(--warn-ink);
 	}
 	.when {
 		font-size: 0.74rem;

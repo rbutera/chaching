@@ -36,7 +36,8 @@
 		"./voice/personality": "./src/voice/personality.ts",
 		"./config": "./src/config.ts",
 		"./voice/suppress": "./src/voice/suppress.ts",
-		"./voice": "./src/voice/index.ts"
+		"./voice": "./src/voice/index.ts",
+		"./brand/palettes": "./src/brand/palettes.ts"
 	},
 	"dependencies": {
 		"ansi-styles": "6.2.3",

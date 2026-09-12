@@ -38,7 +38,7 @@
 			model: d.data.model,
 			cost: d.data.cost,
 			path: gen(d) ?? '',
-			color: modelColor(d.data.model)
+			color: modelColor(d.data.model, d.data.provider)
 		}));
 	});
 
@@ -90,7 +90,7 @@
 					onclick={() => onToggle(m.model)}
 					aria-pressed={activeFilter.has(m.model)}
 				>
-					<span class="swatch" style={`background:${modelColor(m.model)}`}></span>
+					<span class="swatch" style={`background:${modelColor(m.model, m.provider)}`}></span>
 					<span class="lbl">{modelLabel(m.model)}</span>
 					<span class="val num">{money(m.cost)}</span>
 					<span class="pct num">{total > 0 ? Math.round((m.cost / total) * 100) : 0}%</span>

@@ -66,6 +66,6 @@
 		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
 	}
 	button.clear {
-		color: var(--accent);
+		color: var(--accent-ink);
 	}
 </style>

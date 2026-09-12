@@ -15,6 +15,8 @@ import type { ProjectTotal } from '@chaching/shared/view-model';
 import { compactTokens, int, money, modelLabel, providerLabel } from '@chaching/shared/format';
 import {
 	ACCENT,
+	WARN,
+	FG,
 	DIM,
 	GOOD,
 	color,
@@ -74,7 +76,7 @@ export function SummaryCards({
 		<Box flexWrap="wrap" gap={4}>
 			{/* register total */}
 			<Box flexDirection="column">
-				<Text>
+				<Text color={color(FG)}>
 					<Text color={color(DIM)}>$</Text>
 					<Text color={color(ACCENT)} bold>
 						{money(shownCost).replace(/^\$/, '')}
@@ -89,9 +91,9 @@ export function SummaryCards({
 			{/* lifetime — the long-haul ladder (only when present + non-zero tier) */}
 			{lifetimeCost != null ? (
 				<Box flexDirection="column">
-					<Text>
+					<Text color={color(FG)}>
 						<Text color={color(DIM)}>$</Text>
-						<Text bold>{money(lifetimeCost).replace(/^\$/, '')}</Text>
+						<Text color={color(FG)} bold>{money(lifetimeCost).replace(/^\$/, '')}</Text>
 						{lifeFlourish ? (
 							<Text color={ladderColorFor(lifetimeCost, LIFETIME_FLOURISHES)}>{`  ${lifeFlourish}`}</Text>
 						) : null}
@@ -102,7 +104,7 @@ export function SummaryCards({
 
 			{/* tokens */}
 			<Box flexDirection="column">
-				<Text>{compactTokens(toks)}</Text>
+				<Text color={color(FG)}>{compactTokens(toks)}</Text>
 				<Text color={color(DIM)}>TOKENS</Text>
 			</Box>
 
@@ -116,7 +118,7 @@ export function SummaryCards({
 
 			{/* top model */}
 			<Box flexDirection="column">
-				<Text color={color(topModel ? modelColorName(topModel.model) : DIM)}>
+				<Text color={color(topModel ? modelColorName(topModel.model, topModel.provider) : DIM)}>
 					{topModel ? modelLabel(topModel.model) : '—'}
 				</Text>
 				<Text color={color(DIM)}>{topModel ? `TOP MODEL · ${money(topModel.cost)}` : 'TOP MODEL'}</Text>
@@ -142,10 +144,10 @@ function BreakdownRow({
 	off?: boolean;
 }) {
 	return (
-		<Text dimColor={off}>
+		<Text color={color(FG)} dimColor={off}>
 			<Text color={color(colorHex)}>{'● '}</Text>
-			<Text>{name.padEnd(16)}</Text>
-			<Text bold>{money(cost).padStart(10)}</Text>
+			<Text color={color(FG)}>{name.padEnd(16)}</Text>
+			<Text color={color(FG)} bold>{money(cost).padStart(10)}</Text>
 			<Text color={color(DIM)}>{`  ${compactTokens(tokens).padStart(7)} tok  ${int(requests).padStart(6)} req`}</Text>
 		</Text>
 	);
@@ -188,7 +190,7 @@ export function ModelBreakdown({ models, topN }: { models: ModelTotal[]; topN: n
 			{top.map((m) => (
 				<BreakdownRow
 					key={m.model}
-					colorHex={modelColorName(m.model)}
+					colorHex={modelColorName(m.model, m.provider)}
 					name={modelLabel(m.model)}
 					cost={m.cost}
 					tokens={totalTokens(m.tokens)}
@@ -218,10 +220,10 @@ export function ProjectBreakdown({ projects, topN }: { projects: ProjectTotal[];
 		<Box flexDirection="column">
 			<Text color={color(DIM)}>{`BY PROJECT (top ${top.length}) · whole sessions in window`}</Text>
 			{top.map((p) => (
-				<Text key={p.isUnknown ? 'unknown' : `project:${p.project}`} dimColor={p.isUnknown}>
+				<Text color={color(FG)} key={p.isUnknown ? 'unknown' : `project:${p.project}`} dimColor={p.isUnknown}>
 					<Text color={color(p.isUnknown ? DIM : providerColorName(p.providers[0] ?? ''))}>{'● '}</Text>
-					<Text>{truncatePad(p.display, 16)}</Text>
-					<Text bold>{money(p.cost).padStart(10)}</Text>
+					<Text color={color(FG)}>{truncatePad(p.display, 16)}</Text>
+					<Text color={color(FG)} bold>{money(p.cost).padStart(10)}</Text>
 					<Text color={color(DIM)}>{`  ${compactTokens(totalTokens(p.tokens)).padStart(7)} tok  ${int(p.sessionCount).padStart(4)} sess`}</Text>
 				</Text>
 			))}
@@ -284,7 +286,7 @@ export function CapBlock({ block, now, noArt = false }: { block: BlockSummary | 
 	const flourish = !noArt ? [tier.emoji, tier.remark].filter(Boolean).join(' ') : '';
 	return (
 		<Box flexDirection="column">
-			<Text>
+			<Text color={color(FG)}>
 				<Text color={color(ACCENT)}>{gaugeBar(span > 0 ? elapsed / span : 0, 20)}</Text>
 				<Text color={color(ACCENT)} bold>
 					{`  ${money(block.cost)}`}
@@ -317,7 +319,7 @@ export function ProviderFilterRow({
 			{providers.map((p, i) => {
 				const on = allActive || active.has(p.provider);
 				return (
-					<Text key={p.provider}>
+					<Text color={color(FG)} key={p.provider}>
 						<Text color={color(DIM)}>{`[${i + 1}]`}</Text>
 						<Text color={on ? color(providerColorName(p.provider)) : color(DIM)} dimColor={!on} bold={on}>
 							{` ${providerLabel(p.provider)}`}
@@ -346,13 +348,13 @@ export function HelpFooter() {
 	return (
 		<Text color={color(DIM)}>
 			<Key>d w m Q a</Key>
-			<Text>{' period · '}</Text>
+			<Text color={color(FG)}>{' period · '}</Text>
 			<Key>1-9</Key>
-			<Text>{' toggle provider · '}</Text>
+			<Text color={color(FG)}>{' toggle provider · '}</Text>
 			<Key>0</Key>
-			<Text>{' clear · '}</Text>
+			<Text color={color(FG)}>{' clear · '}</Text>
 			<Key>q</Key>
-			<Text>{' quit'}</Text>
+			<Text color={color(FG)}>{' quit'}</Text>
 		</Text>
 	);
 }
@@ -361,7 +363,7 @@ export function HelpFooter() {
 export function TooSmall({ columns, rows }: { columns: number; rows: number }) {
 	return (
 		<Box flexDirection="column">
-			<Text color={color('yellow')}>Terminal too small</Text>
+			<Text color={color(WARN)}>Terminal too small</Text>
 			<Text color={color(DIM)}>{`${columns}×${rows} — need at least 40×12. Resize or run \`chaching stats\`.`}</Text>
 		</Box>
 	);

@@ -80,7 +80,7 @@
 	.line.emphasis {
 		font-size: var(--text-md);
 		font-weight: var(--fw-bold);
-		color: var(--accent);
+		color: var(--accent-ink);
 		text-transform: uppercase;
 		letter-spacing: var(--tracking-wide);
 	}

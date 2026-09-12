@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { money, modelColor, modelFamily, modelLabel, providerLabel, hueOf } from '@chaching/shared/format';
+import { money, modelHex, modelFamily, modelLabel, providerLabel, hueOf } from '@chaching/shared/format';
 import { tokens } from '@chaching/shared/brand/tokens';
 
 describe('modelFamily', () => {
@@ -35,7 +35,7 @@ describe('family-anchor parity', () => {
 			const tokenHue = hueOf(tokens.models[fam].hex);
 			const ids = Array.from({ length: 400 }, (_, i) => `${fam}-model-${i}`);
 			const hues = ids.map((id) => {
-				const m = modelColor(id).match(/hsl\((\d+)deg/);
+				const m = modelHex(id).match(/hsl\((\d+)deg/);
 				expect(m).not.toBeNull();
 				return Number(m![1]);
 			});

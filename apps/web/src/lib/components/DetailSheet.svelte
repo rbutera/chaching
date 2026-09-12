@@ -111,7 +111,8 @@
 		return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 	}
 
-	let primaryColor = $derived(modelColor(slice.models[0] ?? 'other'));
+	const providerFor = (model: string) => drill.kind === 'session' ? drill.session?.provider : slice.modelTotals?.find(row => row.model === model)?.provider;
+	let primaryColor = $derived(modelColor(slice.models[0] ?? 'other', providerFor(slice.models[0] ?? 'other')));
 	let totalTok = $derived(totalTokens(slice.tokens));
 	let delta = $derived(slice.prior ? pctDelta(slice.cost, slice.prior.cost) : null);
 
@@ -211,7 +212,7 @@
 				<ul class="mix">
 					{#each drill.session.models as m (m)}
 						<li class="mix-swatch-row">
-							<span class="swatch" style={`background:${modelColor(m)}`}></span>
+							<span class="swatch" style={`background:${modelColor(m, providerFor(m))}`}></span>
 							<span class="mname">{modelLabel(m)}</span>
 						</li>
 					{/each}
@@ -233,7 +234,7 @@
 				<ul class="mix">
 					{#each slice.modelTotals as m (m.model)}
 						<li>
-							<span class="swatch" style={`background:${modelColor(m.model)}`}></span>
+							<span class="swatch" style={`background:${modelColor(m.model, m.provider)}`}></span>
 							<span class="mname">{modelLabel(m.model)}</span>
 							<span class="mtok num">{compactTokens(totalTokens(m.tokens))}</span>
 							<span class="mcost num">{money(m.cost)}</span>
@@ -248,7 +249,7 @@
 			{#each costMath as cm (cm.model)}
 				<div class="math-model">
 					<div class="math-head">
-						<span class="swatch" style={`background:${modelColor(cm.model)}`}></span>
+						<span class="swatch" style={`background:${modelColor(cm.model, providerFor(cm.model))}`}></span>
 						<span>{modelLabel(cm.model)}</span>
 						<span class="math-total num">{money(cm.cost)}</span>
 					</div>
@@ -527,7 +528,7 @@
 	}
 	.unknown {
 		font-size: 0.78rem;
-		color: var(--warn);
+		color: var(--warn-ink);
 		margin: 0;
 	}
 	.timeline {

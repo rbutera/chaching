@@ -56,7 +56,7 @@ function hashString(s: string): number {
  * The hue is anchored to the model family then nudged per-id so two opus variants
  * read as related-but-distinct rather than identical.
  */
-export function modelColor(model: string): string {
+export function modelHex(model: string): string {
 	const fam = modelFamily(model);
 	const base = FAMILY_HUE[fam];
 	const h = hashString(model);
@@ -67,20 +67,17 @@ export function modelColor(model: string): string {
 	return `hsl(${hue}deg ${sat}% ${light}%)`;
 }
 
-/** Same as modelColor but as a concrete value usable anywhere CSS vars aren't. */
-export function modelHex(model: string): string {
-	return modelColor(model);
+/** Provider identity wins when present, including models used through Pi or Cursor. */
+export function modelProvider(model: string): string {
+	if (/^(claude-|opus|sonnet|haiku)/i.test(model)) return 'claude';
+	if (/^(gpt-|o[134](?:-|$)|codex)/i.test(model)) return 'codex';
+	return 'unknown';
 }
-
-const PROVIDER_COLOR: Record<string, string> = {
-	claude: 'var(--m-opus)',
-	codex: 'var(--m-sonnet)',
-	opencode: 'var(--good)',
-	cursor: 'var(--warn)'
-};
-
+export function modelColor(model: string, provider = modelProvider(model)): string {
+	return providerColor(provider);
+}
 export function providerColor(provider: string): string {
-	return PROVIDER_COLOR[provider] ?? 'var(--m-other)';
+	return `var(--p-${['claude', 'codex', 'pi', 'cursor', 'opencode'].includes(provider) ? provider : 'unknown'})`;
 }
 
 export function providerLabel(provider: string): string {

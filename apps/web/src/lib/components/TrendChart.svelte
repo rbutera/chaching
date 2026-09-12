@@ -69,7 +69,7 @@
 					const y1 = PAD.top + y(acc);
 					acc += s.cost;
 					const y0 = PAD.top + y(acc);
-					return { model: s.model, cost: s.cost, y: y0, h: Math.max(0, y1 - y0), color: modelColor(s.model) };
+					return { model: s.model, cost: s.cost, y: y0, h: Math.max(0, y1 - y0), color: modelColor(s.model, b.byModel.get(s.model)?.provider) };
 				});
 			return { bucket: b, x, w: barW, segs, total: b.cost, fill: barFill(b.coverage) };
 		});
@@ -199,7 +199,7 @@
 					<ul>
 						{#each tipRows as r (r.model)}
 							<li>
-								<span class="tip-sw" style={`background:${modelColor(r.model)}`}></span>
+								<span class="tip-sw" style={`background:${r.color}`}></span>
 								<span class="tip-lbl">{modelLabel(r.model)}</span>
 								<span class="tip-val num">{money(r.cost)}</span>
 							</li>

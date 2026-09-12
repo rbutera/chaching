@@ -8,7 +8,8 @@
 import { render } from 'ink';
 import { createEngine, type Engine } from '@chaching/core/engine';
 import { loadConfig } from '@chaching/core/config';
-import { noArt } from './theme';
+import { discoverTerminalTheme } from './terminal-theme';
+import { noArt, applyTerminalTheme } from './theme';
 import { DashboardApp, type DashboardSource } from './app';
 
 export interface RunDashboardOptions {
@@ -24,6 +25,7 @@ export async function runDashboard(opts: RunDashboardOptions = {}): Promise<void
 		return;
 	}
 
+	applyTerminalTheme(await discoverTerminalTheme());
 	const cfg = await loadConfig();
 	const engine: Engine = createEngine(cfg);
 

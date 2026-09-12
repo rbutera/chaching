@@ -165,7 +165,7 @@
 		color: var(--text-dim);
 	}
 	.scope {
-		color: var(--accent);
+		color: var(--accent-ink);
 	}
 	.hero-figure {
 		display: flex;
@@ -189,7 +189,7 @@
 		color: var(--text-dim);
 	}
 	.hero-coverage[data-coverage='partial'] {
-		color: var(--warn);
+		color: var(--warn-ink);
 	}
 	.hero-coverage-glyph {
 		font-size: 0.85em;

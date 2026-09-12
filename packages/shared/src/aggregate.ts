@@ -115,7 +115,7 @@ export interface PeriodBucket {
 	cost: number;
 	costUnknownRequests: number;
 	/** per-model breakdown within the bucket */
-	byModel: Map<string, { tokens: TokenCounts; cost: number; requests: number }>;
+	byModel: Map<string, { tokens: TokenCounts; cost: number; requests: number; provider?: string }>;
 	/** coverage provenance over the days contributing to this bucket */
 	coverage: CoverageSummary;
 }
@@ -178,9 +178,10 @@ export function aggregateByPeriod(
 
 		let m = b.byModel.get(dm.model);
 		if (!m) {
-			m = { tokens: zeroTokens(), cost: 0, requests: 0 };
+			m = { tokens: zeroTokens(), cost: 0, requests: 0, provider: dm.provider };
 			b.byModel.set(dm.model, m);
 		}
+		if (m.provider !== dm.provider) m.provider = 'unknown';
 		addInto(m.tokens, dm.tokens);
 		m.cost += dm.cost;
 		m.requests += dm.requests;
@@ -238,6 +239,7 @@ export function aggregateByPeriod(
 }
 
 export interface ModelTotal {
+	provider?: string;
 	monetary?: MonetaryComponents;
 	model: string;
 	tokens: TokenCounts;
@@ -259,9 +261,10 @@ export function aggregateByModel(dayModel: DayModelAgg[]): ModelTotal[] {
 	for (const dm of dayModel) {
 		let t = m.get(dm.model);
 		if (!t) {
-			t = { model: dm.model, tokens: zeroTokens(), cost: 0, requests: 0, monetary: dm.monetary ? {input:0,output:0,cacheCreation:0,cacheRead:0,tools:0, cacheReadUncached:0} : undefined };
+			t = { model: dm.model, provider: dm.provider, tokens: zeroTokens(), cost: 0, requests: 0, monetary: dm.monetary ? {input:0,output:0,cacheCreation:0,cacheRead:0,tools:0, cacheReadUncached:0} : undefined };
 			m.set(dm.model, t);
 		}
+		if (t.provider !== dm.provider) t.provider = 'unknown';
 		addInto(t.tokens, dm.tokens);
 		t.cost += dm.cost;
 		t.monetary = mergeMonetary(t.monetary, dm.monetary);

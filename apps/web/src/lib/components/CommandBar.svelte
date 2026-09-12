@@ -167,7 +167,7 @@
 		gap: 0.75rem;
 		flex-wrap: wrap;
 	}
-	.receipt-link { color: var(--accent); font-size: var(--text-xs); padding: 0.35rem 0; }
+	.receipt-link { color: var(--accent-ink); font-size: var(--text-xs); padding: 0.35rem 0; }
 	.receipt-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 	.period-wrap {
 		display: inline-flex;

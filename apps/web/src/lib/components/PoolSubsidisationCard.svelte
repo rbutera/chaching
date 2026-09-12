@@ -84,7 +84,7 @@
 		color: var(--text-muted);
 	}
 	.multiple {
-		color: var(--accent);
+		color: var(--accent-ink);
 		font-family: var(--font-num);
 		font-size: 1.5rem;
 	}
@@ -109,7 +109,7 @@
 		text-align: right;
 	}
 	.figures strong {
-		color: var(--accent);
+		color: var(--accent-ink);
 	}
 	.total {
 		display: grid;

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ThemePicker from '$lib/components/ThemePicker.svelte';
 	import { onMount } from 'svelte';
 	import type { SortingState } from '@tanstack/svelte-table';
 	import { resolve } from '$app/paths';
@@ -389,6 +390,7 @@
 				<h2>Settings</h2>
 				<section class="preferences" aria-labelledby="appearance-heading">
 					<h3 id="appearance-heading">Appearance</h3>
+				<ThemePicker />
 					<label><span>Personality<small>Remarks and emoji, including room to grow.</small></span><input type="checkbox" checked={!suppressArt} onchange={(event) => togglePersonality(event.currentTarget)}/></label>
 					<label><span>Animations<small>{systemReducedMotion ? 'Reduced motion is enabled in your system settings.' : suppressArt ? 'Paused while personality is off.' : 'Rolling numbers and moving charts.'}</small></span><input type="checkbox" checked={!reducedMotion && !suppressArt} disabled={systemReducedMotion || suppressArt} onchange={(event) => toggleMotion(event.currentTarget)}/></label>
 					<label><span>Celebrations<small>Chime and confetti at milestones.</small></span><input type="checkbox" checked={joyEnabled} disabled={suppressArt} onchange={toggleJoy}/></label>

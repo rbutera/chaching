@@ -66,6 +66,13 @@
 	}
 
 	/* solid fill — ink text by default, ink-on-gold for the accent tone */
+	.badge.accent:not(.solid) {
+		color: var(--accent-ink);
+	}
+	.badge.warn:not(.solid) {
+		color: var(--warn-ink);
+		border-color: var(--warn-ink);
+	}
 	.badge.solid {
 		background: var(--badge-c);
 		color: var(--ink-950);

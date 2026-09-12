@@ -401,7 +401,7 @@
 	}
 	.state.offline {
 		border-color: color-mix(in srgb, var(--warn) 50%, var(--border));
-		color: var(--warn);
+		color: var(--warn-ink);
 	}
 	.summary,
 	.settings,
@@ -419,7 +419,7 @@
 		border-top: 1px solid var(--border);
 	}
 	code {
-		color: var(--accent);
+		color: var(--accent-ink);
 		overflow-wrap: anywhere;
 	}
 	.sync-grid {
@@ -449,7 +449,7 @@
 		color: var(--text-dim);
 	}
 	.money {
-		color: var(--accent);
+		color: var(--accent-ink);
 		font-variant-numeric: tabular-nums;
 	}
 	.forms {
@@ -525,7 +525,7 @@
 	}
 	.warning {
 		margin-bottom: 0;
-		color: var(--warn);
+		color: var(--warn-ink);
 	}
 	.error {
 		color: var(--bad);
@@ -543,7 +543,7 @@
 	}
 	.leave-warn {
 		flex: 1 1 100%;
-		color: var(--warn);
+		color: var(--warn-ink);
 	}
 	.confirm-row {
 		display: flex;

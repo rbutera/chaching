@@ -9,6 +9,8 @@
 // All decorative copy (art, scanning lines, empty state, flourishes) lives in
 // src/cli/theme/personality.ts — this file is the Ink-specific wiring layer.
 
+import type { TerminalTheme } from './terminal-theme';
+import { modelProvider } from '@chaching/shared/format';
 import type { Period } from '@chaching/shared/types';
 import { tokens } from '@chaching/shared/brand/tokens';
 import { toAnsiMap } from '@chaching/shared/brand/generate';
@@ -64,37 +66,23 @@ export function color(name: string): string | undefined {
  * Provider → renderable color, sourced from the shared brand tokens. Returns the
  * token hex (Ink/chalk auto-downsample); mirrors the web providerColor intent.
  */
+let terminalTheme: TerminalTheme | undefined;
+export function applyTerminalTheme(theme: TerminalTheme): void {
+	terminalTheme = theme;
+	ACCENT = theme.accent; DIM = theme.dim; GOOD = theme.good; FG = theme.fg; BG = theme.bg; WARN = theme.warn;
+}
 export function providerColorName(provider: string): string {
-	switch (provider) {
-		case 'claude':
-			return ANSI.providers.claude.hex;
-		case 'codex':
-			return ANSI.providers.codex.hex;
-		case 'opencode':
-			return ANSI.providers.opencode.hex;
-		case 'cursor':
-			return ANSI.providers.cursor.hex;
-		default:
-			return ANSI.dim.hex;
-	}
+	return terminalTheme?.providers[provider] ?? terminalTheme?.providers.unknown ?? ANSI.dim.hex;
 }
-
-/**
- * Model family → renderable color, sourced from the shared brand tokens. Returns
- * the token hex (Ink/chalk auto-downsample); mirrors the web modelColor intent.
- */
-export function modelColorName(model: string): string {
-	if (/opus/i.test(model)) return ANSI.models.opus.hex;
-	if (/sonnet/i.test(model)) return ANSI.models.sonnet.hex;
-	if (/haiku/i.test(model)) return ANSI.models.haiku.hex;
-	return ANSI.models.other.hex;
+export function modelColorName(model: string, provider = modelProvider(model)): string {
+	return providerColorName(provider);
 }
-
-/** Brand accent — register-gold (brass), shared across web + CLI. */
-export const ACCENT = ANSI.accent.hex;
-export const DIM = ANSI.dim.hex;
-/** Status `good` — green; the `you saved` savings line (token-sourced, no literal hex). */
-export const GOOD = ANSI.good.hex;
+export let ACCENT = ANSI.accent.hex;
+export let DIM = ANSI.dim.hex;
+export let GOOD = ANSI.good.hex;
+export let FG = tokens.fg.fg.hex;
+export let BG = tokens.surfaces.bg.hex;
+export let WARN = tokens.status.warn.hex;
 export const SPARK_CHARS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'] as const;
 
 /**
@@ -135,7 +123,7 @@ export function ladderColorFor(amount: number, tiers: SpendFlourish[]): string |
 		lastIdx > 0
 			? Math.min(SPEND_LADDER.length - 1, Math.round((idx / lastIdx) * (SPEND_LADDER.length - 1)))
 			: 0;
-	return color(SPEND_LADDER[hueIdx].hex);
+	return color(terminalTheme?.spend[hueIdx] ?? SPEND_LADDER[hueIdx].hex);
 }
 
 /**

@@ -25,5 +25,5 @@
 </div>
 
 <style>
-	.range-nav{display:flex;align-items:center;gap:4px;font:var(--type-label)}button{background:none;border:0;color:var(--text);cursor:pointer;min-width:32px;min-height:32px;font:inherit}button:disabled{opacity:.35;cursor:default}label{position:relative;cursor:pointer;padding:8px 4px}input{position:absolute;inset:0;width:100%;opacity:0;color-scheme:dark}button:focus-visible,label:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+	.range-nav{display:flex;align-items:center;gap:4px;font:var(--type-label)}button{background:none;border:0;color:var(--text);cursor:pointer;min-width:32px;min-height:32px;font:inherit}button:disabled{opacity:.35;cursor:default}label{position:relative;cursor:pointer;padding:8px 4px}input{position:absolute;inset:0;width:100%;opacity:0;color-scheme:inherit}button:focus-visible,label:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 </style>

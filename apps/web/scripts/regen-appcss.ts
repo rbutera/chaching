@@ -1,11 +1,12 @@
 // One-shot: regenerate src/app.css from the typed tokens (generated color block)
 // plus the hand-authored non-color layers (fonts, type, spacing, .paper scope).
 // Run via `npx tsx scripts/regen-appcss.ts`. Safe to re-run (idempotent).
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tokens } from '@chaching/shared/brand/tokens';
 import { toCss } from '@chaching/shared/brand/generate';
+import { themesCss, themeBootstrap } from '@chaching/shared/brand/palettes';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const out = join(here, '..', 'src', 'app.css');
@@ -207,8 +208,12 @@ ${generated}
 /* ── Thermal-paper surface scope (cream world): receipts, light cards, print.
    Apply class="paper" (or data-surface="paper") to a container. Flips the
    semantics to the cream world while keeping accents/model hues legible. ── */
+${themesCss()}
+
 .paper,
 [data-surface='paper'] {
+${generated}
+	--warn-ink: #665000;
 	--bg: var(--cream-50);
 	--surface-1: var(--cream-50);
 	--surface-2: var(--cream-100);
@@ -227,6 +232,7 @@ ${generated}
 	--fg-dim: #8a8273;
 
 	--accent: var(--gold-700);
+	--accent-ink: var(--gold-700);
 	--accent-bright: var(--gold-600);
 	--accent-press: #7c560f;
 	--accent-soft: color-mix(in srgb, var(--gold-500) 22%, var(--cream-100));
@@ -279,7 +285,7 @@ p {
 }
 
 a {
-	color: var(--accent);
+	color: var(--accent-ink);
 	text-decoration: none;
 }
 a:hover {
@@ -362,3 +368,6 @@ samp {
 
 writeFileSync(out, css);
 console.log('wrote', out, `(${css.length} bytes)`);
+
+const htmlPath = join(here, '..', 'src', 'app.html');
+writeFileSync(htmlPath, readFileSync(htmlPath, 'utf8').replace(/<!-- THEME_BOOTSTRAP -->[\s\S]*?<!-- END_THEME_BOOTSTRAP -->/, `<!-- THEME_BOOTSTRAP --><script>${themeBootstrap()}</script><!-- END_THEME_BOOTSTRAP -->`));

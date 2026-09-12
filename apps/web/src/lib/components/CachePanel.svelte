@@ -75,7 +75,7 @@
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
-		color: var(--accent);
+		color: var(--accent-ink);
 		margin: 0;
 	}
 	.billed-total {

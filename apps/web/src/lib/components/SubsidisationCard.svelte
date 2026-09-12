@@ -117,7 +117,7 @@
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
-		color: var(--accent);
+		color: var(--accent-ink);
 		margin: 0;
 	}
 	.basis {
@@ -141,7 +141,7 @@
 		font-size: 2.4rem;
 		font-weight: 700;
 		line-height: 1;
-		color: var(--accent);
+		color: var(--accent-ink);
 		letter-spacing: -0.01em;
 	}
 	.headline-sub {
@@ -186,7 +186,7 @@
 	.prov-mult {
 		font-size: 1rem;
 		font-weight: 650;
-		color: var(--accent);
+		color: var(--accent-ink);
 	}
 	.prov-detail {
 		font-size: 0.74rem;

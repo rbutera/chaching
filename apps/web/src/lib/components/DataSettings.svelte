@@ -23,5 +23,5 @@
 	dl {display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px;margin:0}
 	dt,p {color:var(--text-muted);font-size:12px}
 	dd {margin:5px 0 0;font-variant-numeric:tabular-nums}
-	.warning {color:var(--warn);overflow-wrap:anywhere}
+	.warning {color:var(--warn-ink);overflow-wrap:anywhere}
 </style>
