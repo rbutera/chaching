@@ -1,12 +1,3 @@
-## 1.18.1 (2026-09-12)
-
-### Other changes
-
-- Refresh production dashboard and implement Account foundations \(\#31\) (459d379)
-- Refresh model pricing and repair historical estimates \(\#33\) (0c7c3b1)
-- Split chaching into isolated Nx workspaces \(\#34\) (5c48515)
-- Make release packages reproducible across uncached builds \(\#39\) (9f96e99)
-
 # Changelog
 
 All notable changes to chaching. Follows [semver](https://semver.org/); dates are UTC.
