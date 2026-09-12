@@ -1,0 +1,489 @@
+import { describe, expect, it, vi } from 'vitest';
+import { render } from 'ink-testing-library';
+import type { DayModelAgg, RollupDelta, RollupSnapshot, TokenCounts } from '@chaching/shared/types';
+import { DashboardApp, type DashboardSource } from './app';
+
+function toks(input: number): TokenCounts {
+	return { input, output: Math.floor(input / 2), cacheCreation: 0, cacheRead: 0 };
+}
+
+function dm(day: string, provider: string, model: string, cost: number, requests = 1): DayModelAgg {
+	return { day, provider, model, tokens: toks(cost * 1000), requests, cost, costUnknownRequests: 0 };
+}
+
+/** A grain row with cache-read tokens, so `cacheCostBreakdown` reports real savings. */
+function dmWithCache(
+	day: string,
+	provider: string,
+	model: string,
+	cost: number,
+	cacheRead: number,
+	requests = 1
+): DayModelAgg {
+	return {
+		day,
+		provider,
+		model,
+		tokens: { input: cost * 1000, output: 0, cacheCreation: 0, cacheRead },
+		requests,
+		cost,
+		costUnknownRequests: 0,
+		monetary: {input:0,output:0,cacheCreation:0,cacheRead:cacheRead*0.000001,tools:0,cacheReadUncached:cacheRead*0.000005}
+	};
+}
+
+function snapFrom(grain: DayModelAgg[]): RollupSnapshot {
+	const days = grain.map((g) => g.day).sort();
+	const totalCost = grain.reduce((a, g) => a + g.cost, 0);
+	const totalReq = grain.reduce((a, g) => a + g.requests, 0);
+	return {
+		generatedAt: 1,
+		earliestDay: days[0] ?? null,
+		latestDay: days[days.length - 1] ?? null,
+		totals: { tokens: toks(0), requests: totalReq, cost: totalCost, costUnknownRequests: 0 },
+		dayModel: grain,
+		sessions: [],
+		blocks: [],
+		models: [...new Set(grain.map((g) => g.model))],
+		providers: [...new Set(grain.map((g) => g.provider))],
+		unknownPriceModels: [],
+		stats: { filesScanned: 1, recordsCounted: grain.length, linesSkipped: 0, duplicatesSkipped: 0 },
+		cutoverTs: null,
+		coverage: {}
+	};
+}
+
+/** A snapshot carrying one active 5h block at `cost`, for the escalation flourish. */
+function snapWithBlock(cost: number, startTs = 0): RollupSnapshot {
+	const snap = snapFrom([dm('2026-06-19', 'codex', 'claude-opus-4-8', cost)]);
+	return {
+		...snap,
+		blocks: [
+			{
+				startTs,
+				endTs: startTs + 5 * 60 * 60 * 1000,
+				tokens: toks(0),
+				requests: 1,
+				cost,
+				isActive: true
+			}
+		]
+	};
+}
+
+function deltaFrom(snap: RollupSnapshot, extra: DayModelAgg[]): RollupDelta {
+	const merged = [...snap.dayModel, ...extra];
+	return {
+		generatedAt: snap.generatedAt + 1,
+		dayModel: extra,
+		sessions: [],
+		blocks: [],
+		totals: {
+			tokens: toks(0),
+			requests: merged.reduce((a, g) => a + g.requests, 0),
+			cost: merged.reduce((a, g) => a + g.cost, 0),
+			costUnknownRequests: 0
+		},
+		earliestDay: snap.earliestDay,
+		latestDay: extra.map((g) => g.day).sort().pop() ?? snap.latestDay,
+		models: [...new Set(merged.map((g) => g.model))],
+		providers: [...new Set(merged.map((g) => g.provider))],
+		unknownPriceModels: [],
+		stats: snap.stats,
+		coverage: snap.coverage
+	};
+}
+
+/** A controllable fake source: holds a snapshot, lets the test push deltas. */
+function makeSource(initial: RollupSnapshot) {
+	let snap = initial;
+	const listeners = new Set<(d: RollupDelta) => void>();
+	const dispose = vi.fn();
+	const unsubscribe = vi.fn();
+	const source: DashboardSource = {
+		snapshot: () => snap,
+		subscribe: (fn) => {
+			listeners.add(fn);
+			return () => {
+				listeners.delete(fn);
+				unsubscribe();
+			};
+		},
+		dispose
+	};
+	return {
+		source,
+		dispose,
+		unsubscribe,
+		push(delta: RollupDelta) {
+			snap = { ...snap }; // source.snapshot only read at mount; delta drives state
+			for (const fn of listeners) fn(delta);
+		}
+	};
+}
+
+const DIMS = { columns: 100, rows: 40 };
+const POPULATED = snapFrom([
+	dm('2026-06-19', 'codex', 'claude-opus-4-8', 10),
+	dm('2026-06-19', 'opencode', 'claude-sonnet-4-5', 4),
+	dm('2026-06-18', 'codex', 'claude-opus-4-8', 6)
+]);
+
+describe('DashboardApp', () => {
+	it('renders a populated snapshot: register total, breakdowns, trend, 5h block, keybar', () => {
+		const { source } = makeSource(POPULATED);
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain('TOTAL BURN'); // register total micro-label
+		expect(frame).toContain('it counts the cache hits too'); // header rule
+		expect(frame).toContain('BY PROVIDER');
+		expect(frame).toContain('Codex');
+		expect(frame).toContain('BY MODEL');
+		expect(frame).toContain('●'); // categorical dots lead the rows
+		expect(frame).toContain('trend');
+		expect(frame).toContain('5h block');
+		// keybar surfaces Q (quarter) + a (all), which the old footer omitted
+		expect(frame).toContain('d w m Q a');
+		expect(frame).toContain('period');
+		unmount();
+	});
+
+	it('renders the you-saved line in the good (green) hue when savings present', () => {
+		const grain = [dmWithCache('2026-06-19', 'codex', 'claude-opus-4-8', 10, 5_000_000)];
+		const { source } = makeSource(snapFrom(grain));
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain('YOU SAVED');
+		expect(frame).toContain('−$'); // U+2212 minus + savings figure (good/green hue via color(GOOD))
+		unmount();
+	});
+
+	it('does NOT fabricate a $0 you-saved line when no savings figure exists', () => {
+		// POPULATED has cacheRead: 0 everywhere → savedVsUncached === 0 → no line.
+		const { source } = makeSource(POPULATED);
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		expect(frame).not.toContain('YOU SAVED');
+		expect(frame).toContain('TOTAL BURN'); // total still renders
+		unmount();
+	});
+
+	it('updates on a pushed delta', async () => {
+		const { source, push } = makeSource(POPULATED);
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="day" noArt now={() => 0} dimensions={DIMS} />
+		);
+		// day scope: 2026-06-19 only => $14
+		expect(lastFrame()).toContain('$14');
+		push(deltaFrom(POPULATED, [dm('2026-06-19', 'cursor', 'claude-haiku-4-5', 6)]));
+		await new Promise((r) => setTimeout(r, 20));
+		expect(lastFrame()).toContain('$20'); // 14 + 6
+		unmount();
+	});
+
+	it('provider filter scopes all views and Σ scoped == unscoped', async () => {
+		const { source } = makeSource(POPULATED);
+		const { lastFrame, stdin, unmount } = render(
+			<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={DIMS} />
+		);
+		// unscoped weekly total = 20
+		expect(lastFrame()).toContain('$20');
+		// toggle provider [1] (highest-cost = codex, $16). Filter to codex only.
+		stdin.write('1');
+		await new Promise((r) => setTimeout(r, 20));
+		const scoped = lastFrame()!;
+		expect(scoped).toContain('$16'); // codex only
+		// the filter scope shows in the hero label
+		expect(scoped).toContain('codex');
+		unmount();
+	});
+
+	it('period switch recomputes buckets', async () => {
+		// 10 days of $1/day so day vs week totals differ.
+		const grain: DayModelAgg[] = [];
+		for (let i = 0; i < 10; i++) {
+			const d = new Date(Date.UTC(2026, 5, 19));
+			d.setUTCDate(d.getUTCDate() - i);
+			grain.push(dm(d.toISOString().slice(0, 10), 'codex', 'claude-opus-4-8', 1));
+		}
+		const { source } = makeSource(snapFrom(grain));
+		const { lastFrame, stdin, unmount } = render(
+			<DashboardApp source={source} period="day" noArt now={() => 0} dimensions={DIMS} />
+		);
+		expect(lastFrame()).toContain('· Day');
+		stdin.write('w');
+		await new Promise((r) => setTimeout(r, 20));
+		expect(lastFrame()).toContain('· Week');
+		unmount();
+	});
+
+	it('selection (filter + period) survives an incoming delta', async () => {
+		const { source, push } = makeSource(POPULATED);
+		const { lastFrame, stdin, unmount } = render(
+			<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={DIMS} />
+		);
+		stdin.write('m'); // month
+		stdin.write('1'); // filter to codex
+		await new Promise((r) => setTimeout(r, 20));
+		expect(lastFrame()).toContain('Last 30 days');
+		expect(lastFrame()).toContain('codex');
+		// delta arrives — must NOT reset period or filter
+		push(deltaFrom(POPULATED, [dm('2026-06-19', 'opencode', 'claude-sonnet-4-5', 100)]));
+		await new Promise((r) => setTimeout(r, 20));
+		const frame = lastFrame()!;
+		expect(frame).toContain('Last 30 days'); // period kept
+		expect(frame).toContain('codex'); // filter kept
+		// codex total unchanged ($16) despite the opencode delta
+		expect(frame).toContain('$16');
+		unmount();
+	});
+
+	it('clean quit calls unsubscribe + dispose', async () => {
+		const { source, dispose, unsubscribe } = makeSource(POPULATED);
+		const { stdin, unmount } = render(
+			<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={DIMS} />
+		);
+		stdin.write('q');
+		await new Promise((r) => setTimeout(r, 30));
+		// `q` calls exit(); ink-testing-library resolves waitUntilExit + unmounts.
+		// Force unmount to flush the cleanup effect deterministically.
+		unmount();
+		await new Promise((r) => setTimeout(r, 10));
+		expect(unsubscribe).toHaveBeenCalled();
+		expect(dispose).toHaveBeenCalled();
+	});
+
+	it('shows a loading frame during the cold scan and quits on q while loading', async () => {
+		// A source whose start() never resolves keeps the app in the loading state.
+		let resolveStart!: () => void;
+		const base = makeSource(snapFrom([]));
+		const dispose = vi.fn();
+		const unsubscribe = vi.fn();
+		const source: DashboardSource = {
+			snapshot: () => snapFrom([]),
+			subscribe: (fn) => {
+				base.source.subscribe(fn);
+				return () => unsubscribe();
+			},
+			dispose,
+			start: () => new Promise<void>((res) => (resolveStart = res))
+		};
+		const { lastFrame, stdin, unmount } = render(
+			<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={DIMS} />
+		);
+		expect(lastFrame()).toContain('cold-scanning');
+		// q during loading must quit (useInput is mounted) → cleanup runs on unmount
+		stdin.write('q');
+		await new Promise((r) => setTimeout(r, 20));
+		unmount();
+		await new Promise((r) => setTimeout(r, 10));
+		expect(unsubscribe).toHaveBeenCalled();
+		expect(dispose).toHaveBeenCalled();
+		resolveStart(); // avoid dangling promise
+	});
+
+	it('replaces the loading frame with data once the cold scan resolves', async () => {
+		let snap = snapFrom([]);
+		const listeners = new Set<(d: RollupDelta) => void>();
+		const source: DashboardSource = {
+			snapshot: () => snap,
+			subscribe: (fn) => {
+				listeners.add(fn);
+				return () => listeners.delete(fn);
+			},
+			dispose: vi.fn(),
+			start: async () => {
+				snap = POPULATED; // the scan "fills" the engine
+			}
+		};
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={DIMS} />
+		);
+		await new Promise((r) => setTimeout(r, 30));
+		expect(lastFrame()).toContain('TOTAL BURN');
+		expect(lastFrame()).not.toContain('cold-scanning');
+		unmount();
+	});
+
+	it('shows a fallback below the minimum terminal size', () => {
+		const { source } = makeSource(POPULATED);
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={{ columns: 20, rows: 8 }} />
+		);
+		expect(lastFrame()).toContain('Terminal too small');
+		unmount();
+	});
+
+	it('renders an empty state with no data', () => {
+		const { source } = makeSource(snapFrom([]));
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={DIMS} />
+		);
+		expect(lastFrame()).toContain('No data found');
+		unmount();
+	});
+
+	it('honors NO_COLOR via no-color theme (plain render still has content)', () => {
+		const prev = process.env.NO_COLOR;
+		process.env.NO_COLOR = '1';
+		try {
+			const { source } = makeSource(POPULATED);
+			const { lastFrame, unmount } = render(
+				<DashboardApp source={source} period="week" noArt now={() => 0} dimensions={DIMS} />
+			);
+			const frame = lastFrame()!;
+			expect(frame).toContain('TOTAL BURN');
+			// no ANSI color escapes for foreground colors in NO_COLOR mode
+			// (Ink may still emit layout, but our color() returns undefined)
+			expect(frame).not.toMatch(/\[3[0-9]m/);
+			expect(frame).not.toMatch(/\[38;2;/); // no 24-bit truecolor escapes either
+			unmount();
+		} finally {
+			if (prev === undefined) delete process.env.NO_COLOR;
+			else process.env.NO_COLOR = prev;
+		}
+	});
+
+	it('shows no 5h-block flourish below the first threshold (< $10)', () => {
+		const { source } = makeSource(snapWithBlock(5));
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="week" now={() => 60_000} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain('5h block');
+		expect(frame).not.toContain('warming up');
+		expect(frame).not.toContain('the register is on fire');
+		unmount();
+	});
+
+	it('selects the warm flourish (warming up) and colors it on the spend ladder', () => {
+		const { source } = makeSource(snapWithBlock(18.4));
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="week" now={() => 60_000} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain('💸 warming up'); // colored via spendLadderColor (unit-tested in theme.test.ts)
+		unmount();
+	});
+
+	it('escalates to the alarm flourish (the register is on fire) at high spend', () => {
+		const { source } = makeSource(snapWithBlock(250));
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="week" now={() => 60_000} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain('🚨 the register is on fire'); // alarm tier (color via spendLadderColor)
+		unmount();
+	});
+
+	it('--no-art strips the banner and the 5h-block flourish (layout intact)', () => {
+		const { source } = makeSource(snapWithBlock(250));
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="week" noArt now={() => 60_000} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		// noArt → no flourish copy, no banner art, but the register layout survives
+		expect(frame).not.toContain('the register is on fire');
+		expect(frame).not.toContain('$$$$$$'); // logo.txt wordmark art absent
+		expect(frame).toContain('TOTAL BURN');
+		expect(frame).toContain('5h block');
+		unmount();
+	});
+
+	it('pinned mono fallback: NO_COLOR + --no-art has no color, no banner, no flourish, layout intact', () => {
+		const prev = process.env.NO_COLOR;
+		process.env.NO_COLOR = '1';
+		try {
+			const { source } = makeSource(snapWithBlock(250));
+			const { lastFrame, unmount } = render(
+				<DashboardApp source={source} period="week" noArt now={() => 60_000} dimensions={DIMS} />
+			);
+			const frame = lastFrame()!;
+			// no color of any kind
+			expect(frame).not.toMatch(/\x1b\[38;2;/);
+			expect(frame).not.toMatch(/\x1b\[3[0-9]m/);
+			expect(frame).not.toMatch(/\x1b\[9[0-9]m/);
+			// no banner art, no flourish
+			expect(frame).not.toContain('the register is on fire');
+			// register layout reads as plain text
+			expect(frame).toContain('TOTAL BURN');
+			expect(frame).toContain('BY PROVIDER');
+			expect(frame).toContain('BY MODEL');
+			expect(frame).toContain('5h block');
+			expect(frame).toContain('d w m Q a');
+			unmount();
+		} finally {
+			if (prev === undefined) delete process.env.NO_COLOR;
+			else process.env.NO_COLOR = prev;
+		}
+	});
+});
+
+// ── Wave 3: escalation/lifetime ladder on the register total + roll-up ──────────
+
+describe('DashboardApp — register-total escalation + lifetime ladder', () => {
+	// One heavy day so the scoped "day" total clears a daily tier, and the all-time
+	// lifetime total clears a lifetime tier.
+	function heavySnap(): RollupSnapshot {
+		const base = snapFrom([
+			dm('2026-06-19', 'codex', 'claude-opus-4-8', 120),
+			dm('2026-06-18', 'codex', 'claude-opus-4-8', 1200)
+		]);
+		// lifetime (all-time) total drives the LIFETIME ladder.
+		return { ...base, totals: { ...base.totals, cost: 1320 } };
+	}
+
+	it('renders the daily flourish on the register total (one shared ladder)', () => {
+		const { source } = makeSource(heavySnap());
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="day" now={() => 0} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		// scoped "day" total = $120 → daily tier "big day" (>= $100); colored via ladderColorFor
+		expect(frame).toContain('big day');
+		unmount();
+	});
+
+	it('renders the LIFETIME figure + its ladder remark', () => {
+		const { source } = makeSource(heavySnap());
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="day" now={() => 0} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain('LIFETIME');
+		// $1320 lifetime → "you live here now" (>= $1000)
+		expect(frame).toContain('you live here now');
+		unmount();
+	});
+
+	it('--no-art strips the register-total + lifetime flourishes (figures intact)', () => {
+		const { source } = makeSource(heavySnap());
+		const { lastFrame, unmount } = render(
+			<DashboardApp source={source} period="day" noArt now={() => 0} dimensions={DIMS} />
+		);
+		const frame = lastFrame()!;
+		expect(frame).not.toContain('big day');
+		expect(frame).not.toContain('you live here now');
+		// the figures + structural labels survive
+		expect(frame).toContain('TOTAL BURN');
+		expect(frame).toContain('LIFETIME');
+		unmount();
+	});
+
+	it('keypresses stay responsive while the total is present (q quits)', () => {
+		const { source } = makeSource(heavySnap());
+		const { lastFrame, stdin, unmount } = render(
+			<DashboardApp source={source} period="day" now={() => 0} dimensions={DIMS} />
+		);
+		// switching period still works (input not blocked by the roll-up interval)
+		stdin.write('w');
+		expect(lastFrame()).toContain('TOTAL BURN');
+		unmount();
+	});
+});

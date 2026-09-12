@@ -113,8 +113,8 @@ try {
   dedicatedDatabase();
   const originalSchema = version();
   if (![2, 3, 4].includes(originalSchema)) fail('Start a rollout from schema 2, 3 or 4; reuse its directory for reruns after migration.');
-  const manifest = { schema: originalSchema, clients: json(rosterPath), targetArtifact: resolve(artifact), targetSha256: hash(artifact), targetCli: resolve(cli), targetCliSha256: hash(cli), targetRuntime: resolve(cli, '../../dist/cli/index.js'), targetRuntimeSha256: hash(resolve(cli, '../../dist/cli/index.js')), database: createHash('sha256').update(JSON.stringify([pgEnvironment().PGHOST, pgEnvironment().PGPORT, pgEnvironment().PGDATABASE])).digest('hex'), baseline: baseline() };
-  for (const [entry, expected] of [['package/bin/chaching.js', manifest.targetCliSha256], ['package/dist/cli/index.js', manifest.targetRuntimeSha256]]) {
+  const manifest = { schema: originalSchema, clients: json(rosterPath), targetArtifact: resolve(artifact), targetSha256: hash(artifact), targetCli: resolve(cli), targetCliSha256: hash(cli), targetRuntime: resolve(cli, '../../cli/index.js'), targetRuntimeSha256: hash(resolve(cli, '../../cli/index.js')), database: createHash('sha256').update(JSON.stringify([pgEnvironment().PGHOST, pgEnvironment().PGPORT, pgEnvironment().PGDATABASE])).digest('hex'), baseline: baseline() };
+  for (const [entry, expected] of [['package/bin/chaching.js', manifest.targetCliSha256], ['package/cli/index.js', manifest.targetRuntimeSha256]]) {
    const packed = execFileSync('tar', ['-xOf', artifact, entry], { maxBuffer: 128 * 1024 * 1024 });
    equal(createHash('sha256').update(packed).digest('hex'), expected, 'Extracted target executable');
   }

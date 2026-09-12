@@ -1,0 +1,380 @@
+// Dashboard view-model (Svelte 5 runes). Owns period, model filter, provider
+// filter, and drill selection, and exposes $derived aggregates over the feed snapshot.
+// Persists period + filter to localStorage so reopening the tab lands in place.
+//
+// The derivations themselves are pure functions in `$lib/core/view-model`, shared
+// with the Ink TUI so the two faces can never drift (design D4). This class is a
+// thin Svelte shell that holds reactive state + persistence and delegates the math.
+
+import type { Period, RollupSnapshot, SessionSummary } from '@chaching/shared/types';
+import type { LifetimeSpend, ModelTotal, PeriodBucket, ProviderTotal, Totals } from '@chaching/shared/aggregate';
+import { lifetimeSpend as coreLifetimeSpend } from '@chaching/shared/aggregate';
+import * as vm from '@chaching/shared/view-model';
+import type { DayCell, ProjectTotal } from '@chaching/shared/view-model';
+import {
+	cacheCostBreakdownWith,
+	type CacheCostBreakdownResult
+} from '@chaching/shared/pricing/cache-breakdown-core';
+import {
+	buildWindowSubsidisation,
+	burnPace as coreBurnPace,
+	type BurnPace,
+	type ProviderSubsidisationConfig,
+	type SubsidisedProvider,
+	type WindowSubsidisationRollup
+} from '@chaching/shared/subsidisation';
+
+const LS_KEY = 'chaching.ui.v1';
+
+export interface DrillTarget {
+	kind: 'period' | 'session';
+	label: string;
+	// period / day drill
+	from?: string;
+	to?: string;
+	periodKey?: string;
+	// session drill
+	session?: SessionSummary;
+}
+
+interface PersistedUI {
+	period: Period;
+	models: string[];
+	providers: string[];
+	machines?: string[];
+	/** the pinned single-day focus (YYYY-MM-DD), or absent/null for rolling-period mode */
+	focusedDay?: string | null;
+	windowEnd?: string | null;
+	quotaView?: 'current' | 'all' | 'provider';
+}
+
+export class Dashboard {
+	period = $state<Period>('month');
+	today = $state(vm.todayUTC());
+	windowEnd = $state<string | null>(null);
+	quotaView = $state<'current' | 'all' | 'provider'>('current');
+	/** empty = all models; otherwise scope the whole dashboard to these models */
+	modelFilter = $state<Set<string>>(new Set());
+	providerFilter = $state<Set<string>>(new Set());
+	machineFilter = $state<Set<string>>(new Set());
+	drill = $state<DrillTarget | null>(null);
+	/**
+	 * The zoomed-in single-day pin (design D5). `null` = rolling-period mode (default).
+	 * A `YYYY-MM-DD` pins the hero/cards/donut/session-list to that one day. Clamped to
+	 * `[earliestDay, latestDay]`; persisted; cleared on a period switch.
+	 */
+	focusedDay = $state<string | null>(null);
+
+	constructor() {
+		if (typeof localStorage !== 'undefined') {
+			try {
+				const raw = localStorage.getItem(LS_KEY);
+				if (raw) {
+					const p = JSON.parse(raw) as PersistedUI;
+					if (p.period) this.period = p.period;
+					if (Array.isArray(p.models)) this.modelFilter = new Set(p.models);
+					if (Array.isArray(p.providers)) this.providerFilter = new Set(p.providers);
+					if (Array.isArray(p.machines)) this.machineFilter = new Set(p.machines);
+					// Hydrate the pinned day; clamping against a (possibly shrunk) data range
+					// happens once the snapshot lands, via reconcileFocusedDay().
+					if (typeof p.focusedDay === 'string' && vm.isCalendarDay(p.focusedDay)) this.focusedDay = p.focusedDay;
+					if (typeof p.windowEnd === 'string' && vm.isCalendarDay(p.windowEnd)) this.windowEnd = p.windowEnd > this.today ? this.today : p.windowEnd;
+					if (p.quotaView === 'current' || p.quotaView === 'all' || p.quotaView === 'provider') this.quotaView = p.quotaView;
+				}
+			} catch {
+				/* ignore */
+			}
+		}
+	}
+
+	private persist(): void {
+		if (typeof localStorage === 'undefined') return;
+		try {
+			const data: PersistedUI = {
+				period: this.period,
+				models: [...this.modelFilter],
+				providers: [...this.providerFilter],
+				machines: [...this.machineFilter],
+				focusedDay: this.focusedDay,
+				windowEnd: this.windowEnd,
+				quotaView: this.quotaView
+			};
+			localStorage.setItem(LS_KEY, JSON.stringify(data));
+		} catch {
+			/* ignore */
+		}
+	}
+
+	/** Snapshot the current selection into the shared, framework-free view-state. */
+	private state(): vm.ViewState {
+		return {
+			period: this.period,
+			modelFilter: this.modelFilter,
+			providerFilter: this.providerFilter,
+			machineFilter: this.machineFilter,
+			focusedDay: this.focusedDay,
+			windowEnd: this.windowEnd ?? this.today
+		};
+	}
+
+	setQuotaView(view: 'current' | 'all' | 'provider'): void {
+		this.quotaView = view;
+		this.persist();
+	}
+
+	setWindowEnd(day: string | null): void {
+		if (day !== null && !vm.isCalendarDay(day)) return;
+		this.windowEnd = day === null || day >= this.today ? null : day;
+		this.focusedDay = null;
+		this.persist();
+	}
+
+	stepWindow(snap: RollupSnapshot, direction: -1 | 1): void {
+		const span = vm.periodSpan(this.period);
+		if (span === null || (direction < 0 && snap.earliestDay && this.periodWindow(snap).from <= snap.earliestDay)) return;
+		const next = vm.addDaysISO(this.windowEnd ?? this.today, direction * span);
+		this.setWindowEnd(next);
+	}
+
+	headlines(snap: RollupSnapshot) {
+		return vm.headlineTotals(snap, this.state(), this.today);
+	}
+
+	setPeriod(p: Period): void {
+		this.period = p;
+		// Switching the zoomed-out period exits the zoomed-in pin: one obvious transition
+		// (design D6 / cross-element), so the period switcher and a pinned day never silently
+		// disagree about what the panels are showing.
+		this.focusedDay = null;
+		this.persist();
+	}
+
+	/** Pin the dashboard to a single day, clamped to `[earliestDay, latestDay]` (design D5/D8). */
+	setFocusedDay(snap: RollupSnapshot, day: string): void {
+		if (!vm.isCalendarDay(day)) return;
+		this.focusedDay = vm.clampDay(snap, day, this.today);
+		const range = this.periodWindow(snap);
+		if (this.focusedDay && (this.focusedDay < range.from || this.focusedDay > range.to)) {
+			this.windowEnd = this.focusedDay === this.today ? null : this.focusedDay;
+		}
+		this.persist();
+	}
+
+	/** Step the pinned day by ±n calendar days, clamped (no wrap, no-op at the bounds). */
+	stepFocusedDay(snap: RollupSnapshot, delta: number): void {
+		if (this.focusedDay == null) return;
+		this.setFocusedDay(snap, vm.addDaysISO(this.focusedDay, delta));
+	}
+
+	/** Exit pinned mode, back to the rolling-period view. */
+	clearFocusedDay(): void {
+		this.focusedDay = null;
+		this.persist();
+	}
+
+	/**
+	 * Once a snapshot is available, clamp/clear a persisted focusedDay that fell outside a
+	 * (possibly shrunk) data range — an out-of-range value snaps to the nearest bound, and a
+	 * pin with no data at all clears (design D8). Idempotent; safe to call on every snapshot.
+	 */
+	reconcileFocusedDay(snap: RollupSnapshot): void {
+		if (this.focusedDay == null) return;
+		const clamped = vm.clampDay(snap, this.focusedDay, this.today);
+		if (clamped !== this.focusedDay) {
+			this.focusedDay = clamped;
+			this.persist();
+		}
+	}
+
+	toggleModel(model: string): void {
+		const next = new Set(this.modelFilter);
+		if (next.has(model)) next.delete(model);
+		else next.add(model);
+		this.modelFilter = next;
+		this.persist();
+	}
+
+	clearModelFilter(): void {
+		this.modelFilter = new Set();
+		this.persist();
+	}
+
+	toggleProvider(provider: string): void {
+		const next = new Set(this.providerFilter);
+		if (next.has(provider)) next.delete(provider);
+		else next.add(provider);
+		this.providerFilter = next;
+		this.persist();
+	}
+
+	clearProviderFilter(): void {
+		this.providerFilter = new Set();
+		this.persist();
+	}
+
+	toggleMachine(machineId: string): void {
+		const next = new Set(this.machineFilter);
+		if (next.has(machineId)) next.delete(machineId);
+		else next.add(machineId);
+		this.machineFilter = next;
+		this.persist();
+	}
+
+	clearPoolFilters(): void {
+		this.machineFilter = new Set();
+		this.persist();
+	}
+
+	openPeriodDrill(t: { from: string; to: string; periodKey: string; label: string }): void {
+		this.drill = { kind: 'period', ...t };
+	}
+
+	openSessionDrill(session: SessionSummary): void {
+		this.drill = { kind: 'session', session, label: session.sessionId.slice(0, 8) };
+	}
+
+	closeDrill(): void {
+		this.drill = null;
+	}
+
+	/** The full day-grain in scope. */
+	scopedGrain(snap: RollupSnapshot) {
+		return vm.scopedGrain(snap, this.state());
+	}
+
+	/** Trend buckets for the stacked bar chart (day grain short-span, week/month for long spans). */
+	trend(snap: RollupSnapshot): PeriodBucket[] {
+		return vm.trend(snap, this.state());
+	}
+
+	/**
+	 * The inclusive day range a trend bucket covers (single day, or a week/month
+	 * span), clamped to the active period window so a click on an edge coarse bar
+	 * drills exactly the days that bar aggregated.
+	 */
+	bucketDayRange(snap: RollupSnapshot, bucket: PeriodBucket): { from: string; to: string } {
+		const w = vm.periodWindow(snap, this.state());
+		return vm.bucketDayRange(bucket, { from: w.from, to: w.to });
+	}
+
+	/** Per-model totals in scope (drives donut + legend + filter). */
+	models(snap: RollupSnapshot): ModelTotal[] {
+		return vm.models(snap, this.state());
+	}
+
+	providers(snap: RollupSnapshot): ProviderTotal[] {
+		return vm.providers(snap, this.state());
+	}
+
+	/**
+	 * Per-project spend totals in scope (drives the by-project panel). Derived from the
+	 * scoped session index, so it follows the period selector, the model + provider
+	 * filters, and a pinned focusedDay through the same lineage as `scopedSessions`.
+	 */
+	projectTotals(snap: RollupSnapshot): ProjectTotal[] {
+		return vm.projectTotals(snap, this.state());
+	}
+
+	periodWindow(snap: RollupSnapshot): vm.PeriodWindow {
+		return vm.periodWindow(snap, this.state());
+	}
+
+	/** Current-period and prior-period totals for the hero + delta. */
+	heroTotals(snap: RollupSnapshot): { current: Totals; prior: Totals; label: string; priorHasBaseline: boolean; } {
+		return vm.heroTotals(snap, this.state());
+	}
+
+	/**
+	 * Grand totals in scope for the summary cards. Scoped to the selected period
+	 * window (so the cards move with Day/Week/Month), with the model filter applied.
+	 */
+	scopedTotals(snap: RollupSnapshot): Totals {
+		return vm.scopedTotals(snap, this.state());
+	}
+
+	/** Sessions in scope (period-windowed; model + provider filters applied). */
+	scopedSessions(snap: RollupSnapshot): SessionSummary[] {
+		return vm.scopedSessions(snap, this.state());
+	}
+
+	/** All banked sessions (frozen ∪ live), model + provider filters applied, no date window. */
+	allSessions(snap: RollupSnapshot): SessionSummary[] {
+		return vm.allSessions(snap, this.state());
+	}
+
+	/** One cell per calendar day in the banked range (the calendar heatmap series). */
+	byDay(snap: RollupSnapshot): DayCell[] {
+		return vm.byDay(snap, this.state());
+	}
+
+	/** Totals for the pinned day (hero + summary cards), filters applied. */
+	focusedTotals(snap: RollupSnapshot, day: string): Totals {
+		return vm.focusedTotals(snap, day, this.state());
+	}
+
+	/** Per-model totals for the pinned day (donut + legend), provider filter applied. */
+	focusedModels(snap: RollupSnapshot, day: string): ModelTotal[] {
+		return vm.focusedModels(snap, day, this.state());
+	}
+
+	/** Sessions intersecting the pinned day, filters applied. */
+	focusedSessions(snap: RollupSnapshot, day: string): SessionSummary[] {
+		return vm.focusedSessions(snap, day, this.state());
+	}
+
+	/**
+	 * Cache-cost breakdown for the CURRENT scope. This DOES follow the period/day
+	 * selector and filters (it is about the scoped burn) — the cache panel moves
+	 * with Day/Week/Month, unlike the subsidisation headline (design D5 cross).
+	 */
+	cacheBreakdown(snap: RollupSnapshot): CacheCostBreakdownResult {
+		// Same lineage as scopedTotals: period/day-windowed grain (via scopedGrain)
+		// with the model + provider filters applied, so the cache figures and the
+		// hit-rate denominator on the page never mix scopes.
+		let grain = this.scopedGrain(snap);
+		if (this.modelFilter.size > 0) grain = grain.filter((dm) => this.modelFilter.has(dm.model));
+		if (this.providerFilter.size > 0)
+			grain = grain.filter((dm) => this.providerFilter.has(dm.provider));
+		return cacheCostBreakdownWith(grain);
+	}
+
+	/**
+	 * Subsidisation roll-up for the card. FOLLOWS the period selector (and a pinned
+	 * day): usage in the selected window vs the fee pro-rated to that window from a
+	 * monthlyUsd/30 daily rate — day = today vs fee/30, week = ×7, month (last 30
+	 * days) = the full fee, quarter = ×90. Model/provider display filters do NOT
+	 * apply — the fee is inherently per-provider, so filtering the burn while
+	 * keeping the fee would fabricate a bad multiple.
+	 */
+	subsidisation(
+		snap: RollupSnapshot,
+		config: Record<SubsidisedProvider, ProviderSubsidisationConfig>
+	): WindowSubsidisationRollup {
+		const st = this.state();
+		const w = vm.periodWindow(snap, st);
+		const from = st.focusedDay ?? w.from;
+		const to = st.focusedDay ?? w.to;
+		return buildWindowSubsidisation(snap.dayModel, config, { from, to });
+	}
+
+	/**
+	 * Burn-pace projection ("on pace for ~$X this month"). ALWAYS month-basis, same
+	 * D5 semantics as `subsidisation()`: does NOT follow the dashboard period
+	 * selector. Returns `null` when the cost-honesty guards trip (a coverage gap
+	 * in the elapsed month-to-date range, or too few elapsed days to extrapolate) —
+	 * the caller must render nothing in that case.
+	 */
+	burnPace(snap: RollupSnapshot, now: Date = new Date(snap.generatedAt || Date.now())): BurnPace | null {
+		return coreBurnPace(snap.dayModel, now);
+	}
+
+	/**
+	 * All-time cumulative spend + projected 12-month burn (design: dashboard glow-up,
+	 * all-time spend meter). Whole-account, ALWAYS: does not follow the period selector,
+	 * a pinned day, or the model/provider filters — same D5 posture as `burnPace`, since
+	 * "lifetime" means the full banked history, not the current scope.
+	 */
+	lifetimeSpend(snap: RollupSnapshot): LifetimeSpend {
+		return coreLifetimeSpend(snap.dayModel, snap.latestDay ?? undefined);
+	}
+}

@@ -1,0 +1,69 @@
+{
+	"name": "cli",
+	"root": "packages/cli",
+	"sourceRoot": "packages/cli/src",
+	"projectType": "application",
+	"tags": [
+		"layer:cli"
+	],
+	"targets": {
+		"typecheck": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec tsc --noEmit",
+				"cwd": "packages/cli",
+				"forwardAllArgs": true
+			}
+		},
+		"test": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "node ../../tools/run-cli-tests.mjs",
+				"cwd": "packages/cli",
+				"forwardAllArgs": true
+			},
+			"dependsOn": [
+				{
+					"target": "package",
+					"projects": [
+						"distribution"
+					]
+				}
+			],
+			"inputs": [
+				"default",
+				"^production",
+				{
+					"runtime": "node -p \"Boolean(process.env.CHACHING_TEST_DATABASE_URL)\""
+				},
+				{
+					"env": "CHACHING_TEST_PG_TOOLS"
+				},
+				"{workspaceRoot}/tools/run-cli-tests.mjs",
+				"{workspaceRoot}/tools/assemble-package.mjs",
+				{
+					"runtime": "node -p \"process.platform + process.arch + process.versions.node\""
+				}
+			]
+		},
+		"lint": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec eslint src",
+				"cwd": "packages/cli",
+				"forwardAllArgs": true
+			}
+		},
+		"build": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec tsup",
+				"cwd": "packages/cli",
+				"forwardAllArgs": true
+			},
+			"outputs": [
+				"{projectRoot}/dist"
+			]
+		}
+	}
+}

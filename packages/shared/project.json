@@ -1,0 +1,35 @@
+{
+	"name": "shared",
+	"root": "packages/shared",
+	"sourceRoot": "packages/shared/src",
+	"projectType": "library",
+	"tags": [
+		"layer:shared"
+	],
+	"targets": {
+		"typecheck": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec tsc --noEmit",
+				"cwd": "packages/shared",
+				"forwardAllArgs": true
+			}
+		},
+		"test": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec vitest run",
+				"cwd": "packages/shared",
+				"forwardAllArgs": true
+			}
+		},
+		"lint": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec eslint src",
+				"cwd": "packages/shared",
+				"forwardAllArgs": true
+			}
+		}
+	}
+}

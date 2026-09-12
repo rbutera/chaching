@@ -1,0 +1,35 @@
+{
+	"name": "core",
+	"root": "packages/core",
+	"sourceRoot": "packages/core/src",
+	"projectType": "library",
+	"tags": [
+		"layer:core"
+	],
+	"targets": {
+		"typecheck": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec tsc --noEmit",
+				"cwd": "packages/core",
+				"forwardAllArgs": true
+			}
+		},
+		"test": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec vitest run",
+				"cwd": "packages/core",
+				"forwardAllArgs": true
+			}
+		},
+		"lint": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec eslint src",
+				"cwd": "packages/core",
+				"forwardAllArgs": true
+			}
+		}
+	}
+}

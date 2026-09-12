@@ -99,7 +99,7 @@ The integration test creates disposable schema-2 and schema-3 databases, perform
 
 ```sh
 CHACHING_TEST_PG_TOOLS=1 CHACHING_TEST_DATABASE_URL="$DISPOSABLE_ADMIN_URL" \
-  npm test -- src/cli/pool-rollout.integration.test.ts
+  pnpm exec nx run cli:test -- pool-rollout.integration.test.ts
 ```
 
 The test database role needs CREATE DATABASE and CREATE ROLE. These permissions are for the disposable rehearsal; the production commands do not create databases or roles. PostgreSQL tools must be installed locally or supplied through PATH wrappers. Without both test environment variables, this optional tooling rehearsal is skipped; the ordinary migration integration suite remains separate.

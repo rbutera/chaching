@@ -1,0 +1,12 @@
+packages:
+  - packages/*
+  - apps/*
+minimumReleaseAge: 10080
+trustPolicy: no-downgrade
+strictPeerDependencies: true
+saveExact: true
+onlyBuiltDependencies:
+  - esbuild
+  - nx
+  - sharp
+trustPolicyIgnoreAfter: 525600

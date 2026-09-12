@@ -1,0 +1,134 @@
+{
+	"name": "web",
+	"root": "apps/web",
+	"sourceRoot": "apps/web/src",
+	"projectType": "application",
+	"tags": [
+		"layer:web"
+	],
+	"targets": {
+		"typecheck": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec svelte-check --tsconfig ./tsconfig.json",
+				"cwd": "apps/web",
+				"forwardAllArgs": true
+			},
+			"dependsOn": [
+				"sync"
+			]
+		},
+		"test": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec vitest run",
+				"cwd": "apps/web",
+				"forwardAllArgs": true
+			},
+			"dependsOn": [
+				"sync"
+			],
+			"inputs": [
+				"default",
+				"^production",
+				"{workspaceRoot}/README.md",
+				{
+					"runtime": "node -p \"process.platform + '-' + process.arch + '-' + process.versions.node\""
+				}
+			]
+		},
+		"lint": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec eslint src",
+				"cwd": "apps/web",
+				"forwardAllArgs": true
+			}
+		},
+		"sync": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec svelte-kit sync",
+				"cwd": "apps/web",
+				"forwardAllArgs": true
+			},
+			"cache": false
+		},
+		"assets": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec tsx scripts/gen-favicons.ts && pnpm exec tsx scripts/gen-og.ts && node ../../tools/copy-web-assets.mjs",
+				"cwd": "apps/web",
+				"forwardAllArgs": true
+			},
+			"outputs": [
+				"{projectRoot}/static/favicon.ico",
+				"{projectRoot}/static/apple-touch-icon.png",
+				"{projectRoot}/static/icon-192.png",
+				"{projectRoot}/static/icon-512.png",
+				"{projectRoot}/static/manifest.webmanifest",
+				"{projectRoot}/static/logo.svg",
+				"{projectRoot}/static/og.png",
+				"{projectRoot}/static/fonts"
+			],
+			"inputs": [
+				"production",
+				"^production",
+				"{workspaceRoot}/packages/receipt/assets/**/*",
+				"{workspaceRoot}/tools/copy-web-assets.mjs",
+				{
+					"runtime": "node -p \"process.platform + process.arch + process.versions.node\""
+				}
+			],
+			"cache": true
+		},
+		"build": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec vite build",
+				"cwd": "apps/web",
+				"forwardAllArgs": true
+			},
+			"dependsOn": [
+				"assets",
+				"sync"
+			],
+			"outputs": [
+				"{projectRoot}/build",
+				"{projectRoot}/.svelte-kit"
+			]
+		},
+		"dev": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec vite dev",
+				"cwd": "apps/web",
+				"forwardAllArgs": true
+			},
+			"dependsOn": [
+				"assets"
+			],
+			"cache": false
+		},
+		"preview": {
+			"executor": "nx:run-commands",
+			"options": {
+				"command": "pnpm exec vite preview",
+				"cwd": "apps/web",
+				"forwardAllArgs": true,
+				"env": {
+					"CHACHING_PACKAGE_ROOT": "../../dist/chaching"
+				}
+			},
+			"cache": false,
+			"dependsOn": [
+				{
+					"target": "package",
+					"projects": [
+						"distribution"
+					]
+				}
+			]
+		}
+	}
+}

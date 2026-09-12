@@ -1,0 +1,34 @@
+{
+	"name": "@chaching/receipt",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./receipt/build": "./src/receipt/build.ts",
+		"./receipt/redact": "./src/receipt/redact.ts",
+		"./receipt/render-png": "./src/receipt/render-png.ts",
+		"./receipt/render-text": "./src/receipt/render-text.ts",
+		"./receipt/model": "./src/receipt/model.ts",
+		"./wrapped/build": "./src/wrapped/build.ts",
+		"./wrapped/redact": "./src/wrapped/redact.ts",
+		"./wrapped/render-text": "./src/wrapped/render-text.ts",
+		"./wrapped/model": "./src/wrapped/model.ts",
+		"./wrapped/render-png": "./src/wrapped/render-png.ts",
+		"./receipt/node-context": "./src/receipt/node-context.ts"
+	},
+	"dependencies": {
+		"@chaching/shared": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "24.13.2",
+		"typescript": "6.0.3",
+		"vitest": "4.1.7",
+		"@types/react": "19.2.17",
+		"react": "19.2.7",
+		"@fontsource/inter": "5.2.8",
+		"@fontsource/jetbrains-mono": "5.2.8"
+	},
+	"optionalDependencies": {
+		"satori": "0.26.0",
+		"@resvg/resvg-js": "2.6.2"
+	}
+}
