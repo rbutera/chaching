@@ -27,6 +27,14 @@
 			},
 			"dependsOn": [
 				"sync"
+			],
+			"inputs": [
+				"default",
+				"^production",
+				"{workspaceRoot}/README.md",
+				{
+					"runtime": "node -p \"process.platform + '-' + process.arch + '-' + process.versions.node\""
+				}
 			]
 		},
 		"lint": {

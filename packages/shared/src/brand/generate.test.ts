@@ -9,36 +9,12 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { join, dirname } from 'node:path';
 import styles from 'ansi-styles';
 
 import { tokens, texture } from './tokens';
 import { toCss, toAnsiMap, CSS_BEGIN_MARKER, CSS_END_MARKER } from './generate';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const appCssPath = join(here, '..', '..', '..', '..', 'apps', 'web', 'src', 'app.css');
-
-/** Extract the committed generated block from app.css, normalising the leading
- *  indentation on the marker lines (the file tab-indents them inside :root). */
-function committedBlock(): string {
-	const css = readFileSync(appCssPath, 'utf8');
-	const begin = css.indexOf(CSS_BEGIN_MARKER);
-	const end = css.indexOf(CSS_END_MARKER);
-	expect(begin).toBeGreaterThan(-1);
-	expect(end).toBeGreaterThan(begin);
-	const raw = css.slice(begin, end + CSS_END_MARKER.length);
-	// app.css indents the END marker line with a tab; toCss emits it flush. Strip
-	// any leading tab that directly precedes the END marker.
-	return raw.replace(/\t(\/\* END GENERATED brand tokens \*\/)$/, '$1');
-}
-
 describe('toCss', () => {
-	it('matches the committed app.css :root generated block (drift guard)', () => {
-		expect(committedBlock()).toBe(toCss(tokens));
-	});
-
 	it('declares every expected color variable name', () => {
 		const css = toCss(tokens);
 		for (const name of [

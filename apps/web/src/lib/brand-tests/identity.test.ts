@@ -10,10 +10,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { tokens } from './tokens';
+import { tokens } from '@chaching/shared/brand/tokens';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const root = join(here, '..', '..', '..', '..');
+const root = join(here, '..', '..', '..', '..', '..');
 const read = (rel: string) => readFileSync(join(root, rel), 'utf8');
 
 const BRASS = '#eba92c';
