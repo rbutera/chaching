@@ -1,0 +1,8 @@
+{
+  "bootstrap": {
+    "tag": "v1.18.0",
+    "sha": "622182689a751262d879d9c6258a5cefb70267af",
+    "integrity": "sha512-/m4+FZcZ0/F1xttZ/8StzBf8poX6j4eM4Ev2hK60ynFR3l2cfbQ5bw/KkpU9NVYyoPw6ohIA73u5UGqpOF5O/Q=="
+  },
+  "npm": "11.19.0"
+}

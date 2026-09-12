@@ -17,9 +17,12 @@ runs:
       shell: bash
       env:
         PR_NUMBER: ${{ github.event.pull_request.number }}
+        RELEASE_CANDIDATE: ${{ github.workflow == 'Release' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
       run: |
         if git merge-base --is-ancestor HEAD refs/remotes/origin/main; then
           echo 'value=trusted' >> "$GITHUB_OUTPUT"
+        elif [ "$RELEASE_CANDIDATE" = true ]; then
+          echo 'value=trusted-candidate' >> "$GITHUB_OUTPUT"
         else
           echo "value=untrusted-${PR_NUMBER:-$GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
         fi
