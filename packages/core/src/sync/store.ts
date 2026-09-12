@@ -1,7 +1,8 @@
+import { isCalendarDay } from '@chaching/shared/view-model';
 import { Pool, type PoolClient } from 'pg';
 import type { MonetaryComponents } from '@chaching/shared/pricing/catalog';
 import { mergeMonetary } from '@chaching/shared/aggregate';
-import type { SessionSummary } from '@chaching/shared/types';
+import type { SessionSummary, SessionActivity } from '@chaching/shared/types';
 import type { FrozenAgg, HourAgg } from '../rollup/rollup';
 import type {
 	ProviderQuotaStatus,
@@ -15,7 +16,7 @@ const SCHEMA = 'chaching_sync';
 const HOUR_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 /** Bump when the DDL in `migrate()` changes. `open()` runs the DDL only when the recorded
  * schema_version differs, so a status GET no longer re-runs full DDL every call (C9). */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 /**
  * Incremental peer reads back off the max-watermark by this margin. `updated_at` is stamped at
  * transaction START (`now()`), but a row only becomes visible at COMMIT; a peer whose publish
@@ -73,6 +74,7 @@ export type PeerHourAgg = HourAgg & { sourceScope: string; machineId?: string };
 export type PeerSession = SessionSummary & { sourceScope: string };
 
 export interface PeerLoad {
+	activity?: SessionActivity[];
 	dayAggregates: PeerDayAgg[];
 	hourAggregates: PeerHourAgg[];
 	sessions: PeerSession[];
@@ -661,6 +663,26 @@ export class PostgresSyncStore {
 		);
 	}
 
+	async publishSessionActivity(scope: PublishScope, rows: readonly SessionActivity[]): Promise<void> {
+		if (!scope.machineId || !rows.length) return;
+		const { poolId } = this.identity();
+		await this.pool.query(`INSERT INTO ${SCHEMA}.machine_session_activity
+			(pool_id, source_scope, machine_id, provider, session_id, payload, updated_at)
+			SELECT $1, $2, $3, x.provider, x."sessionId", x.payload, now()
+			FROM jsonb_to_recordset($4::jsonb) AS x(provider text, "sessionId" text, payload jsonb)
+			ON CONFLICT(pool_id, source_scope, provider, session_id) DO UPDATE SET
+				payload = EXCLUDED.payload || jsonb_build_object('activity', COALESCE((
+					SELECT jsonb_agg(fragment) FROM (
+						SELECT DISTINCT ON (fragment->>'day', fragment->>'project') fragment
+						FROM jsonb_array_elements(COALESCE(machine_session_activity.payload->'activity', '[]'::jsonb) ||
+							COALESCE(EXCLUDED.payload->'activity', '[]'::jsonb)) WITH ORDINALITY AS evidence(fragment, ordinal)
+						ORDER BY fragment->>'day', fragment->>'project', (fragment->>'requests')::bigint DESC, ordinal DESC
+					) retained
+				), '[]'::jsonb)),
+				updated_at = now()`, [poolId, scope.sourceScope, scope.machineId,
+			JSON.stringify(rows.map(row => ({ provider: row.provider, sessionId: row.sessionId, payload: row })))]);
+	}
+
 	/**
 	 * Load peer aggregates whose `updated_at >= since` (all rows on the first call, when
 	 * `since` is null), EXCLUDING this machine's own `machine:<id>` rows — those are already
@@ -681,7 +703,7 @@ export class PostgresSyncStore {
 			lowerBound === null
 				? `pool_id = $1 AND source_scope <> $2`
 				: `pool_id = $1 AND source_scope <> $2 AND updated_at >= $3`;
-		const [dayResult, hourResult, sessionResult] = await Promise.all([
+		const [dayResult, hourResult, sessionResult, activityResult] = await Promise.all([
 			this.pool.query(
 				`SELECT source_scope, machine_id, day, provider, model,
 					input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
@@ -701,7 +723,8 @@ export class PostgresSyncStore {
 				`SELECT source_scope, machine_id, payload, updated_at
 				 FROM ${SCHEMA}.machine_session_agg WHERE ${clause}`,
 				params
-			)
+			),
+			this.pool.query(`SELECT machine_id, payload, updated_at FROM ${SCHEMA}.machine_session_activity WHERE ${clause}`, params)
 		]);
 		let watermark = since;
 		const advance = (value: unknown) => {
@@ -762,7 +785,12 @@ export class PostgresSyncStore {
 				machineId: row.machine_id == null ? undefined : String(row.machine_id)
 			};
 		});
-		return { dayAggregates, hourAggregates, sessions, watermark };
+		const activity = activityResult.rows.map(row => {
+			advance(row.updated_at);
+			const payload = jsonObject(row.payload);
+			return parseSessionActivity(payload, String(row.machine_id));
+		});
+		return { dayAggregates, hourAggregates, sessions, activity, watermark };
 	}
 
 	async close(): Promise<void> {
@@ -771,8 +799,10 @@ export class PostgresSyncStore {
 }
 
 async function migrate(client: PoolClient): Promise<void> {
-	if (await schemaVersionAt(client, 4)) {
-		await client.query(`ALTER TABLE ${SCHEMA}.machine_day_agg ADD COLUMN monetary jsonb`);
+	const version = await readSchemaVersion(client);
+	if (version === 4 || version === 5) {
+		if (version === 4) await client.query(`ALTER TABLE ${SCHEMA}.machine_day_agg ADD COLUMN monetary jsonb`);
+		await createActivityTable(client);
 		await client.query(`UPDATE ${SCHEMA}.schema_version SET version = $1 WHERE id = 1`, [SCHEMA_VERSION]);
 		return;
 	}
@@ -931,6 +961,7 @@ async function migrate(client: PoolClient): Promise<void> {
 		[SCHEMA_VERSION]
 	);
 	await client.query(`ALTER TABLE ${SCHEMA}.schema_version VALIDATE CONSTRAINT account_schema_min_version`);
+	await createActivityTable(client);
 }
 
 /**
@@ -984,4 +1015,23 @@ function parseMonetary(value: unknown): MonetaryComponents | undefined {
 	const {input, output, cacheCreation, cacheRead, tools} = value;
 	if (typeof input !== 'number' || typeof output !== 'number' || typeof cacheCreation !== 'number' || typeof cacheRead !== 'number' || typeof tools !== 'number' || ![input, output, cacheCreation, cacheRead, tools].every(n => Number.isFinite(n) && n >= 0)) return;
 	return {input, output, cacheCreation, cacheRead, tools, cacheReadUncached: 'cacheReadUncached' in value && typeof value.cacheReadUncached === 'number' && Number.isFinite(value.cacheReadUncached) && value.cacheReadUncached >= 0 ? value.cacheReadUncached : undefined};
+}
+
+async function createActivityTable(client: PoolClient): Promise<void> {
+	await client.query(`CREATE TABLE IF NOT EXISTS ${SCHEMA}.machine_session_activity (
+		pool_id text NOT NULL REFERENCES ${SCHEMA}.pool(id) ON DELETE CASCADE,
+		source_scope text NOT NULL, machine_id text NOT NULL, provider text NOT NULL,
+		session_id text NOT NULL, payload jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(),
+		PRIMARY KEY(pool_id, source_scope, provider, session_id)
+	);
+	CREATE INDEX IF NOT EXISTS machine_session_activity_pool_updated ON ${SCHEMA}.machine_session_activity(pool_id, updated_at)`);
+}
+
+function parseSessionActivity(payload: Record<string, unknown>, machineId: string): SessionActivity {
+	if (typeof payload.provider !== 'string' || typeof payload.sessionId !== 'string' || !Array.isArray(payload.activity)) throw new Error('Invalid pooled session activity');
+	const activity = payload.activity.map((row: unknown) => {
+		if (!row || typeof row !== 'object' || !('day' in row) || typeof row.day !== 'string' || !isCalendarDay(row.day) || !('project' in row) || typeof row.project !== 'string' || !('requests' in row) || typeof row.requests !== 'number' || !Number.isSafeInteger(row.requests) || row.requests <= 0 || !('cost' in row) || typeof row.cost !== 'number' || !Number.isFinite(row.cost) || row.cost < 0 || !('costUnknownRequests' in row) || typeof row.costUnknownRequests !== 'number' || !Number.isSafeInteger(row.costUnknownRequests) || row.costUnknownRequests < 0 || row.costUnknownRequests > row.requests) throw new Error('Invalid pooled session activity');
+		return { day: row.day, project: row.project, requests: row.requests, cost: row.cost, costUnknownRequests: row.costUnknownRequests };
+	});
+	return { provider: payload.provider, sessionId: payload.sessionId, machineId, activity };
 }

@@ -77,6 +77,23 @@ async function pooledPair(): Promise<{
 }
 
 suite('PostgresSyncStore aggregate ledger', () => {
+	it('retains daily activity through repeated and partial publication without own-machine duplication', { timeout: 30_000 }, async () => {
+		const { a, storeA, storeB } = await pooledPair();
+		try {
+			const complete = { provider: 'cursor', sessionId: 'local-bridge', activity: [
+				{ day: '2025-12-31', project: '/work/project', requests: 3, cost: 10, costUnknownRequests: 0 },
+				{ day: '2026-01-02', project: '/work/project', requests: 2, cost: 5, costUnknownRequests: 0 }
+			] };
+			await storeA.publishSessionActivity(scopeFor(a), [complete]);
+			await storeA.publishSessionActivity(scopeFor(a), [complete]);
+			await storeA.publishSessionActivity(scopeFor(a), [{ ...complete, activity: [{ ...complete.activity[1], requests: 1, cost: 1 }] }]);
+			const peer = await storeB.loadAggregates(null);
+			expect(peer.activity).toEqual([{ ...complete, machineId: a }]);
+			expect((await storeA.loadAggregates(null)).activity).toEqual([]);
+			expect(peer.sessions).toEqual([]);
+		} finally { await storeA.close(); await storeB.close(); }
+	});
+
 	it('loads peer machine day aggregates and excludes own rows, incrementally', { timeout: 30_000 }, async () => {
 		const { a, b, storeA, storeB } = await pooledPair();
 		try {
@@ -226,7 +243,7 @@ suite('PostgresSyncStore aggregate ledger', () => {
 				`SELECT version FROM chaching_sync.schema_version WHERE id = 1`
 			);
 			expect(first.rowCount).toBe(1);
-			expect(Number(first.rows[0].version)).toBe(5);
+			expect(Number(first.rows[0].version)).toBe(6);
 
 			// A second, independent store opens against the already-migrated schema without error:
 			// the fast-path SELECT sees the current version and skips the DDL + advisory lock.

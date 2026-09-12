@@ -219,9 +219,9 @@ describe('buildDoctorReport — history + pricing', () => {
 
 describe('pool schema diagnosis', () => {
 	it.each([
-		[{ version: 5 }, 'OK', 'compatible'],
+		[{ version: 6 }, 'OK', 'compatible'],
 		[{ version: 3 }, 'FAIL', 'coordinated upgrade'],
-		[{ version: 6 }, 'FAIL', 'upgrade chaching'],
+		[{ version: 7 }, 'FAIL', 'upgrade chaching'],
 		[{ version: null }, 'FAIL', 'missing'],
 		[{ error: true }, 'WARN', 'connectivity']
 	] satisfies [NonNullable<DoctorInput['poolSchema']>, string, string][])('reports %j', (poolSchema, status, message) => {

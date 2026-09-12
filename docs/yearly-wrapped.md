@@ -1,0 +1,15 @@
+# Yearly Wrapped
+
+The dashboard's Wrapped link opens a six-card recap for a UTC calendar year, or the current year through today. The existing monthly `chaching wrapped` command and its text, JSON and PNG formats remain unchanged.
+
+The story and summary image use one pure yearly model. Overall usage includes the selected pool, or this machine when no pool is configured. The subscription comparison reuses configured Account fees, shared-fee deduplication and the existing daily proration. It covers the usage from those configured subscription providers. These are configured fees, not imported payment records. A configured pool that cannot supply its snapshot returns an unavailable state rather than a local recap labelled as pooled.
+
+Biggest session uses API-priced value from actual days in the year. Projects use distinct active UTC days, grouped by machine and normalized full path. Machines and models use observed usage-record counts. These counts are not human prompts or guaranteed HTTP calls. Unknown-priced session activity suppresses a highest-value claim. Missing history and missing activity evidence remain explicit; whole-session timestamps never fill gaps or invent year-clipped costs.
+
+SQLite history schema 3 retains the minimal usage identity, day, provider, session, project and valued cost needed to merge partial scans. It stores no transcripts or additional tokens for Wrapped. Unique record identities prevent repeated scans and restarts from duplicating activity. Existing pricing repairs update the retained contribution in the same transaction. With history disabled, activity lasts only as long as available source evidence.
+
+Pool schema 6 adds a separate daily activity payload ledger. It does not modify authoritative usage totals or manufacture whole-session summaries. Publications retain each day/project fragment with the greatest observed request count, and accept pricing corrections at equal counts. Own-machine rows are excluded from peer reads. Older aggregate-only history remains usable for totals but does not invent session/project awards. The existing pool rollout procedure supports schema 5 as an additional starting version; no live migration is part of this implementation.
+
+Cursor Admin API records are account-scoped and do not enter the activity ledger. Local Cursor bridge records remain eligible. Tokenmaxx background corrections are produced in the accounting rollup and never enter the real-record evidence path.
+
+Touch swipes, visible previous/next controls and arrow/Home/End keys navigate the story. There is no motion to suppress. Redaction is opt-in and hides project, session, machine and model display names before either story or PNG rendering. PNG rendering remains optional and server-side; export failure leaves the story available.
