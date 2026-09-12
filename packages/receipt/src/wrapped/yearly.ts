@@ -65,13 +65,36 @@ export function buildYearlyWrapped(snapshot: RollupSnapshot, options: {
 			}
 		}
 	}
-	const activityPartial = partial || evidencedRequests < headline.requests;
+	const activityPartial = partial || evidencedRequests !== headline.requests;
 	const orderedSessions = [...sessions].sort((a, b) => b[1].cost - a[1].cost || a[0].localeCompare(b[0]));
 	const orderedProjects = [...projects].sort((a, b) => b[1].days.size - a[1].days.size || a[0].localeCompare(b[0]));
 	const machines = new Map<string, number>(), models = new Map<string, number>();
 	for (const row of grain) {
 		if (row.machineId) machines.set(row.machineId, (machines.get(row.machineId) ?? 0) + row.requests);
 		models.set(row.model, (models.get(row.model) ?? 0) + row.requests);
+	}
+	// Legacy Cursor aggregates combine Admin and bridge usage. Only retained bridge
+	// activity can recover a machine; never assign the account-wide remainder.
+	const cursorDays = new Map<string, Map<string, number>>();
+	const attributedCursorDays = new Set<string>(), unassignedCursorDays = new Map<string, number>();
+	for (const row of grain) {
+		if (row.provider !== 'cursor') continue;
+		if (row.machineId) attributedCursorDays.add(JSON.stringify([row.day, row.machineId]));
+		else unassignedCursorDays.set(row.day, (unassignedCursorDays.get(row.day) ?? 0) + row.requests);
+	}
+	for (const session of snapshot.activity ?? []) {
+		if (session.provider !== 'cursor' || !session.machineId) continue;
+		for (const day of session.activity) {
+			if (day.day < from || day.day > to || attributedCursorDays.has(JSON.stringify([day.day, session.machineId]))) continue;
+			const counts = cursorDays.get(day.day) ?? new Map<string, number>();
+			counts.set(session.machineId, (counts.get(session.machineId) ?? 0) + day.requests);
+			cursorDays.set(day.day, counts);
+		}
+	}
+	for (const [day, counts] of cursorDays) {
+		const unassigned = unassignedCursorDays.get(day) ?? 0;
+		if ([...counts.values()].reduce((sum, count) => sum + count, 0) > unassigned) continue;
+		for (const [machine, count] of counts) machines.set(machine, (machines.get(machine) ?? 0) + count);
 	}
 	const winner = (items: Map<string, number>) => [...items].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
 	const biggest = orderedSessions[0]?.[1], project = orderedProjects[0]?.[1], machine = winner(machines), model = winner(models);

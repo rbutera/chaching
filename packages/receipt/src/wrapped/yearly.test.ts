@@ -60,3 +60,14 @@ it('deduplicates shared Account fees without per-Account usage shares and preser
 		expect(next.comparison.windowFeeUsd).toBe(fee); expect(next.comparison.sub.multiple).toBeNull();
 	}
 });
+
+it('recovers real Cursor bridge machine counts without assigning Admin usage to its publisher', () => {
+	const input = snapshot();
+	input.dayModel = [{ day: '2026-01-02', provider: 'cursor', model: 'cheap', cost: 1000, requests: 1000, costUnknownRequests: 0, tokens }];
+	input.activity = [{ provider: 'cursor', sessionId: 'local-bridge', machineId: 'machine-b', activity: [{ day: '2026-01-02', project: '/real/project', requests: 3, cost: 1, costUnknownRequests: 0 }] }];
+	const result = buildYearlyWrapped(input, options);
+	expect(result.highlights[2]).toMatchObject({ value: 'Busy machine', detail: '3 observed usage records · Partial history' });
+	expect(result.highlights[3].detail).toContain('1,000 observed usage records');
+	input.activity = [];
+	expect(buildYearlyWrapped(input, options).highlights[2].value).toBe('Unavailable');
+});
