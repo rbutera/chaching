@@ -552,9 +552,11 @@ describe('dashboard route — motion (reduced-motion contract)', () => {
 		await flush();
 		await fireEvent.click(view.getByRole('button', { name: 'Settings' }));
 		const checkbox = view.getByRole('checkbox', { name: new RegExp(name) });
-		const write = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('Blocked'); });
+		const storageMethods = Object.hasOwn(localStorage, 'setItem') ? localStorage : Storage.prototype;
+		const write = vi.spyOn(storageMethods, 'setItem').mockImplementation(() => { throw new Error('Blocked'); });
 		try {
 			await fireEvent.click(checkbox);
+			expect(write).toHaveBeenCalled();
 			expect(view.getByRole('alert').textContent).toContain('Could not save');
 			expect(checkbox).toHaveProperty('checked', true);
 		} finally { write.mockRestore(); }

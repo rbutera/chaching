@@ -94,6 +94,7 @@ try {
 	const packageRoot=join(installed,'node_modules','chaching');
 	const manifest=JSON.parse(await readFile(join(packageRoot,'package.json'),'utf8'));
 	assert.equal(manifest.name,'chaching'); assert.notEqual(manifest.private,true);
+	assert.equal(manifest.version,JSON.parse(await readFile(join(root,'package.json'),'utf8')).version,'Installed version must match the source revision');
 	assert(!JSON.stringify(manifest).includes('workspace:'),'Published manifest must not contain workspace versions');
 	assert(!Object.keys(manifest.dependencies || {}).some(name=>name.startsWith('@chaching/')),'Private workspaces must be bundled');
 	const launcher=join(packageRoot,'bin','chaching.js');
