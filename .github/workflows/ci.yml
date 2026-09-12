@@ -1,0 +1,102 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact source revision to check
+        type: string
+        required: false
+        default: ''
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ inputs.ref || 'event' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  linux:
+    name: Linux / Node ${{ matrix.node }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['24.16.0', '26.7.0']
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: chaching_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CHACHING_TEST_DATABASE_URL: postgresql://postgres:chaching_ci@127.0.0.1:5432/postgres
+      CHACHING_TEST_PG_TOOLS: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-ci
+        with:
+          node: ${{ matrix.node }}
+      - name: PostgreSQL 17 client tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+      - name: Full gate
+        run: node tools/run-ci.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: reports-linux-${{ matrix.node }}
+          path: reports/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: success() && matrix.node == '26.7.0'
+        with:
+          name: tested-package
+          path: artifacts/
+          if-no-files-found: error
+  macos:
+    name: macOS / Node 26.7.0
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-ci
+        with:
+          node: '26.7.0'
+      - name: Platform gate
+        run: node tools/run-ci.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: reports-macos
+          path: reports/
+          if-no-files-found: error
+  gate:
+    name: Required CI gate
+    if: always()
+    needs: [linux, macos]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every matrix leg
+        env:
+          LINUX_RESULT: ${{ needs.linux.result }}
+          MACOS_RESULT: ${{ needs.macos.result }}
+        run: test "$LINUX_RESULT" = success && test "$MACOS_RESULT" = success
