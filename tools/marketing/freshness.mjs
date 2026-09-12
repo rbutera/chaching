@@ -16,7 +16,7 @@ export function inputs() {
     'pnpm-lock.yaml', 'apps/web/project.json', 'apps/web/scripts/gen-og.ts', 'apps/web/scripts/lib/render.ts', 'apps/web/vite.config.ts', 'apps/web/svelte.config.js', 'tools/assemble-package.mjs', 'tools/copy-web-assets.mjs']
     .sort().map(path => [path, hash(path)]));
 }
-const outputs = ['receipt.png', 'wrapped.png', 'dashboard.png', 'dashboard-corner.png', 'dashboard-narrow.png', 'terminal.mp4', 'terminal.png', 'og.png'];
+const outputs = ['receipt.png', 'wrapped.png', 'wrapped-yearly.png', 'dashboard.png', 'dashboard-corner.png', 'dashboard-narrow.png', 'terminal.mp4', 'terminal.png', 'og.png'];
 export function checkManifest(manifest) {
   assert.deepEqual(inputs(), manifest.inputs, 'Marketing capture inputs changed. Run pnpm site:refresh.');
   for (const name of outputs) assert.equal(hash(`apps/site/public/shots/${name}`), manifest.outputs[name], `${name} is missing or changed. Run pnpm site:refresh.`);
