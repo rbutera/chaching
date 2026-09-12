@@ -17,6 +17,7 @@ run(process.execPath, ['--test', 'tools/verify-ci-tests.test.mjs', 'tools/nx-cac
 pnpm('boundaries');
 pnpm('check');
 pnpm('build');
+run('git', ['diff', '--exit-code']);
 const projects = JSON.parse(run('pnpm', ['exec', 'nx', 'show', 'projects', '--withTarget=test', '--json'], true));
 if (!Array.isArray(projects) || !projects.length) throw new Error('Nx found no test projects');
 for (const project of projects) {
@@ -24,13 +25,14 @@ for (const project of projects) {
 }
 run(process.execPath, ['tools/verify-ci-tests.mjs']);
 pnpm('package');
-pnpm('verify:package');
 rmSync('artifacts', { recursive: true, force: true });
 mkdirSync('artifacts');
 pnpm('--dir', 'dist/chaching', 'pack', '--pack-destination', resolve('artifacts'));
 const tarballs = readdirSync('artifacts').filter(name => name.endsWith('.tgz'));
 if (tarballs.length !== 1) throw new Error('Expected exactly one package tarball');
 const archive = tarballs[0];
+environment.CHACHING_PACKAGE_TARBALL = resolve('artifacts', archive);
+pnpm('verify:package');
 const manifest = JSON.parse(readFileSync('dist/chaching/package.json', 'utf8'));
 writeFileSync('artifacts/manifest.json', JSON.stringify({
   sourceSha: run('git', ['rev-parse', 'HEAD'], true),
