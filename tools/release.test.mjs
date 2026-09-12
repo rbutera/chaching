@@ -67,6 +67,7 @@ import {existsSync,readFileSync,writeFileSync,copyFileSync,mkdirSync} from 'node
 import {join,basename} from 'node:path';
 const args = process.argv.slice(2);
 const path = args.join(' ');
+if(process.env.TEST_EXPIRED_RUN && path.includes('/runs/42/'))throw new Error('Original gate run expired');
 const option = name => args[args.indexOf(name)+1];
 const state = existsSync('github.json') ? JSON.parse(readFileSync('github.json')) : null;
 const save = value => writeFileSync('github.json',JSON.stringify(value));
@@ -138,7 +139,11 @@ globalThis.fetch=async(url)=>{
     result = promote({ RELEASE_DRY_RUN: 'false' });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(readFileSync(join(root, 'dispatches'), 'utf8'), '2');
-    const publish = extra => spawnSync(process.execPath, ['--import', './registry-preload.mjs', script, 'publish'], { cwd: root, encoding: 'utf8', env: { ...env, GITHUB_SHA: sourceSha, GITHUB_REF: 'refs/tags/v1.18.1', RELEASE_RESUME_TAG: 'v1.18.1', ...extra } });
+    manifest.runId = '43';
+    result = promote({ RELEASE_DRY_RUN: 'false', GITHUB_RUN_ID: '43', TEST_EXPIRED_RUN: 'true' });
+    assert.equal(result.status, 0, result.stderr);
+    manifest.runId = '42';
+    const publish = extra => spawnSync(process.execPath, ['--import', './registry-preload.mjs', script, 'publish'], { cwd: root, encoding: 'utf8', env: { ...env, TEST_EXPIRED_RUN: 'true', GITHUB_SHA: sourceSha, GITHUB_REF: 'refs/tags/v1.18.1', RELEASE_RESUME_TAG: 'v1.18.1', ...extra } });
     result = publish({ TEST_FINALIZE_FAILURE: 'true', TEST_REGISTRY_DELAY: 'true' });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /gh failed/);
@@ -148,12 +153,14 @@ globalThis.fetch=async(url)=>{
     assert.notEqual(publish({ TEST_REGISTRY_MISMATCH: 'true' }).status, 0);
     rmSync(join(root, 'release-assets', archive));
     assert.notEqual(publish().status, 0, 'Missing artifact cannot publish');
-    result = promote({ RELEASE_DRY_RUN: 'false' });
+    manifest.runId = '43';
+    result = promote({ RELEASE_DRY_RUN: 'false', GITHUB_RUN_ID: '43' });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(publish().status, 0, 'Same-commit rebuild restores missing artifact');
     manifest.integrity = 'sha512-wrong';
     assert.notEqual(promote({ RELEASE_DRY_RUN: 'false' }).status, 0);
     manifest.integrity = original.integrity;
+    manifest.runId = '42';
     save('candidate.json', candidate);
     writeFileSync(join(root, 'another-file'), 'concurrent work');
     git('add', 'another-file'); git('commit', '-m', 'concurrent main update');

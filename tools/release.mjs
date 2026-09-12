@@ -125,7 +125,8 @@ function download(manifest, directory) {
   const evidence = json(join(directory, 'gate.json'));
   assert.equal(evidence.sourceSha, manifest.sourceSha);
   assert.equal(evidence.integrity, manifest.integrity);
-  assert.equal(evidence.gateWorkflowBlob, manifest.gateWorkflowBlob);
+  assert.equal(evidence.gateWorkflowBlob, git('rev-parse', `${evidence.workflowSha}:.github/workflows/ci.yml`));
+  git('merge-base', '--is-ancestor', evidence.workflowSha, 'origin/main');
   return evidence;
 }
 export function validateGateJobs(jobs) {
@@ -233,7 +234,7 @@ async function promote() {
     manifest = { ...tested, ...candidate, gateRunId: process.env.GITHUB_RUN_ID, gateAttempt: process.env.GITHUB_RUN_ATTEMPT, workflowSha: process.env.GITHUB_SHA, gateWorkflowBlob: git('rev-parse', `${candidate.sourceSha}:.github/workflows/ci.yml`) };
   }
   save('artifacts/manifest.json', manifest);
-  save('artifacts/gate.json', { sourceSha: manifest.sourceSha, integrity: manifest.integrity, gateWorkflowBlob: manifest.gateWorkflowBlob, runId: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT, workflowSha: record.head_sha });
+  save('artifacts/gate.json', { sourceSha: manifest.sourceSha, integrity: manifest.integrity, gateWorkflowBlob: git('rev-parse', `${record.head_sha}:.github/workflows/ci.yml`), runId: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT, workflowSha: record.head_sha });
   if (process.env.RELEASE_DRY_RUN === 'true') {
     console.log('Dry run passed: exact candidate and package passed every gate. No release refs or registry changes.');
     return;
