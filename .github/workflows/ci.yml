@@ -40,6 +40,7 @@ jobs:
     env:
       CHACHING_TEST_DATABASE_URL: postgresql://postgres:chaching_ci@127.0.0.1:5432/postgres
       CHACHING_TEST_PG_TOOLS: '1'
+      CHACHING_CI_SUBPATH: ${{ matrix.node == '26.7.0' && '1' || '0' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

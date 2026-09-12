@@ -45,3 +45,12 @@ writeFileSync('artifacts/manifest.json', JSON.stringify({
   architecture: process.arch,
   runId: process.env.GITHUB_RUN_ID ?? null
 }, null, 2) + '\n');
+
+if (process.env.CHACHING_CI_SUBPATH === '1') {
+  delete environment.CHACHING_PACKAGE_TARBALL;
+  environment.CHACHING_BASE_PATH = '/ci-subpath';
+  pnpm('build:sk');
+  pnpm('package');
+  pnpm('verify:package');
+  run('git', ['diff', '--exit-code']);
+}
