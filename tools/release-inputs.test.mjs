@@ -1,0 +1,61 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { releaseInputs, releaseNotes } from './release-inputs.mjs';
+
+test('release inputs use both trees and only app/build dependency closures; notes handle arbitrary subjects', () => {
+ const cwd = mkdtempSync(join(tmpdir(), 'chaching-release-inputs-'));
+ const git = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+ const write = (path, text) => { mkdirSync(dirname(join(cwd, path)), { recursive: true }); writeFileSync(join(cwd, path), typeof text === 'string' ? text : JSON.stringify(text)); };
+ const commit = subject => { git('add', '.'); git('commit', '-qm', subject); return git('rev-parse', 'HEAD'); };
+ const lock = (runtime = '1.0.0', testing = '1.0.0', integrity = 'original') => `lockfileVersion: '9.0'\nimporters:\n  .: {}\n  apps/site:\n    devDependencies:\n      site-only: {specifier: '${testing}', version: '${testing}'}\n  packages/cli:\n    dependencies:\n      runtime: {specifier: '${runtime}', version: '${runtime}'}\n    devDependencies:\n      vitest: {specifier: '${testing}', version: '${testing}'}\npackages:\n  runtime@${runtime}: {resolution: {integrity: '${integrity}'}}\n  leaf@1.0.0: {resolution: {integrity: '${integrity}'}}\n  vitest@${testing}: {}\n  site-only@${testing}: {}\nsnapshots:\n  runtime@${runtime}:\n    dependencies: {leaf: '1.0.0'}\n  leaf@1.0.0: {}\n  vitest@${testing}: {}\n  site-only@${testing}: {}\n`;
+ try {
+  git('init', '-q'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.com');
+  write('package.json', { name: 'workspace', version: '1.0.0', devDependencies: { nx: '1.0.0', vitest: '1.0.0' } });
+  write('project.json', { name: 'distribution', implicitDependencies: ['cli', 'web'] });
+  write('packages/cli/package.json', { name: '@chaching/cli', dependencies: { '@chaching/extra': 'workspace:*', runtime: '1.0.0' }, devDependencies: { vitest: '1.0.0' } });
+  write('packages/cli/project.json', { name: 'cli', targets: { build: { options: { command: 'tsup' } }, test: { options: { command: 'vitest' } } } });
+  write('apps/web/package.json', { name: '@chaching/web' });
+  write('packages/extra/package.json', { name: '@chaching/extra' });
+  write('packages/extra/src/value.js', 'export default 1;');
+  write('packages/cli/src/index.js', 'console.log(1);');
+  write('packages/cli/src/index.test.js', 'test();');
+  write('pnpm-lock.yaml', lock());
+  const base = commit('initial');
+  const check = (subject, mutate, expected) => {
+   git('reset', '--hard', base); git('clean', '-fd'); mutate();
+   const head = commit(subject);
+   assert.equal(releaseInputs(base, head, cwd).eligible, expected, subject);
+   return head;
+  };
+  check('docs only', () => write('docs/guide.md', 'guide'), false);
+  check('site only', () => write('apps/site/src/index.js', 'site'), false);
+  check('CI only', () => write('.github/workflows/release.yml', 'workflow'), false);
+  check('test only', () => write('packages/cli/src/index.test.js', 'changed test'), false);
+  check('test target only', () => write('packages/cli/project.json', { name: 'cli', targets: { build: { options: { command: 'tsup' } }, test: { options: { command: 'vitest --run' } } } }), false);
+  check('dev-only manifest', () => write('packages/cli/package.json', { name: '@chaching/cli', dependencies: { '@chaching/extra': 'workspace:*', runtime: '1.0.0' }, devDependencies: { vitest: '2.0.0' } }), false);
+  check('test/site lockfile only', () => write('pnpm-lock.yaml', lock('1.0.0', '2.0.0')), false);
+  check('runtime lockfile', () => write('pnpm-lock.yaml', lock('2.0.0')), true);
+  check('transitive integrity', () => write('pnpm-lock.yaml', lock().replace("leaf@1.0.0: {resolution: {integrity: 'original'}}", "leaf@1.0.0: {resolution: {integrity: 'changed'}}")), true);
+  check('release-generated metadata', () => { write('package.json', { name: 'workspace', version: '1.0.1', devDependencies: { nx: '1.0.0', vitest: '1.0.0' } }); write('CHANGELOG.md', 'release'); }, false);
+  check('removed source', () => rmSync(join(cwd, 'packages/cli/src/index.js')), true);
+  check('renamed source out of runtime tree', () => git('mv', 'packages/cli/src/index.js', 'moved.js'), true);
+  check('deleted dependency project', () => { rmSync(join(cwd, 'packages/extra'), { recursive: true }); write('packages/cli/package.json', { name: '@chaching/cli', dependencies: { runtime: '1.0.0' }, devDependencies: { vitest: '1.0.0' } }); }, true);
+  check('unknown asset in runtime root', () => write('packages/extra/new.asset', 'asset'), true);
+  check('build config', () => write('packages/cli/project.json', { name: 'cli', targets: { build: { options: { command: 'tsup --minify' } } } }), true);
+  check('legacy source root', () => write('src/routes/page.svelte', 'legacy app'), true);
+  const head = check('feat(cli): shell `$(touch nope)` [text]', () => { write('packages/cli/src/index.js', 'console.log(2);'); write('README.md', 'docs'); }, true);
+  const notes = releaseNotes(base, head, cwd);
+  assert.match(notes, /### Features/);
+  assert.match(notes, /\\`\$\\\(touch nope\\\)\\` \\\[text\\\]/);
+  write('packages/cli/src/index.js', 'console.log(3);');
+  const fix = commit('fix: improve output');
+  assert.match(releaseNotes(base, fix, cwd), /### Fixes/);
+  write('docs/guide.md', 'another guide');
+  const docs = commit('feat: documentation only');
+  assert.doesNotMatch(releaseNotes(base, docs, cwd), /documentation only/);
+ } finally { rmSync(cwd, { recursive: true, force: true }); }
+});

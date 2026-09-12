@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { packageContents } from './release.mjs';
 
 const environment = { ...process.env, NX_DAEMON: 'false', CI: 'true' };
 function run(command, args, capture = false) {
@@ -13,7 +14,7 @@ function run(command, args, capture = false) {
 const pnpm = (...args) => run('pnpm', args);
 rmSync('reports', { recursive: true, force: true });
 mkdirSync('reports');
-run(process.execPath, ['--test', 'tools/verify-ci-tests.test.mjs', 'tools/nx-cache-proxy.test.mjs']);
+run(process.execPath, ['--test', 'tools/verify-ci-tests.test.mjs', 'tools/nx-cache-proxy.test.mjs', 'tools/release.test.mjs', 'tools/release-inputs.test.mjs']);
 pnpm('boundaries');
 pnpm('check');
 pnpm('build');
@@ -42,6 +43,7 @@ writeFileSync('artifacts/manifest.json', JSON.stringify({
   version: manifest.version,
   archive,
   integrity: `sha512-${createHash('sha512').update(readFileSync(`artifacts/${archive}`)).digest('base64')}`,
+  contents: packageContents(`artifacts/${archive}`),
   node: process.version,
   platform: process.platform,
   architecture: process.arch,
@@ -49,6 +51,14 @@ writeFileSync('artifacts/manifest.json', JSON.stringify({
 }, null, 2) + '\n');
 
 if (process.env.CHACHING_CI_SUBPATH === '1') {
+  pnpm('exec', 'nx', 'run-many', '-t', 'build', '--projects=cli,web', '--skip-nx-cache');
+  run(process.execPath, ['tools/assemble-package.mjs']);
+  mkdirSync('artifacts/rebuilt');
+  pnpm('--dir', 'dist/chaching', 'pack', '--pack-destination', resolve('artifacts/rebuilt'));
+  if (!readFileSync(`artifacts/${archive}`).equals(readFileSync(`artifacts/rebuilt/${archive}`))) {
+    throw new Error('Uncached rebuild changed the tested package bytes; release recovery would fail');
+  }
+  rmSync('artifacts/rebuilt', { recursive: true });
   delete environment.CHACHING_PACKAGE_TARBALL;
   environment.CHACHING_BASE_PATH = '/ci-subpath';
   pnpm('build:sk');
