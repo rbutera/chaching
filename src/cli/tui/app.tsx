@@ -284,7 +284,7 @@ export function DashboardApp({ source, period = 'week', noArt = false, now, dime
 						<SummaryCards
 							totals={totals}
 							topModel={modelTotals[0] ?? null}
-							savings={savings}
+							savings={savings ?? undefined}
 							lifetimeCost={lifetimeCost}
 							displayCost={displayCost}
 							noArt={noArt}

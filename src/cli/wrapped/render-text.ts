@@ -183,7 +183,7 @@ export function renderWrappedText(model: WrappedModel, e: RenderTextEnv = {}): s
 	lines.push('');
 	lines.push(dashRule(noArt));
 	lines.push(sectionHead('cache savings'));
-	lines.push(row('you saved', C.bold(money(model.cache.savedVsUncached))));
+	lines.push(row('you saved', C.bold((model.cache.savedVsUncached === null ? '—' : money(model.cache.savedVsUncached)))));
 	if (model.cache.cacheReadTokens > 0) {
 		lines.push(
 			C.dim(subRow(`${compactTokens(model.cache.cacheReadTokens)} reads @ cache rate`, ''))
@@ -191,7 +191,7 @@ export function renderWrappedText(model: WrappedModel, e: RenderTextEnv = {}): s
 	} else {
 		lines.push(C.dim('  no cache reads this month'));
 	}
-	lines.push(C.dim(subRow('cache billed', money(model.cache.cacheReadCost + model.cache.cacheWriteCost))));
+	lines.push(C.dim(subRow('cache billed', (model.cache.cacheReadCost === null || model.cache.cacheWriteCost === null ? '—' : money(model.cache.cacheReadCost + model.cache.cacheWriteCost)))));
 
 	// ── Month over month ────────────────────────────────────────────────────────
 	// Rendered ONLY when the prior calendar month is a full baseline (build gate).

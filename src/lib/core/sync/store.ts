@@ -1,4 +1,6 @@
 import { Pool, type PoolClient } from 'pg';
+import type { MonetaryComponents } from '../pricing/catalog';
+import { mergeMonetary } from '../aggregate';
 import type { SessionSummary } from '../../types';
 import type { FrozenAgg, HourAgg } from '../rollup/rollup';
 import type {
@@ -13,7 +15,7 @@ const SCHEMA = 'chaching_sync';
 const HOUR_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 /** Bump when the DDL in `migrate()` changes. `open()` runs the DDL only when the recorded
  * schema_version differs, so a status GET no longer re-runs full DDL every call (C9). */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 /**
  * Incremental peer reads back off the max-watermark by this margin. `updated_at` is stamped at
  * transaction START (`now()`), but a row only becomes visible at COMMIT; a peer whose publish
@@ -108,6 +110,7 @@ export function coalesceSessionsForPublish(
 			},
 			requests: existing.requests + stamped.requests,
 			cost: existing.cost + stamped.cost,
+			monetary: mergeMonetary(existing.monetary, stamped.monetary),
 			costUnknownRequests: existing.costUnknownRequests + stamped.costUnknownRequests,
 			models: [...new Set([...existing.models, ...stamped.models])]
 		});
@@ -528,6 +531,7 @@ export class PostgresSyncStore {
 			web_fetch_requests: a.webFetchRequests,
 			requests: a.requests,
 			cost: a.cost,
+			monetary: a.monetary ?? null,
 			cost_unknown_requests: a.costUnknownRequests,
 			// A day is partial when the publisher's own local scan for it was incomplete; peers
 			// must render it `partial`, never `frozen` (C8). A raw aggregate with no flag is
@@ -539,19 +543,19 @@ export class PostgresSyncStore {
 				pool_id, source_scope, machine_id, day, provider, model,
 				input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
 				cache_creation_1h, cache_creation_5m, web_search_requests, web_fetch_requests,
-				requests, cost, cost_unknown_requests, partial, updated_at
+				requests, cost, cost_unknown_requests, monetary, partial, updated_at
 			)
 			SELECT $1, $2, $3, x.day, x.provider, x.model,
 				x.input_tokens, x.output_tokens, x.cache_creation_tokens, x.cache_read_tokens,
 				x.cache_creation_1h, x.cache_creation_5m, x.web_search_requests, x.web_fetch_requests,
-				x.requests, x.cost, x.cost_unknown_requests, x.partial, now()
+				x.requests, x.cost, x.cost_unknown_requests, x.monetary, x.partial, now()
 			FROM jsonb_to_recordset($4::jsonb) AS x(
 				day text, provider text, model text,
 				input_tokens bigint, output_tokens bigint, cache_creation_tokens bigint,
 				cache_read_tokens bigint, cache_creation_1h bigint, cache_creation_5m bigint,
 				web_search_requests integer, web_fetch_requests integer,
 				requests integer, cost double precision, cost_unknown_requests integer,
-				partial boolean
+				monetary jsonb, partial boolean
 			)
 			ON CONFLICT (pool_id, source_scope, day, provider, model) DO UPDATE SET
 				machine_id = EXCLUDED.machine_id,
@@ -566,6 +570,7 @@ export class PostgresSyncStore {
 				requests = EXCLUDED.requests,
 				cost = EXCLUDED.cost,
 				cost_unknown_requests = EXCLUDED.cost_unknown_requests,
+				monetary = EXCLUDED.monetary,
 				partial = EXCLUDED.partial,
 				updated_at = now()`,
 			[poolId, scope.sourceScope, scope.machineId, JSON.stringify(payload)]
@@ -681,7 +686,7 @@ export class PostgresSyncStore {
 				`SELECT source_scope, machine_id, day, provider, model,
 					input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
 					cache_creation_1h, cache_creation_5m, web_search_requests, web_fetch_requests,
-					requests, cost, cost_unknown_requests, partial, updated_at
+					requests, cost, cost_unknown_requests, monetary, partial, updated_at
 				 FROM ${SCHEMA}.machine_day_agg WHERE ${clause}`,
 				params
 			),
@@ -724,6 +729,7 @@ export class PostgresSyncStore {
 				cacheCreation5m: Number(row.cache_creation_5m),
 				webSearchRequests: Number(row.web_search_requests),
 				webFetchRequests: Number(row.web_fetch_requests),
+				monetary: parseMonetary(row.monetary),
 				partial: Boolean(row.partial)
 			};
 		});
@@ -751,6 +757,7 @@ export class PostgresSyncStore {
 			const payload = jsonObject(row.payload) as unknown as SessionSummary;
 			return {
 				...payload,
+				monetary: parseMonetary(payload.monetary),
 				sourceScope: String(row.source_scope),
 				machineId: row.machine_id == null ? undefined : String(row.machine_id)
 			};
@@ -764,6 +771,11 @@ export class PostgresSyncStore {
 }
 
 async function migrate(client: PoolClient): Promise<void> {
+	if (await schemaVersionAt(client, 4)) {
+		await client.query(`ALTER TABLE ${SCHEMA}.machine_day_agg ADD COLUMN monetary jsonb`);
+		await client.query(`UPDATE ${SCHEMA}.schema_version SET version = $1 WHERE id = 1`, [SCHEMA_VERSION]);
+		return;
+	}
 	await client.query(`CREATE SCHEMA IF NOT EXISTS ${SCHEMA}`);
 	// v1 (never shipped) stored raw usage records + a join-time frozen-history import. The
 	// v2 aggregate ledger replaces that outright, so drop the v1 tables instead of migrating.
@@ -910,6 +922,7 @@ async function migrate(client: PoolClient): Promise<void> {
 		DROP TABLE ${SCHEMA}.machine_subscription;
 		ALTER TABLE ${SCHEMA}.schema_version ADD CONSTRAINT account_schema_min_version CHECK (version >= 4) NOT VALID;
 	`);
+	await client.query(`ALTER TABLE ${SCHEMA}.machine_day_agg ADD COLUMN IF NOT EXISTS monetary jsonb`);
 	// Record the version last, inside the same migration transaction, so the fast path in
 	// open() can skip the DDL entirely next time (C9).
 	await client.query(
@@ -964,4 +977,11 @@ function jsonObject(value: unknown): Record<string, unknown> {
 	if (value && typeof value === 'object') return value as Record<string, unknown>;
 	if (typeof value === 'string') return JSON.parse(value) as Record<string, unknown>;
 	throw new Error('Invalid JSON payload in sync session');
+}
+
+function parseMonetary(value: unknown): MonetaryComponents | undefined {
+	if (!value || typeof value !== 'object' || !('input' in value) || !('output' in value) || !('cacheCreation' in value) || !('cacheRead' in value) || !('tools' in value)) return;
+	const {input, output, cacheCreation, cacheRead, tools} = value;
+	if (typeof input !== 'number' || typeof output !== 'number' || typeof cacheCreation !== 'number' || typeof cacheRead !== 'number' || typeof tools !== 'number' || ![input, output, cacheCreation, cacheRead, tools].every(n => Number.isFinite(n) && n >= 0)) return;
+	return {input, output, cacheCreation, cacheRead, tools, cacheReadUncached: 'cacheReadUncached' in value && typeof value.cacheReadUncached === 'number' && Number.isFinite(value.cacheReadUncached) && value.cacheReadUncached >= 0 ? value.cacheReadUncached : undefined};
 }

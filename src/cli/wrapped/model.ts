@@ -58,12 +58,12 @@ export interface WrappedTopProject {
 export interface WrappedCache {
 	cacheReadTokens: number;
 	/** what the reads billed at the cache-read rate */
-	cacheReadCost: number;
+	cacheReadCost: number | null;
 	cacheWriteTokens: number;
 	/** what the writes billed at the cache-create rate */
-	cacheWriteCost: number;
+	cacheWriteCost: number | null;
 	/** what the reads WOULD have cost uncached, less what they billed (the savings) */
-	savedVsUncached: number;
+	savedVsUncached: number | null;
 }
 
 /** The single most expensive day of the month. */

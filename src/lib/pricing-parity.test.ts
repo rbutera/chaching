@@ -42,11 +42,16 @@ describe('pricing parity — PRICE_OVERRIDES (server) vs resolvePriceClient', ()
 		it(`${id} matches its override exactly`, () => {
 			const entry = PRICE_OVERRIDES[id];
 			const client = resolvePriceClient(id);
-			expect(client, `resolvePriceClient('${id}') returned null`).not.toBeNull();
+			expect(
+				client,
+				`resolvePriceClient('${id}') returned null`
+			).not.toBeNull();
 			expect(client!.input).toBe(entry.input_cost_per_token);
 			expect(client!.output).toBe(entry.output_cost_per_token);
 			expect(client!.cacheCreation).toBe(entry.cache_creation_input_token_cost);
-			expect(client!.cacheCreation1h).toBe(entry.cache_creation_input_token_cost_above_1hr);
+			expect(client!.cacheCreation1h).toBe(
+				entry.cache_creation_input_token_cost_above_1hr
+			);
 			expect(client!.cacheRead).toBe(entry.cache_read_input_token_cost);
 		});
 	}
@@ -59,19 +64,26 @@ describe('pricing parity — bare claude-* snapshot keys vs resolvePriceClient',
 	// "azure_ai/" — none of those contain a slash or start with "claude-"). These
 	// bare ids are what Claude Code itself writes into its usage logs, so they're
 	// exactly what the client has to price.
-	const bareClaudeKeys = Object.keys(snapshot.prices).filter((k) => k.startsWith('claude-'));
+	const bareClaudeKeys = Object.keys(snapshot.prices).filter((k) =>
+		k.startsWith('claude-')
+	);
 	expect(bareClaudeKeys.length).toBeGreaterThan(10); // sanity: fixture isn't broken/empty
 
 	for (const id of bareClaudeKeys) {
 		it(`${id} matches the snapshot`, () => {
 			const entry = snapshot.prices[id];
 			const client = resolvePriceClient(id);
-			expect(client, `resolvePriceClient('${id}') returned null`).not.toBeNull();
+			expect(
+				client,
+				`resolvePriceClient('${id}') returned null`
+			).not.toBeNull();
 			expect(client!.input).toBe(entry.input_cost_per_token);
 			expect(client!.output).toBe(entry.output_cost_per_token);
 			expect(client!.cacheRead).toBe(entry.cache_read_input_token_cost);
 			if (entry.cache_creation_input_token_cost != null) {
-				expect(client!.cacheCreation).toBe(entry.cache_creation_input_token_cost);
+				expect(client!.cacheCreation).toBe(
+					entry.cache_creation_input_token_cost
+				);
 			}
 		});
 	}
@@ -90,8 +102,16 @@ describe('pricing parity — OpenAI/Codex family ids vs resolvePriceClient', () 
 	// snapshot rate — this is the rule that would catch e.g. a new gpt-5.x point
 	// release shipping at a different price than the existing gpt-5 family regex
 	// assumes.
-	const FAMILY_PREFIXES = ['gpt-5', 'gpt-4.1', 'gpt-4o', 'o3', 'o4-mini', 'codex-mini'];
-	const EXCLUDED_SURFACE = /audio|realtime|transcribe|tts|image|search|deep-research|-pro(-|$)/;
+	const FAMILY_PREFIXES = [
+		'gpt-5',
+		'gpt-4.1',
+		'gpt-4o',
+		'o3',
+		'o4-mini',
+		'codex-mini'
+	];
+	const EXCLUDED_SURFACE =
+		/audio|realtime|transcribe|tts|image|search|deep-research|-pro(-|$)/;
 	const DATED_PIN = /-\d{4}-\d{2}-\d{2}$/;
 
 	const candidates = Object.keys(snapshot.prices).filter(
@@ -107,16 +127,21 @@ describe('pricing parity — OpenAI/Codex family ids vs resolvePriceClient', () 
 		it(`${id} matches the snapshot`, () => {
 			const entry = snapshot.prices[id];
 			const client = resolvePriceClient(id);
-			expect(client, `resolvePriceClient('${id}') returned null`).not.toBeNull();
+			expect(
+				client,
+				`resolvePriceClient('${id}') returned null`
+			).not.toBeNull();
 			expect(client!.input).toBe(entry.input_cost_per_token);
 			expect(client!.output).toBe(entry.output_cost_per_token);
 			if (entry.cache_read_input_token_cost != null) {
 				expect(client!.cacheRead).toBe(entry.cache_read_input_token_cost);
 			}
 			if (entry.cache_creation_input_token_cost != null) {
-				expect(client!.cacheCreation).toBe(entry.cache_creation_input_token_cost);
+				expect(client!.cacheCreation).toBe(
+					entry.cache_creation_input_token_cost
+				);
 			} else {
-				expect(client!.cacheCreation).toBe(client!.input);
+				expect(client!.cacheCreation).toBe(0);
 			}
 		});
 	}
@@ -124,25 +149,21 @@ describe('pricing parity — OpenAI/Codex family ids vs resolvePriceClient', () 
 
 describe('resolvePriceClient — negative + family-intent cases (review hardening)', () => {
 	it('returns null for foreign / unknown model families (never a fabricated rate)', () => {
-		for (const id of ['gpt-5.6-mars', 'gemini-2.5-pro', 'grok-4', 'mistral-large-2', 'deepseek-r2', 'llama-4-70b']) {
+		for (const id of ['gpt-5.6-mars', 'totally-unknown-model']) {
 			expect(resolvePriceClient(id), id).toBeNull();
 		}
 	});
 
 	it('keeps each exact GPT-5.6 tier distinct from the generic GPT-5 family', () => {
 		for (const id of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) {
-			expect(resolvePriceClient(id), id).not.toEqual(resolvePriceClient('gpt-5'));
+			expect(resolvePriceClient(id), id).not.toEqual(
+				resolvePriceClient('gpt-5')
+			);
 		}
 	});
 
-	it('documents family-tier intent for codex variants of the gpt-5 point releases', () => {
-		// A -codex suffix rides its generation's tier (same as the server family map).
-		expect(resolvePriceClient('gpt-5.5-codex')).toEqual(resolvePriceClient('gpt-5.5'));
-		expect(resolvePriceClient('gpt-5.4-codex')).toEqual(resolvePriceClient('gpt-5.4'));
-		// KNOWN LIMITATION (latent, no such id ships today): a future generation-specific
-		// codex-mini (e.g. gpt-5.4-codex-mini) currently falls through to the base
-		// codex-mini tier. The snapshot-iteration suites above fail CI the moment such
-		// an id lands in the snapshot with its own rate — revisit the ordering then.
-		expect(resolvePriceClient('gpt-5.4-codex-mini')).toEqual(resolvePriceClient('gpt-5-codex-mini'));
+	it('does not invent unlisted OpenAI siblings', () => {
+		expect(resolvePriceClient('gpt-5.5-codex')).toBeNull();
+		expect(resolvePriceClient('gpt-5.4-codex-mini')).toBeNull();
 	});
 });

@@ -1,3 +1,4 @@
+import { installClientPricingCatalog } from '$lib/pricing-client';
 // Client-side live feed store (Svelte 5 runes). Connects to /api/feed (SSE),
 // merges snapshot + deltas into reactive $state, and PAUSES via the Page
 // Visibility API when the tab is hidden — the biggest idle-CPU win for an
@@ -88,6 +89,7 @@ export class FeedStore {
 	}
 
 	private applySnapshot(snap: RollupSnapshot): void {
+		if (snap.pricing) installClientPricingCatalog(snap.pricing);
 		this.dayModelIndex.clear();
 		this.sessionIndex.clear();
 		for (const dm of snap.dayModel) this.dayModelIndex.set(dayModelKey(dm), dm);

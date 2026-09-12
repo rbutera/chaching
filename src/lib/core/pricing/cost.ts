@@ -1,153 +1,53 @@
-// Cost computation. Claude Code stores NO cost field, so cost is always computed
-// = Σ (tokens × per-token price), summed over the four billable token classes.
-//
-// Price resolution order (first hit wins):
-//   1. exact id in the hand-maintained override table
-//   2. exact id in the vendored LiteLLM snapshot (bare key)
-//   3. a normalised LiteLLM key (try anthropic-prefixed / regional variants)
-//   4. unknown -> cost is null (NOT zero) so the UI can flag it honestly.
-
-import { existsSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import type { TokenCounts } from '../../types';
-import { PRICE_OVERRIDES, type PriceEntry } from './overrides';
-
-interface Snapshot {
-	_meta?: { source?: string; snapshot_date?: string; note?: string };
-	prices: Record<string, Partial<PriceEntry>>;
+import type { PriceEntry } from './overrides';
+import { bundledCatalog, bundledPricingMeta } from './bundled';
+import {
+	freezeCatalog,
+	inferPricingProvider,
+	resolveValuation,
+	type BillingInput,
+	type PricingCatalog
+} from './catalog';
+let catalog = bundledCatalog;
+export function getPricingCatalog(): PricingCatalog {
+	return catalog;
 }
-
-let snapshot: Snapshot | null = null;
-let snapshotMeta: Snapshot['_meta'] = {};
-
-// The snapshot ships in the package at <root>/static/pricing/ and is also copied
-// to <root>/build/client/pricing/ by the adapter-node build. This module is
-// imported from several layouts (src tree under vitest, the bundled dist/cli CLI,
-// the SvelteKit server build), and the CLI runs from ANY cwd — so resolve by
-// walking up from this module's own location, never relying on process.cwd().
-const SNAPSHOT_RELS = [
-	'static/pricing/litellm-prices.json',
-	'build/client/pricing/litellm-prices.json'
-];
-
-function findSnapshotPath(): string | null {
-	let dir = dirname(fileURLToPath(import.meta.url));
-	for (let i = 0; i < 10; i++) {
-		for (const rel of SNAPSHOT_RELS) {
-			const candidate = join(dir, rel);
-			if (existsSync(candidate)) return candidate;
-		}
-		const parent = dirname(dir);
-		if (parent === dir) break;
-		dir = parent;
-	}
-	// last resort: cwd-relative (covers running straight from the package root)
-	for (const rel of SNAPSHOT_RELS) {
-		const candidate = join(process.cwd(), rel);
-		if (existsSync(candidate)) return candidate;
-	}
-	return null;
+export function installPricingCatalog(next: PricingCatalog): void {
+	catalog = freezeCatalog(next);
 }
-
-function loadSnapshot(): Snapshot {
-	if (snapshot) return snapshot;
-	const path = findSnapshotPath();
-	if (path) {
-		try {
-			const parsed = JSON.parse(readFileSync(path, 'utf8')) as Snapshot;
-			snapshot = parsed;
-			snapshotMeta = parsed._meta ?? {};
-			return snapshot;
-		} catch {
-			// fall through to graceful degrade
-		}
-	}
-	// degrade gracefully: overrides still apply
-	snapshot = { prices: {} };
-	return snapshot;
+export function getPricingMeta() {
+	return bundledPricingMeta;
 }
-
-export function getPricingMeta(): { snapshotDate: string | null; source: string | null } {
-	loadSnapshot();
-	return {
-		snapshotDate: snapshotMeta?.snapshot_date ?? null,
-		source: snapshotMeta?.source ?? null
-	};
+export function priceUsage(input: BillingInput) {
+	return resolveValuation(catalog, input);
 }
-
-const priceCache = new Map<string, PriceEntry | null>();
-
-/** Resolve a Claude Code model id to a complete price entry, or null if unknown. */
 export function resolvePrice(model: string): PriceEntry | null {
-	if (priceCache.has(model)) return priceCache.get(model) ?? null;
-
-	const resolved = resolveUncached(model);
-	priceCache.set(model, resolved);
-	return resolved;
-}
-
-function asEntry(p: Partial<PriceEntry> | undefined): PriceEntry | null {
-	if (!p) return null;
-	// require at least the two core rates to consider it a usable entry
-	if (p.input_cost_per_token == null || p.output_cost_per_token == null) return null;
+	const result = priceUsage({
+		provider: inferPricingProvider(model),
+		model,
+		tokens: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 }
+	});
+	if (result.kind === 'missing') return null;
+	const entry = catalog.entries.find(
+		(e) =>
+			e.provider === result.provider &&
+			e.model === result.model &&
+			e.source === result.source
+	);
+	const tier = entry?.tiers[0];
 	return {
-		input_cost_per_token: p.input_cost_per_token,
-		output_cost_per_token: p.output_cost_per_token,
-		cache_creation_input_token_cost: p.cache_creation_input_token_cost ?? 0,
-		cache_creation_input_token_cost_above_1hr: p.cache_creation_input_token_cost_above_1hr,
-		cache_read_input_token_cost: p.cache_read_input_token_cost ?? 0,
-		long_context_threshold_tokens: p.long_context_threshold_tokens,
-		long_context_input_multiplier: p.long_context_input_multiplier,
-		long_context_output_multiplier: p.long_context_output_multiplier
+		...result.price,
+		...(tier && !tier.inclusive && entry?.rates.input && entry.rates.output
+			? {
+					long_context_threshold_tokens: tier.threshold,
+					long_context_input_multiplier:
+						(tier.rates.input ?? entry.rates.input) / entry.rates.input,
+					long_context_output_multiplier:
+						(tier.rates.output ?? entry.rates.output) / entry.rates.output
+				}
+			: {})
 	};
 }
-
-function resolveUncached(model: string): PriceEntry | null {
-	// 1. exact override
-	if (PRICE_OVERRIDES[model]) return PRICE_OVERRIDES[model];
-
-	const snap = loadSnapshot();
-	// 2. exact bare key in snapshot
-	const exact = asEntry(snap.prices[model]);
-	if (exact) return exact;
-
-	// 3. normalised lookups: try common provider-prefixed / regional variants.
-	const candidates = [
-		`anthropic.${model}`,
-		`anthropic.${model}-v1:0`,
-		`anthropic.${model}-v1`,
-		`us.anthropic.${model}`,
-		`us.anthropic.${model}-v1:0`,
-		`azure_ai/${model}`,
-		`claude-${model}` // defensive
-	];
-	for (const c of candidates) {
-		const e = asEntry(snap.prices[c]);
-		if (e) return e;
-	}
-
-	// 4. family fallback by id pattern -> override family rates (still better than zero)
-	if (/opus/i.test(model) && PRICE_OVERRIDES['claude-opus-4-8']) {
-		return PRICE_OVERRIDES['claude-opus-4-8'];
-	}
-	if (/sonnet/i.test(model) && PRICE_OVERRIDES['claude-sonnet-4-6']) {
-		return PRICE_OVERRIDES['claude-sonnet-4-6'];
-	}
-	if (/haiku/i.test(model) && PRICE_OVERRIDES['claude-haiku-4-5']) {
-		return PRICE_OVERRIDES['claude-haiku-4-5'];
-	}
-
-	return null;
-}
-
-/**
- * Pure per-token math for a resolved price entry. Shared by computeCost and the
- * OpenCode provider so there is exactly ONE cost formula in the codebase.
- *
- * cache-creation is split into 1h vs 5m where the price entry distinguishes them;
- * otherwise the single cache-creation rate is applied to the whole creation count.
- */
 export function costFromPriceEntry(
 	price: PriceEntry,
 	tokens: TokenCounts,
@@ -156,33 +56,40 @@ export function costFromPriceEntry(
 	promptTokens = tokens.input + tokens.cacheRead
 ): number {
 	const longContext =
-		price.long_context_threshold_tokens != null && promptTokens > price.long_context_threshold_tokens;
-	const inputMultiplier = longContext ? (price.long_context_input_multiplier ?? 1) : 1;
-	const outputMultiplier = longContext ? (price.long_context_output_multiplier ?? 1) : 1;
+		price.long_context_threshold_tokens != null &&
+		promptTokens > price.long_context_threshold_tokens;
+	const inputMultiplier = longContext
+		? (price.long_context_input_multiplier ?? 1)
+		: 1;
+	const outputMultiplier = longContext
+		? (price.long_context_output_multiplier ?? 1)
+		: 1;
 	let cacheCreationCost: number;
 	const oneHrRate = price.cache_creation_input_token_cost_above_1hr;
 	if (oneHrRate != null && (cacheCreation1h > 0 || cacheCreation5m > 0)) {
 		cacheCreationCost =
-			cacheCreation1h * oneHrRate + cacheCreation5m * price.cache_creation_input_token_cost;
+			cacheCreation1h * oneHrRate +
+			cacheCreation5m * price.cache_creation_input_token_cost;
 		// any creation tokens not accounted for by the split fall back to the base rate
 		const accounted = cacheCreation1h + cacheCreation5m;
 		const remainder = tokens.cacheCreation - accounted;
-		if (remainder > 0) cacheCreationCost += remainder * price.cache_creation_input_token_cost;
+		if (remainder > 0)
+			cacheCreationCost += remainder * price.cache_creation_input_token_cost;
 	} else {
-		cacheCreationCost = tokens.cacheCreation * price.cache_creation_input_token_cost;
+		cacheCreationCost =
+			tokens.cacheCreation * price.cache_creation_input_token_cost;
 	}
 
 	const inputCost =
 		tokens.input * price.input_cost_per_token +
 		cacheCreationCost +
 		tokens.cacheRead * price.cache_read_input_token_cost;
-	return inputCost * inputMultiplier + tokens.output * price.output_cost_per_token * outputMultiplier;
+	return (
+		inputCost * inputMultiplier +
+		tokens.output * price.output_cost_per_token * outputMultiplier
+	);
 }
 
-/**
- * Compute the USD cost of one usage record. Returns null when the model has no
- * known price (so the caller can count it as unknown rather than silently $0).
- */
 export function computeCost(
 	model: string,
 	tokens: TokenCounts,
@@ -190,12 +97,15 @@ export function computeCost(
 	cacheCreation5m = 0,
 	promptTokens = tokens.input + tokens.cacheRead
 ): number | null {
-	const price = resolvePrice(model);
-	if (!price) return null;
-	return costFromPriceEntry(price, tokens, cacheCreation1h, cacheCreation5m, promptTokens);
+	return priceUsage({
+		provider: inferPricingProvider(model),
+		model,
+		tokens,
+		cacheCreation1h,
+		cacheCreation5m,
+		promptTokens
+	}).cost;
 }
-
-/** True if we have a price for this model. */
 export function hasPrice(model: string): boolean {
 	return resolvePrice(model) !== null;
 }

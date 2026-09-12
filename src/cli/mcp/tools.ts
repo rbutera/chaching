@@ -133,18 +133,18 @@ export function cacheEfficiency(ctx: ToolContext, period: Period): Record<string
 	const bd = cacheCostBreakdown(scopedGrain(ctx.snapshot, state)).combined;
 	// What the cache reads WOULD have cost at the full input rate = actual read cost
 	// + the modelled saving. The fraction of that avoided is the read-side efficiency.
-	const uncachedReadCost = bd.cacheReadCost + bd.savedVsUncached;
-	const readSavingsPct = uncachedReadCost > 0 ? round2((bd.savedVsUncached / uncachedReadCost) * 100) : null;
+	const uncachedReadCost = bd.cacheReadCost === null || bd.savedVsUncached === null ? null : bd.cacheReadCost + bd.savedVsUncached;
+	const readSavingsPct = uncachedReadCost !== null && uncachedReadCost > 0 && bd.savedVsUncached !== null ? round2((bd.savedVsUncached / uncachedReadCost) * 100) : null;
 	return {
 		advisory: true,
 		period,
 		from: w.from,
 		to: w.to,
 		cacheReadTokens: bd.cacheReadTokens,
-		cacheReadCost: money(bd.cacheReadCost),
+		cacheReadCost: bd.cacheReadCost === null ? null : money(bd.cacheReadCost),
 		cacheWriteTokens: bd.cacheWriteTokens,
-		cacheWriteCost: money(bd.cacheWriteCost),
-		savedVsUncached: money(bd.savedVsUncached),
+		cacheWriteCost: bd.cacheWriteCost === null ? null : money(bd.cacheWriteCost),
+		savedVsUncached: bd.savedVsUncached === null ? null : money(bd.savedVsUncached),
 		readSavingsPct,
 		unknownTokens: bd.unknownTokens,
 		hasUnknownPricing: bd.unknownTokens > 0

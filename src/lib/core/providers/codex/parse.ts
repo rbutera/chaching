@@ -51,6 +51,8 @@ export function createCodexLineParser(ctx: CodexParserContext): CodexLineParser 
 			return {
 				key: `codex:${ctx.sessionId}:${sequence}`,
 				provider: 'codex',
+				billingProvider: 'openai',
+				promptTokens,
 				timestamp: ts,
 				day: isoDayUTC(ts),
 				model: currentModel,

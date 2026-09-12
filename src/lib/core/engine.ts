@@ -6,7 +6,11 @@
 // CLI consume this in-process.
 
 import { existsSync, watch, type FSWatcher } from 'node:fs';
-import { sep } from 'node:path';
+import { sep, dirname } from 'node:path';
+import { createHash } from 'node:crypto';
+import { PricingRefresh } from './pricing/refresh';
+import { getPricingCatalog, installPricingCatalog, priceUsage } from './pricing/cost';
+import { normalizeCatalog, mergeCatalogs, validateCatalog, type PricingCatalog } from './pricing/catalog';
 import { hostname } from 'node:os';
 import { Rollup } from './rollup/rollup';
 import type { FrozenAgg, PublishDirtySnapshot } from './rollup/rollup';
@@ -124,6 +128,71 @@ class Ingestion {
 	private providerStatus = new ProviderStatus();
 	private disposed = false;
 	private historyStore: HistoryStore | null = null;
+	private readonly valuations = new Map<string, UsageRecord>();
+	private pricingRefresh: PricingRefresh<PricingCatalog> | null = null;
+	private pricingTimer: NodeJS.Timeout | null = null;
+	private pricingMiss = false;
+
+	private initializePricing(cfg: chachingConfig): void {
+		if (process.env.CHACHING_PRICING_REFRESH === '0') return;
+		const bundled = getPricingCatalog();
+		this.pricingRefresh = new PricingRefresh({
+			dataDir: dirname(expandPath(cfg.history.dbPath)), normalizationVersion: 1,
+			normalize: (source, payload, previous, revision) => {
+				const next = normalizeCatalog(source, payload, revision, true);
+				return previous ? mergeCatalogs(revision, previous, next) : next;
+			},
+			validate: validateCatalog,
+			onCatalog: sources => {
+				if (this.disposed) return;
+				const catalogs = Object.values(sources);
+				const revision = createHash('sha256').update(catalogs.map(c => c.revision).join(':')).digest('hex');
+				installPricingCatalog(mergeCatalogs(revision, bundled, ...catalogs));
+				this.correctPricing();
+				this.emitSyncSnapshot();
+			}
+		});
+		this.pricingRefresh.loadCached();
+	}
+
+	private async refreshPricing(): Promise<void> {
+		const exactMiss = this.pricingMiss || [...this.valuations.values()].some(record => record.valuation && record.valuation.kind !== 'exact');
+		this.pricingMiss = false;
+		try {
+			await this.pricingRefresh?.refresh({ exactMiss });
+			this.correctPricing();
+		} catch (error) { this.providerStatus.recordError('pricing', error); }
+	}
+
+	private correctPricing(): void {
+		if (this.disposed) return;
+		const repairs: { before: UsageRecord; after: UsageRecord }[] = [];
+		for (const before of this.valuations.values()) {
+			if (!before.valuation || before.valuation.kind === 'exact' || before.reportedCost) continue;
+			const valuation = this.valueRecord(before);
+			if (valuation.kind !== 'exact') continue;
+			repairs.push({ before, after: { ...before, valuation, cost: valuation.cost } });
+		}
+		this.historyStore?.correctValuations(repairs);
+		for (const { before, after } of repairs) {
+			this.valuations.set(usageDedupKey(after), after);
+			this.rollup.correctValuation(before, after);
+		}
+		if (repairs.length) {
+			this.emitSyncSnapshot();
+			if (this.syncStore && this.resolvedConfig) void this.runSyncBurst(this.resolvedConfig);
+		}
+	}
+
+	private valueRecord(record: UsageRecord) {
+		return priceUsage({
+			provider: record.billingProvider ?? (record.provider === 'claude' ? 'anthropic' : record.provider === 'codex' ? 'openai' : ''),
+			model: record.model, tokens: record.tokens, cacheCreation1h: record.cacheCreation1h,
+			cacheCreation5m: record.cacheCreation5m, promptTokens: record.promptTokens,
+			tools: { webSearch: record.webSearchRequests, webFetch: record.webFetchRequests }
+		});
+	}
+
 	private syncStore: PostgresSyncStore | null = null;
 	/**
 	 * Cursor Admin API spend is an account-global fact. In pooled mode it feeds ONLY this
@@ -168,6 +237,7 @@ class Ingestion {
 		const t0 = Date.now();
 		const cfg = this.config ?? (await refreshAccountDiscovery());
 		this.resolvedConfig = cfg;
+		this.initializePricing(cfg);
 		if (!isConfigured(cfg.sync)) {
 			this.syncAccountIndex = buildAccountIndex(localAccountMappings(cfg), cfg.sync.machineId ?? hostname());
 		}
@@ -250,6 +320,7 @@ class Ingestion {
 		// Connect the pooled ledger AFTER the local scan so the first publish carries the full
 		// local rollup. A connect failure records the sync error and degrades to local-only —
 		// the local data is already loaded, so this is the local-first fallback (B1).
+		await this.refreshPricing();
 		if (isConfigured(cfg.sync)) await this.connectSync(cfg);
 
 		// Freeze newly-complete past days (day < today, scanned, not already frozen). Runs in
@@ -260,6 +331,8 @@ class Ingestion {
 
 		this.coldScanMs = Date.now() - t0;
 		if (this.watchEnabled && !this.disposed) {
+			this.pricingTimer = setInterval(() => void this.refreshPricing(), 60_000);
+			this.pricingTimer.unref();
 			this.startWatching();
 			this.startLocalProviderPolling(cfg);
 			this.startSyncScheduler(cfg);
@@ -318,7 +391,9 @@ class Ingestion {
 	private async publishLocal(full: boolean): Promise<PublishDirtySnapshot | null> {
 		if (!this.syncStore) return null;
 		const now = this.now();
-		const hourFloor = now - HOUR_PUBLISH_WINDOW_MS;
+		const pricingGeneration = this.historyStore?.pendingPricingPublication() ?? null;
+		full ||= pricingGeneration !== null;
+		const hourFloor = pricingGeneration !== null ? 0 : now - HOUR_PUBLISH_WINDOW_MS;
 		const scope = this.ownScope();
 		// Snapshot the publish-dirty keys BEFORE any await and adjacent to materializing the
 		// payload. On success the caller clears exactly these, so a record add()ed during the
@@ -366,6 +441,7 @@ class Ingestion {
 		// Stamp last-published (distinct from the heartbeat's last-seen), so the roster can show a
 		// truthful "last published" vs "last seen" (C10).
 		await this.syncStore.markPublished();
+		if (pricingGeneration !== null) this.historyStore?.acknowledgePricingPublication(pricingGeneration);
 		return published;
 	}
 
@@ -418,7 +494,16 @@ class Ingestion {
 			const frozen = store.frozenDays();
 			await this.backfillPiFamilyHistory(store, frozen, cfg);
 			this.rollup.setFrozenDays(frozen);
-			this.rollup.loadAggregates(store.loadAggregates(), store.loadSessions());
+			const machineId = isConfigured(cfg.sync) ? cfg.sync.machineId : undefined;
+			this.rollup.loadAggregates(store.loadAggregates().map(row => ({ ...row, machineId })), store.loadSessions().map(row => ({ ...row, machineId })));
+			const records = store.loadValuations().map(record => ({ ...record, machineId }));
+			this.rollup.restoreFrozenValuations(records.filter(record => frozen.has(record.day)));
+			for (const record of records) {
+				this.valuations.set(usageDedupKey(record), record);
+				this.dedup.add(usageDedupKey(record));
+				if (!frozen.has(record.day)) this.rollup.add(record);
+			}
+			this.correctPricing();
 		} catch (error) {
 			this.providerStatus.recordError('history', error);
 			if (this.historyStore) {
@@ -676,19 +761,23 @@ class Ingestion {
 	/** Stamp this machine's id onto a local record when pooled; subscription is a read-time join. */
 	private prepareLocalRecord(record: UsageRecord): UsageRecord {
 		const cfg = this.resolvedConfig;
-		if (!cfg || !isConfigured(cfg.sync)) return record;
-		return { ...record, machineId: cfg.sync.machineId };
+		const stamped = cfg && isConfigured(cfg.sync) ? { ...record, machineId: cfg.sync.machineId } : record;
+		const existing = this.valuations.get(usageDedupKey(stamped));
+		if (existing) return existing;
+		// Legacy frozen history has no proven record identities or eligibility.
+		if (this.rollup.isFrozenDay(record.day) || record.key.startsWith('__nokey__:')) return stamped;
+		const valuation = stamped.reportedCost ? undefined : this.valueRecord(stamped);
+		const valued = valuation ? { ...stamped, valuation, cost: valuation.cost } : stamped;
+		this.historyStore?.retainValuation(valued);
+		this.valuations.set(usageDedupKey(valued), valued);
+		if (valuation && valuation.kind !== 'exact') {
+			this.pricingMiss = true;
+			if (this.watchEnabled) void this.refreshPricing();
+		}
+		return valued;
 	}
 
 	private syncHooks() {
-		// Gate on isConfigured, NOT syncStore: the cold scan runs BEFORE connectSync, so gating on
-		// syncStore left claude cold-scan rows un-stamped while live-tail rows (post-connect) got a
-		// machineId. The rollup day key includes machineId, so the same (day,provider,model) split
-		// into two rows and the single-statement publish upsert hit its conflict target twice
-		// ("cannot affect row a second time"), failing every burst permanently. Stamping in the
-		// cold scan too — matching prepareLocalRecord's own isConfigured gate — keeps one key (C2).
-		const cfg = this.resolvedConfig;
-		if (!cfg || !isConfigured(cfg.sync)) return {};
 		return { prepare: (record: UsageRecord) => this.prepareLocalRecord(record) };
 	}
 
@@ -839,7 +928,7 @@ class Ingestion {
 			if (agg.partial) peerPartialDays.add(agg.day);
 		}
 		const merged = mergePooledSnapshot(local, peer, today, peerPartialDays);
-		return attachAccounts(merged, this.syncAccountIndex);
+		return { ...attachAccounts(merged, this.syncAccountIndex), pricing: getPricingCatalog() };
 	}
 
 	private emitSyncSnapshot(): void {
@@ -1025,7 +1114,7 @@ class Ingestion {
 
 	snapshot(): RollupSnapshot {
 		if (this.syncStore) return this.buildSyncSnapshot();
-		return attachAccounts(this.rollup.snapshot(this.now(), this.coverageInput()), this.syncAccountIndex);
+		return { ...attachAccounts(this.rollup.snapshot(this.now(), this.coverageInput()), this.syncAccountIndex), pricing: getPricingCatalog() };
 	}
 
 	setCutover(ts: number | null): void {
@@ -1039,6 +1128,8 @@ class Ingestion {
 	dispose(): void {
 		if (this.disposed) return;
 		this.disposed = true;
+		this.pricingRefresh?.dispose();
+		if (this.pricingTimer) clearInterval(this.pricingTimer);
 		for (const w of this.watchers) {
 			try {
 				w.close();

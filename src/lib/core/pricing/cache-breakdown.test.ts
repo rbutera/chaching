@@ -9,11 +9,13 @@ function agg(
 	t: { input?: number; output?: number; cacheCreation?: number; cacheRead?: number }
 ): DayModelAgg {
 	const tokens = { input: 0, output: 0, cacheCreation: 0, cacheRead: 0, ...t };
-	return { day: '2026-06-10', provider, model, tokens, requests: 1, cost: 0, costUnknownRequests: 0 };
+	const p = resolvePrice(model);
+	const monetary = p ? {input: tokens.input*p.input_cost_per_token, output:tokens.output*p.output_cost_per_token, cacheCreation:tokens.cacheCreation*p.cache_creation_input_token_cost, cacheRead:tokens.cacheRead*p.cache_read_input_token_cost, tools:0, cacheReadUncached:tokens.cacheRead*p.input_cost_per_token} : undefined;
+	return { day: '2026-06-10', provider, model, tokens, requests: 1, cost: 0, costUnknownRequests: 0, monetary };
 }
 
 describe('cacheCostBreakdown', () => {
-	it('bills cache reads and writes from resolvePrice exactly (the drift-fix assertion)', () => {
+	it('sums the retained cache read and write charges', () => {
 		const grain: DayModelAgg[] = [
 			agg('claude', 'claude-opus-4-8', { input: 1000, cacheCreation: 500, cacheRead: 2000 })
 		];
@@ -43,7 +45,7 @@ describe('cacheCostBreakdown', () => {
 		expect(byProvider.get('codex')!.cacheReadTokens).toBe(3000);
 		expect(combined.cacheReadTokens).toBe(4000);
 		expect(combined.cacheReadCost).toBeCloseTo(
-			byProvider.get('claude')!.cacheReadCost + byProvider.get('codex')!.cacheReadCost,
+			byProvider.get('claude')!.cacheReadCost! + byProvider.get('codex')!.cacheReadCost!,
 			12
 		);
 	});
@@ -63,7 +65,7 @@ describe('cacheCostBreakdown', () => {
 		];
 		const { combined } = cacheCostBreakdown(grain);
 		expect(combined.cacheReadTokens).toBe(1000);
-		expect(combined.cacheReadCost).toBe(0);
+		expect(combined.cacheReadCost).toBeNull();
 		expect(combined.unknownTokens).toBe(1500);
 	});
 
@@ -79,6 +81,24 @@ describe('cacheCostBreakdown', () => {
 			50000 * price.cache_read_input_token_cost;
 		const totalBurn = grain.reduce((s, dm) => s + dm.cost, 0);
 		const { combined } = cacheCostBreakdown(grain);
-		expect(combined.cacheReadCost + combined.cacheWriteCost).toBeLessThanOrEqual(totalBurn + 1e-9);
+		expect(combined.cacheReadCost! + combined.cacheWriteCost!).toBeLessThanOrEqual(totalBurn + 1e-9);
 	});
+});
+
+it('uses retained costs independently of model rates and leaves legacy breakdown unavailable', () => {
+	const row = agg('claude','claude-opus-4-8',{cacheRead:100,cacheCreation:20});
+	row.monetary = {input:1,output:2,cacheRead:7,cacheCreation:11,tools:3,cacheReadUncached:19};
+	expect(cacheCostBreakdown([row]).combined).toMatchObject({cacheReadCost:7,cacheWriteCost:11,savedVsUncached:12});
+	delete row.monetary;
+	expect(cacheCostBreakdown([row]).combined).toMatchObject({cacheReadCost:null,cacheWriteCost:null,savedVsUncached:null});
+});
+
+it('model aggregation retains a complete breakdown and withholds mixed legacy components', async () => {
+	const { aggregateByModel } = await import('../aggregate');
+	const row = agg('claude', 'claude-opus-4-8', {cacheRead:100});
+	row.monetary = {input:1,output:2,cacheCreation:3,cacheRead:4,tools:5,cacheReadUncached:9};
+	expect(aggregateByModel([row, row])[0].monetary).toEqual({input:2,output:4,cacheCreation:6,cacheRead:8,tools:10,cacheReadUncached:18});
+	const legacy = {...row, monetary:undefined};
+	expect(aggregateByModel([row, legacy])[0].monetary).toBeUndefined();
+	expect(aggregateByModel([legacy, row])[0].monetary).toBeUndefined();
 });

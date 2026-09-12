@@ -15,7 +15,6 @@ import {
 	cacheCostBreakdownWith,
 	type CacheCostBreakdownResult
 } from '$lib/core/pricing/cache-breakdown-core';
-import { resolvePriceClient } from '$lib/pricing-client';
 import {
 	buildWindowSubsidisation,
 	burnPace as coreBurnPace,
@@ -336,12 +335,7 @@ export class Dashboard {
 		if (this.modelFilter.size > 0) grain = grain.filter((dm) => this.modelFilter.has(dm.model));
 		if (this.providerFilter.size > 0)
 			grain = grain.filter((dm) => this.providerFilter.has(dm.provider));
-		// Client-safe: resolve rates via the bundled client price map, NEVER the
-		// Node `cost.ts` (which uses node:url fileURLToPath and would crash in the browser).
-		return cacheCostBreakdownWith(grain, (model) => {
-			const p = resolvePriceClient(model);
-			return p ? { input: p.input, cacheRead: p.cacheRead, cacheWrite: p.cacheCreation } : null;
-		});
+		return cacheCostBreakdownWith(grain);
 	}
 
 	/**

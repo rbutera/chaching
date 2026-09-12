@@ -1,3 +1,4 @@
+import type { MonetaryComponents } from './pricing/catalog';
 // Pure, isomorphic re-aggregation helpers over the per-(day, provider, model) grain.
 // The server ships `DayModelAgg[]`; the client re-aggregates to day/week/month,
 // to per-model splits, and to period buckets — all in-memory, no server round trip.
@@ -237,6 +238,7 @@ export function aggregateByPeriod(
 }
 
 export interface ModelTotal {
+	monetary?: MonetaryComponents;
 	model: string;
 	tokens: TokenCounts;
 	cost: number;
@@ -257,11 +259,12 @@ export function aggregateByModel(dayModel: DayModelAgg[]): ModelTotal[] {
 	for (const dm of dayModel) {
 		let t = m.get(dm.model);
 		if (!t) {
-			t = { model: dm.model, tokens: zeroTokens(), cost: 0, requests: 0 };
+			t = { model: dm.model, tokens: zeroTokens(), cost: 0, requests: 0, monetary: dm.monetary ? {input:0,output:0,cacheCreation:0,cacheRead:0,tools:0, cacheReadUncached:0} : undefined };
 			m.set(dm.model, t);
 		}
 		addInto(t.tokens, dm.tokens);
 		t.cost += dm.cost;
+		t.monetary = mergeMonetary(t.monetary, dm.monetary);
 		t.requests += dm.requests;
 		if (dm.costUnknownRequests) t.costUnknownRequests = (t.costUnknownRequests ?? 0) + dm.costUnknownRequests;
 	}
@@ -413,4 +416,9 @@ function enumerateDays(from: string, to: string): string[] {
 	const out: string[] = [];
 	for (let day = from; day <= to; day = addDaysUTC(day, 1)) out.push(day);
 	return out;
+}
+
+export function mergeMonetary(a: MonetaryComponents | undefined, b: MonetaryComponents | undefined): MonetaryComponents | undefined {
+	if (!a || !b) return;
+	return { input:a.input+b.input, output:a.output+b.output, cacheCreation:a.cacheCreation+b.cacheCreation, cacheRead:a.cacheRead+b.cacheRead, tools:a.tools+b.tools, cacheReadUncached: a.cacheReadUncached === undefined || b.cacheReadUncached === undefined ? undefined : a.cacheReadUncached + b.cacheReadUncached };
 }

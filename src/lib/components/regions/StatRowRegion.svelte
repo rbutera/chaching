@@ -68,8 +68,8 @@
 	/>
 	<StatCard
 		label="cache savings"
-		value={cacheSavings.saved}
-		money
+		value={cacheSavings.saved ?? '—'}
+		money={cacheSavings.saved !== null}
 		animate
 		moneyTone="save"
 		accent="var(--good)"

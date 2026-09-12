@@ -106,6 +106,8 @@ function rowToRecord(row: OpenCodeMessageRow): UsageRecord | null {
 	return {
 		key: `opencode:${row.id}`,
 		provider: providerForRecord(providerID),
+		billingProvider: providerID,
+		reportedCost: blob > 0 && !(est != null && est > 0),
 		timestamp,
 		day: isoDayUTC(timestamp),
 		model: modelID,

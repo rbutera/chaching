@@ -26,7 +26,9 @@ function read(relFromHere: string): string {
 // Strip line + block comments so the assertions match real code edges, not the
 // prose that legitimately names the very APIs this module is designed to avoid.
 function stripComments(src: string): string {
-	return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+	return src
+		.replace(/\/\*[\s\S]*?\*\//g, '')
+		.replace(/(^|[^:])\/\/.*$/gm, '$1');
 }
 
 describe('client-bundle safety', () => {
@@ -34,13 +36,19 @@ describe('client-bundle safety', () => {
 		const core = stripComments(read('./cache-breakdown-core.ts'));
 		// Must NOT import the Node-side price table (which uses node:url) — static
 		// OR dynamic, with or without a .ts/.js extension.
-		expect(core, 'core must not import ./cost').not.toMatch(/from\s+['"]\.\/cost(?:\.[tj]s)?['"]/);
+		expect(core, 'core must not import ./cost').not.toMatch(
+			/from\s+['"]\.\/cost(?:\.[tj]s)?['"]/
+		);
 		expect(core, 'core must not dynamic-import ./cost').not.toMatch(
 			/import\(\s*['"]\.\/cost(?:\.[tj]s)?['"]\s*\)/
 		);
 		// Must NOT import any Node-only URL machinery, nor call fileURLToPath.
-		expect(core, 'core must not import node:url').not.toMatch(/from\s+['"]node:url['"]/);
-		expect(core, 'core must not call fileURLToPath').not.toContain('fileURLToPath(');
+		expect(core, 'core must not import node:url').not.toMatch(
+			/from\s+['"]node:url['"]/
+		);
+		expect(core, 'core must not call fileURLToPath').not.toContain(
+			'fileURLToPath('
+		);
 	});
 
 	it('client dashboard store imports the pure core, never the server breakdown', () => {
@@ -50,19 +58,18 @@ describe('client-bundle safety', () => {
 			/from\s+['"][^'"]*cache-breakdown-core['"]/
 		);
 		// …and must NOT import the server breakdown module (which imports cost.ts).
-		expect(dash, 'dashboard must not import the server cache-breakdown').not.toMatch(
-			/from\s+['"][^'"]*\/cache-breakdown['"]/
-		);
+		expect(
+			dash,
+			'dashboard must not import the server cache-breakdown'
+		).not.toMatch(/from\s+['"][^'"]*\/cache-breakdown['"]/);
 	});
 
 	// The models.dev resolver is node-only (file IO via node:fs / node:url, like
 	// cost.ts). The browser price path must stay limited to pricing-client.ts —
 	// the resolver and its file-IO imports must never reach the client bundle.
 	it('modelsdev.ts is node-only file-IO and the client price path never imports it', () => {
-		// Sanity: the resolver really is the node-only kind we must keep out of the client.
-		const resolver = stripComments(read('./modelsdev.ts'));
-		expect(resolver, 'modelsdev must use node:fs').toMatch(/from\s+['"]node:fs['"]/);
-		expect(resolver, 'modelsdev must use node:url').toMatch(/from\s+['"]node:url['"]/);
+		for (const path of ['./catalog.ts', './bundled.ts'])
+			expect(stripComments(read(path))).not.toMatch(/from\s+['"]node:/);
 
 		// The browser-facing price path is pricing-client.ts — it must NOT import the
 		// node resolver (static OR dynamic, with or without a .ts/.js extension).
@@ -70,11 +77,14 @@ describe('client-bundle safety', () => {
 		expect(client, 'pricing-client must not import modelsdev').not.toMatch(
 			/from\s+['"][^'"]*\/modelsdev(?:\.[tj]s)?['"]/
 		);
-		expect(client, 'pricing-client must not dynamic-import modelsdev').not.toMatch(
-			/import\(\s*['"][^'"]*\/modelsdev(?:\.[tj]s)?['"]\s*\)/
-		);
+		expect(
+			client,
+			'pricing-client must not dynamic-import modelsdev'
+		).not.toMatch(/import\(\s*['"][^'"]*\/modelsdev(?:\.[tj]s)?['"]\s*\)/);
 		// And it stays node-free itself (no file-IO machinery sneaking in via the resolver).
-		expect(client, 'pricing-client must not import node:fs').not.toMatch(/from\s+['"]node:fs['"]/);
+		expect(client, 'pricing-client must not import node:fs').not.toMatch(
+			/from\s+['"]node:fs['"]/
+		);
 		expect(client, 'pricing-client must not import node:url').not.toMatch(
 			/from\s+['"]node:url['"]/
 		);

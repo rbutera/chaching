@@ -1,19 +1,15 @@
-// Local SQLite historical store. Persists finalized PAST-day aggregates + sessions so
-// they survive the source logs being pruned (Claude Code prunes ~30 days). Uses the
-// freeze-past-days model: a day < today (UTC) is frozen into the DB exactly once, when
-// it first appears as a complete past day. Past-day logs never change, so freezing is
-// safe and the DB copy is authoritative thereafter (later logs may be pruned/partial).
-//
-// Built on Node's built-in `node:sqlite` (matches the OpenCode provider). chaching
-// requires Node `>=24.16.0`. WAL mode for crash-safety on the writer.
+// Durable local history: finalized aggregates plus record-level monetary evidence.
+// Current-day contributions are retained before publication; frozen legacy aggregates
+// remain authoritative when they have no proven record identities.
 
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { SessionSummary, TokenCounts } from '../../types';
+
+import type { SessionSummary, TokenCounts, UsageRecord } from '../../types';
 import type { FrozenAgg } from '../rollup/rollup';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 /**
  * A writable SQLite store of frozen past-day aggregates + finalized sessions.
@@ -59,7 +55,19 @@ export class HistoryStore {
 
 	private createSchema(db: DatabaseSync): void {
 		db.exec(`
-			CREATE TABLE IF NOT EXISTS meta (
+			CREATE TABLE IF NOT EXISTS valuation (
+                scope_key TEXT PRIMARY KEY,
+                day TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                record TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS pricing_publication (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                generation INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS meta (
 				key TEXT PRIMARY KEY,
 				value TEXT NOT NULL
 			);
@@ -97,7 +105,7 @@ export class HistoryStore {
 				PRIMARY KEY (session_id, provider)
 			);
 		`);
-		db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)`).run(
+		db.prepare(`INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(
 			String(SCHEMA_VERSION)
 		);
 	}
@@ -384,6 +392,59 @@ export class HistoryStore {
 		}
 	}
 
+	/** The record itself is the durable contribution; restart replays it exactly once. */
+	retainValuation(record: UsageRecord): void {
+		this.require().prepare(`INSERT OR IGNORE INTO valuation
+			(scope_key, day, provider, model, session_id, record) VALUES (?, ?, ?, ?, ?, ?)`)
+			.run(`${record.provider}\u001f${record.key}`, record.day, record.provider, record.model, record.sessionId, JSON.stringify(record));
+	}
+
+	loadValuations(): UsageRecord[] {
+		return this.require().prepare('SELECT record FROM valuation ORDER BY day, scope_key').all().map(row => {
+			if (typeof row.record !== 'string') throw new Error('Invalid durable valuation');
+			const value: unknown = JSON.parse(row.record);
+			if (!isUsageRecord(value)) throw new Error('Invalid durable valuation');
+			return value;
+		});
+	}
+
+	pendingPricingPublication(): number | null {
+		const row = this.require().prepare('SELECT generation FROM pricing_publication WHERE id = 1').get();
+		return row && typeof row.generation === 'number' ? row.generation : null;
+	}
+
+	acknowledgePricingPublication(generation: number): void {
+		this.require().prepare('DELETE FROM pricing_publication WHERE id = 1 AND generation = ?').run(generation);
+	}
+
+	/** Compare-and-replace eligibility and frozen money in the same commit. */
+	correctValuations(repairs: readonly { before: UsageRecord; after: UsageRecord }[]): void {
+		if (repairs.length === 0) return;
+		const db = this.require();
+		db.exec('BEGIN IMMEDIATE');
+		try {
+			for (const { before, after } of repairs) {
+				const result = db.prepare("UPDATE valuation SET record = ? WHERE scope_key = ? AND json_extract(record, '$.valuation') = ? AND json_extract(record, '$.valuation.kind') IN ('missing', 'estimated')")
+					.run(JSON.stringify(after), `${before.provider}\u001f${before.key}`, JSON.stringify(before.valuation));
+				if (result.changes !== 1) throw new Error('Valuation changed during correction');
+				const delta = (after.cost ?? 0) - (before.cost ?? 0);
+				const unknown = Number(after.cost == null) - Number(before.cost == null);
+				db.prepare(`UPDATE day_model_agg SET cost = cost + ?, cost_unknown_requests = cost_unknown_requests + ?
+					WHERE day = ? AND provider = ? AND model = ?`).run(delta, unknown, before.day, before.provider, before.model);
+				db.prepare(`UPDATE session SET cost = cost + ?, cost_unknown_requests = cost_unknown_requests + ?
+					WHERE session_id = ? AND provider = ? AND last_ts >= ?`).run(delta, unknown, before.sessionId, before.provider, before.timestamp);
+			}
+			db.prepare(`INSERT INTO meta (key, value) VALUES ('pricing_generation', '1')
+				ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1`).run();
+			db.prepare(`INSERT INTO pricing_publication SELECT 1, CAST(value AS INTEGER) FROM meta WHERE key = 'pricing_generation'
+				ON CONFLICT(id) DO UPDATE SET generation = excluded.generation`).run();
+			db.exec('COMMIT');
+		} catch (error) {
+			db.exec('ROLLBACK');
+			throw error;
+		}
+	}
+
 	close(): void {
 		if (!this.db) return;
 		try {
@@ -454,4 +515,51 @@ function numberValue(value: unknown): number {
 
 function stringValue(value: unknown): string {
 	return typeof value === 'string' ? value : '';
+}
+
+function isUsageRecord(value: unknown): value is UsageRecord {
+	if (typeof value !== 'object' || value === null) return false;
+	for (const key of ['key', 'provider', 'day', 'model', 'sessionId', 'project']) {
+		if (!(key in value) || typeof Reflect.get(value, key) !== 'string') return false;
+	}
+	for (const key of ['timestamp', 'cacheCreation1h', 'cacheCreation5m', 'webSearchRequests', 'webFetchRequests']) {
+		const item: unknown = Reflect.get(value, key);
+		if (typeof item !== 'number' || !Number.isFinite(item) || item < 0) return false;
+	}
+	if (!('tokens' in value) || typeof value.tokens !== 'object' || value.tokens === null) return false;
+	for (const key of ['input', 'output', 'cacheCreation', 'cacheRead']) {
+		const item: unknown = Reflect.get(value.tokens, key);
+		if (typeof item !== 'number' || !Number.isFinite(item) || item < 0) return false;
+	}
+	if (!('cost' in value) || !(value.cost === null || (typeof value.cost === 'number' && Number.isFinite(value.cost) && value.cost >= 0))) return false;
+	for (const key of ['billingProvider', 'machineId', 'accountId']) {
+		const item: unknown = Reflect.get(value, key);
+		if (item !== undefined && item !== null && typeof item !== 'string') return false;
+	}
+	if ('promptTokens' in value && !(typeof value.promptTokens === 'number' && Number.isFinite(value.promptTokens) && value.promptTokens >= 0)) return false;
+	if ('reportedCost' in value && typeof value.reportedCost !== 'boolean') return false;
+	if ('valuation' in value && !isValuation(value.valuation)) return false;
+	return 'isSidechain' in value && typeof value.isSidechain === 'boolean';
+}
+
+function isValuation(value: unknown): boolean {
+	if (typeof value !== 'object' || value === null) return false;
+	for (const key of ['revision', 'provider', 'model']) if (typeof Reflect.get(value, key) !== 'string') return false;
+	if (!('kind' in value) || !('cost' in value)) return false;
+	if (value.kind === 'missing') return value.cost === null;
+	if (value.kind !== 'exact' && value.kind !== 'estimated') return false;
+	if (typeof value.cost !== 'number' || !Number.isFinite(value.cost) || value.cost < 0) return false;
+	if (!('source' in value) || !['override', 'litellm', 'modelsdev'].includes(String(value.source))) return false;
+	for (const [key, fields] of [
+		['components', ['input', 'output', 'cacheCreation', 'cacheRead', 'tools']],
+		['price', ['input_cost_per_token', 'output_cost_per_token', 'cache_creation_input_token_cost', 'cache_read_input_token_cost']]
+	] satisfies [string, string[]][]) {
+		const row: unknown = Reflect.get(value, key);
+		if (typeof row !== 'object' || row === null) return false;
+		for (const field of fields) {
+			const amount: unknown = Reflect.get(row, field);
+			if (typeof amount !== 'number' || !Number.isFinite(amount) || amount < 0) return false;
+		}
+	}
+	return true;
 }

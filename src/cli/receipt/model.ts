@@ -44,12 +44,12 @@ export interface ReceiptCoupon {
 export interface ReceiptCacheCost {
 	cacheReadTokens: number;
 	/** Σ cacheRead × cache-read rate — the BILLED read cost */
-	cacheReadCost: number;
+	cacheReadCost: number | null;
 	cacheWriteTokens: number;
 	/** Σ cacheCreation × cache-write rate — the BILLED write cost */
-	cacheWriteCost: number;
+	cacheWriteCost: number | null;
 	/** what reads would have cost uncached, less what they billed (the savings) */
-	savedVsUncached: number;
+	savedVsUncached: number | null;
 }
 
 /** The optional subsidisation footer — flat-fee value framing for one slice. */

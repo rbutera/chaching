@@ -271,8 +271,8 @@ function wrappedElement(model: WrappedModel, markDataUri: string): RenderNode {
 	// Cache savings.
 	children.push(dashedRule());
 	children.push(sectionLabel('cache savings'));
-	children.push(lineItem('you saved', money(model.cache.savedVsUncached), { color: PAPER.green, weight: 700, amountWeight: 700 }));
-	children.push(lineItem('cache billed', money(model.cache.cacheReadCost + model.cache.cacheWriteCost), { color: PAPER.muted }));
+	children.push(lineItem('you saved', (model.cache.savedVsUncached === null ? '—' : money(model.cache.savedVsUncached)), { color: PAPER.green, weight: 700, amountWeight: 700 }));
+	children.push(lineItem('cache billed', (model.cache.cacheReadCost === null || model.cache.cacheWriteCost === null ? '—' : money(model.cache.cacheReadCost + model.cache.cacheWriteCost)), { color: PAPER.muted }));
 
 	// Month over month (present only when the build gated a full prior baseline).
 	if (model.momDelta) {

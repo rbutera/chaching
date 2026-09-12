@@ -40,16 +40,28 @@ describe('resolvePriceClient — Claude families', () => {
 
 describe('resolvePriceClient — Codex / GPT families (widened P2)', () => {
 	it('prices the gpt-5 family (incl. codex / chat variants)', () => {
-		expect(resolvePriceClient('gpt-5')).toMatchObject({ input: 1.25e-6, output: 1e-5 });
-		expect(resolvePriceClient('gpt-5-codex')).toMatchObject({ input: 1.25e-6, output: 1e-5 });
-		expect(resolvePriceClient('gpt-5.1-codex')).toMatchObject({ input: 1.25e-6 });
-		expect(resolvePriceClient('gpt-5.1-codex-max')).toMatchObject({ input: 1.25e-6 });
+		expect(resolvePriceClient('gpt-5')).toMatchObject({
+			input: 1.25e-6,
+			output: 1e-5
+		});
+		expect(resolvePriceClient('gpt-5-codex')).toMatchObject({
+			input: 1.25e-6,
+			output: 1e-5
+		});
+		expect(resolvePriceClient('gpt-5.1-codex')).toMatchObject({
+			input: 1.25e-6
+		});
+		expect(resolvePriceClient('gpt-5.1-codex-max')).toMatchObject({
+			input: 1.25e-6
+		});
 	});
 
 	it('matches mini/nano BEFORE the bare family', () => {
 		expect(resolvePriceClient('gpt-5-mini')).toMatchObject({ input: 2.5e-7 });
 		expect(resolvePriceClient('gpt-5-nano')).toMatchObject({ input: 5e-8 });
-		expect(resolvePriceClient('gpt-5.1-codex-mini')).toMatchObject({ input: 2.5e-7 });
+		expect(resolvePriceClient('gpt-5.1-codex-mini')).toMatchObject({
+			input: 2.5e-7
+		});
 	});
 
 	it('prices gpt-4.1 / gpt-4o families', () => {
@@ -60,18 +72,26 @@ describe('resolvePriceClient — Codex / GPT families (widened P2)', () => {
 	});
 
 	it('prices the reasoning + codex-mini ids', () => {
-		expect(resolvePriceClient('o3')).toMatchObject({ input: 2e-6, cacheRead: 5e-7 });
+		expect(resolvePriceClient('o3')).toMatchObject({
+			input: 2e-6,
+			cacheRead: 5e-7
+		});
 		expect(resolvePriceClient('o4-mini')).toMatchObject({ input: 1.1e-6 });
-		expect(resolvePriceClient('codex-mini-latest')).toMatchObject({ input: 1.5e-6 });
+		expect(resolvePriceClient('codex-mini-latest')).toMatchObject({
+			input: 1.5e-6
+		});
 	});
 
 	it('o3-mini matches before bare o3 (distinct cache-read rate)', () => {
-		expect(resolvePriceClient('o3-mini')).toMatchObject({ input: 1.1e-6, cacheRead: 5.5e-7 });
+		expect(resolvePriceClient('o3-mini')).toMatchObject({
+			input: 1.1e-6,
+			cacheRead: 5.5e-7
+		});
 	});
 
-	it('OpenAI cacheCreation equals input (no cache-write billing)', () => {
+	it('does not invent an absent OpenAI cache-write rate', () => {
 		const p = resolvePriceClient('gpt-5')!;
-		expect(p.cacheCreation).toBe(p.input);
+		expect(p.cacheCreation).toBe(0);
 	});
 });
 

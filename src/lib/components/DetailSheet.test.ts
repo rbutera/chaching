@@ -104,3 +104,11 @@ it('applies the same four filters to period detail and its prior comparison', ()
 	expect(view.container.querySelector('.hval')).toHaveTextContent('$10.00');
 	expect(view.getByLabelText('+100% compared with previous window, $5.00')).toBeInTheDocument();
 });
+
+it('renders retained monetary components without applying current model rates', () => {
+	const priced = {...session({models:['claude-opus-4-8']}), monetary:{input:1.23,output:2.34,cacheCreation:3.45,cacheRead:4.56,tools:5.67}};
+	render(DetailSheet, {drill:{kind:'session',session:priced,label:'session'}, snapshot:emptySnap(),onClose:()=>{}});
+	expect(screen.getByText('$4.5600')).toBeInTheDocument();
+	expect(screen.getByText('$5.6700')).toBeInTheDocument();
+	expect(screen.queryByText(/\/M/)).not.toBeInTheDocument();
+});

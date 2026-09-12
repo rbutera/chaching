@@ -5,12 +5,13 @@ import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Pool } from 'pg';
+import { PostgresSyncStore } from '../lib/core/sync/store';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const baseUrl = process.env.CHACHING_TEST_DATABASE_URL;
 const enabled = baseUrl && process.env.CHACHING_TEST_PG_TOOLS === '1';
 const suite = enabled ? describe : describe.skip;
-suite.each([2, 3])('Packaged pool rollout from schema %i', sourceVersion => {
+suite.each([2, 3, 4])('Packaged pool rollout from schema %i', sourceVersion => {
  let directory: string;
  const database = 'chaching_rollout_' + randomUUID().replaceAll('-', '');
  const role = database + '_role';
@@ -18,6 +19,7 @@ suite.each([2, 3])('Packaged pool rollout from schema %i', sourceVersion => {
  let db: Pool;
  let url: string;
  const script = resolve('docs/pool-rollout.mjs');
+ const accountTable = sourceVersion < 4 ? 'subscription' : 'account';
  const hash = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
  const run = (...args: string[]) => execFileSync(process.execPath, [script, ...args], {
   env: { ...process.env, CHACHING_DATABASE_URL: url }, encoding: 'utf8', stdio: ['pipe','pipe','pipe']
@@ -37,6 +39,10 @@ suite.each([2, 3])('Packaged pool rollout from schema %i', sourceVersion => {
    INSERT INTO chaching_sync.subscription(pool_id,id,provider,name,tier,monthly_usd) VALUES('pool','paid','claude','Paid','custom',123);
    INSERT INTO chaching_sync.machine_subscription VALUES('pool','one','claude','paid');
    INSERT INTO chaching_sync.machine_day_agg VALUES('pool','machine:one','one','2026-09-01','claude','model',100,20,0,0,0,0,0,0,1,12.5,0,false,now());`);
+  if (sourceVersion === 4) {
+   const store = new PostgresSyncStore(url); await store.open(); await store.close();
+   await db.query('ALTER TABLE chaching_sync.machine_day_agg DROP COLUMN monetary; UPDATE chaching_sync.schema_version SET version=4');
+  }
  }, 30000);
  afterAll(async () => {
   await db?.end(); await admin?.query(`DROP DATABASE IF EXISTS ${database}`); await admin?.query(`DROP ROLE IF EXISTS ${role}`); await admin?.end();
@@ -69,10 +75,10 @@ suite.each([2, 3])('Packaged pool rollout from schema %i', sourceVersion => {
   writeFileSync(dumpPath, 'corrupt');
   expect(() => run('migrate',rollout)).toThrow();
   writeFileSync(dumpPath, dump);
-  await db.query("UPDATE chaching_sync.subscription SET monthly_usd=999");
+  await db.query(`UPDATE chaching_sync.${accountTable} SET monthly_usd=999`);
   expect(() => run('migrate',rollout)).toThrow();
   expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows[0].version).toBe(sourceVersion);
-  await db.query("UPDATE chaching_sync.subscription SET monthly_usd=123");
+  await db.query(`UPDATE chaching_sync.${accountTable} SET monthly_usd=123`);
   expect(run('migrate',rollout)).toContain('verified');
   expect(run('migrate',rollout)).toContain('verified');
   expect(run('verify',rollout)).toContain('verified');
@@ -88,10 +94,10 @@ suite.each([2, 3])('Packaged pool rollout from schema %i', sourceVersion => {
   await db.query(`DROP OWNED BY ${role}`);
   await admin.query(`DROP ROLE ${role}`);
   expect(() => run('restore',rollout,'--clients-stopped')).toThrow();
-  expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows[0].version).toBe(4);
+  expect((await db.query('SELECT version FROM chaching_sync.schema_version')).rows[0].version).toBe(5);
   await admin.query(`CREATE ROLE ${role}`);
   expect(run('restore',rollout,'--clients-stopped')).toContain('verified');
-  expect((await db.query('SELECT monthly_usd FROM chaching_sync.subscription')).rows[0].monthly_usd).toBe(123);
+  expect((await db.query(`SELECT monthly_usd FROM chaching_sync.${accountTable}`)).rows[0].monthly_usd).toBe(123);
   writeFileSync(config, '{"version":1}');
   const changedDb = new DatabaseSync(history); changedDb.exec('UPDATE usage SET cost=999'); changedDb.close();
   expect(run('restore-client',client,'--clients-stopped')).toContain('verified');
