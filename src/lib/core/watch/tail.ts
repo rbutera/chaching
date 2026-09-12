@@ -3,6 +3,7 @@
 // on tail reads only offset->EOF. Feeds parsed+deduped records into the Rollup.
 
 import { createReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { basename, sep } from 'node:path';
 import type { Rollup } from '../rollup/rollup';
@@ -80,7 +81,10 @@ export async function ingestRange(
 		if (!line) return;
 		let parsed = parseLine(line, ctx);
 		if (!parsed) { rollup.addSkipped(); return; }
-		if (parsed.key.startsWith('__nokey__:')) parsed = { ...parsed, key: `file:${filePath}:${lineStart}` };
+		if (parsed.key.startsWith('__nokey__:')) {
+			const identity = createHash('sha256').update(JSON.stringify([parsed.timestamp, parsed.sessionId, parsed.model, parsed.tokens, parsed.cacheCreation1h, parsed.cacheCreation5m, parsed.webSearchRequests, parsed.webFetchRequests])).digest('hex');
+			parsed = { ...parsed, key: `file:${filePath}:${lineStart}:${identity}` };
+		}
 		const rec = hooks.prepare?.(parsed) ?? parsed;
 		if (!dedup.add(usageDedupKey(rec))) { rollup.addDuplicate(); return; }
 		rollup.add(rec);

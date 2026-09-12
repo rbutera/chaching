@@ -60,4 +60,6 @@ it('deduplicates current-day durable records after changing machine scope, inclu
 	const pooled = await runOnce(pooledConfig, now);
 	expect(pooled.totals.requests).toBe(2); expect(pooled.totals.tokens).toEqual(solo.totals.tokens); expect(pooled.totals.cost).toBeCloseTo(solo.totals.cost, 10);
 	const backToSolo = await runOnce(cfg, now); expect(backToSolo.totals.requests).toBe(2);
+	const replacement = text.replace('12:00:00', '12:01:00'); writeFileSync(join(dir, 'transcript.jsonl'), replacement + '\r\n' + replacement + '\r\n');
+	const rewritten = await runOnce(cfg, now); expect(rewritten.totals.requests).toBe(4);
 });
