@@ -23,6 +23,6 @@ FORM: The statement, approved by Rai in chat after three full visual comps; seed
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
 
-## Known prerequisite
+## Wrapped imagery
 
-The shipping Wrapped implementation is monthly. The agreed yearly Wrapped product work is absent from this checkout. Market the real monthly recap; yearly export remains a launch dependency rather than fabricated imagery.
+Monthly and yearly Wrapped are shipping product capabilities. The page shows the monthly paper recap and links the production yearly export, explicitly year-to-date at the fictional capture clock.

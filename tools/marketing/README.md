@@ -14,7 +14,7 @@ Capture prerequisites: Docker, VHS, ffmpeg, Google Chrome and JetBrainsMono Nerd
 
 The receipt and monthly Wrapped use August 1–31; the dashboard and terminal use the product's rolling 30-day period. A runtime assertion checks identical-period receipt/Wrapped totals. Browser sizes are 1440×1000, 560×560 and 390×700. The terminal movie is 1440×1000, 15 fps, H.264 with a static poster; reduced-motion visitors see the poster. The social card uses the actual receipt and bundled brand fonts, with no hand-authored spend figures.
 
-The production Wrapped renderer currently supports monthly output. A yearly Wrapped export remains a launch dependency from issue #22; this site describes and shows the real monthly recap. Production hosting and the 2.0 launch switch remain tracked separately from this implementation.
+The pipeline renders both monthly and yearly Wrapped from production code. The yearly example is explicitly year-to-date at the fixed August clock; its total is checked against a receipt for the same date range.
 
 ## Production deployment
 

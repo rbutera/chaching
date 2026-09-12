@@ -221,13 +221,14 @@
     "tools/marketing/fixture.ts": "a220565268bb541945ae7ee1624a9d207d6a5127ed30b94c870cb1bf27ece6a3",
     "tools/marketing/pool.ts": "d062bec77aadfc4dd39d2b2f79a835428cd586ad32d98b7866c480e3d8ce0236",
     "tools/marketing/refresh.ts": "ee82f15215064e59fec73aee79b471a6c7c261d81c5a642844a1a0f2bb34987e",
-    "tools/marketing/render.ts": "8053c23a75725b4e3a83394b0060f85c1b6941bf65f0960375b611933938fb80",
+    "tools/marketing/render.ts": "bd1adf404edee684e48b12540722fe85db5d5a17f8f84ee9e9d1a0aaa25518d9",
     "tools/marketing/terminal.tape": "2d8ec512f54764b9d9f3ff4905cc6bdb62cf48098ec1fab76e12ebacd0eef0e1",
     "tools/marketing/terminal.ts": "feced42b0444e374cb4c52ca80f7b718c160697e0739d97ba7f86b1c83382040"
   },
   "outputs": {
     "receipt.png": "ffe930ef613ca86b6322df5cde1743330a934ae59625298ba522a65f9702b9fa",
     "wrapped.png": "07709951fceee17580d8de72ef3b21a9afca3cf1af93cdacef418fd5fe99040a",
+    "wrapped-yearly.png": "2137e2234e606520da5472e1035fb84ef37298f9a55ef814b038c14a54360f90",
     "dashboard.png": "dc0a6baf93112d48900a02501fd8111b24983dc6c23e4bb9a190d27f2d2f4c7b",
     "dashboard-corner.png": "fc1802ff34ead46f06bf9033f515cb7770f091cf47a4f6a411205a5c2502de6a",
     "dashboard-narrow.png": "fc10dd09896eeb7cfb43d1e2e497561c588eecc4f530f86eff95f8322e4a9e54",
