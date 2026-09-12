@@ -1,0 +1,211 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-12T14:51:47.056455+00:00",
+  "title": "Design System: Chaching Register & Receipt",
+  "extensions": {
+    "colorMeta": {
+      "ink": {
+        "role": "neutral",
+        "displayName": "Warm ink",
+        "tonalRamp": [
+          "oklch(15% 0.005 80)",
+          "oklch(26% 0.005 80)",
+          "oklch(38% 0.005 80)",
+          "oklch(49% 0.005 80)",
+          "oklch(61% 0.005 80)",
+          "oklch(72% 0.005 80)",
+          "oklch(84% 0.005 80)",
+          "oklch(95% 0.005 80)"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Warm off-white",
+        "tonalRamp": [
+          "oklch(15% 0.015 85)",
+          "oklch(26% 0.015 85)",
+          "oklch(38% 0.015 85)",
+          "oklch(49% 0.015 85)",
+          "oklch(61% 0.015 85)",
+          "oklch(72% 0.015 85)",
+          "oklch(84% 0.015 85)",
+          "oklch(95% 0.015 85)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted warm grey",
+        "tonalRamp": [
+          "oklch(15% 0.025 80)",
+          "oklch(26% 0.025 80)",
+          "oklch(38% 0.025 80)",
+          "oklch(49% 0.025 80)",
+          "oklch(61% 0.025 80)",
+          "oklch(72% 0.025 80)",
+          "oklch(84% 0.025 80)",
+          "oklch(95% 0.025 80)"
+        ]
+      },
+      "brass": {
+        "role": "primary",
+        "displayName": "Brass",
+        "tonalRamp": [
+          "oklch(15% 0.15 80)",
+          "oklch(26% 0.15 80)",
+          "oklch(38% 0.15 80)",
+          "oklch(49% 0.15 80)",
+          "oklch(61% 0.15 80)",
+          "oklch(72% 0.15 80)",
+          "oklch(84% 0.15 80)",
+          "oklch(95% 0.15 80)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Warm border",
+        "tonalRamp": [
+          "oklch(15% 0.018 80)",
+          "oklch(26% 0.018 80)",
+          "oklch(38% 0.018 80)",
+          "oklch(49% 0.018 80)",
+          "oklch(61% 0.018 80)",
+          "oklch(72% 0.018 80)",
+          "oklch(84% 0.018 80)",
+          "oklch(95% 0.018 80)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Register surface",
+        "tonalRamp": [
+          "oklch(15% 0.005 80)",
+          "oklch(26% 0.005 80)",
+          "oklch(38% 0.005 80)",
+          "oklch(49% 0.005 80)",
+          "oklch(61% 0.005 80)",
+          "oklch(72% 0.005 80)",
+          "oklch(84% 0.005 80)",
+          "oklch(95% 0.005 80)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Statement display",
+        "purpose": "Wide-screen hero headlines; responsive sizes live in src/style.css."
+      },
+      "headline": {
+        "displayName": "Feature headline",
+        "purpose": "Section headings."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "General prose."
+      },
+      "command": {
+        "displayName": "Command",
+        "purpose": "Install control text."
+      },
+      "nav": {
+        "displayName": "Navigation",
+        "purpose": "Header links."
+      }
+    },
+    "shadows": [
+      {
+        "name": "receipt",
+        "value": "0 10px 18px #0004",
+        "purpose": "Hero image drop-shadow filter."
+      },
+      {
+        "name": "wrapped",
+        "value": "0 12px 24px #0005",
+        "purpose": "Monthly Wrapped image drop-shadow filter."
+      }
+    ],
+    "motion": [
+      {
+        "name": "command-transition",
+        "value": ".18s",
+        "purpose": "Install background and text colour."
+      },
+      {
+        "name": "receipt-transform",
+        "value": ".55s cubic-bezier(.16,1,.3,1)",
+        "purpose": "Receipt hover and focus reveal; disabled for reduced motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "medium",
+        "value": "900px"
+      },
+      {
+        "name": "small",
+        "value": "600px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Install command",
+      "kind": "button",
+      "refersTo": "install",
+      "description": "Primary copy-command control.",
+      "html": "<button class=\"ds-install\"><span>$</span><code>npx chaching</code><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"8\" y=\"4\" width=\"11\" height=\"14\" rx=\"2\"/><path d=\"M15 18v3H4V7h4\"/></svg></button>",
+      "css": ".ds-install{display:flex;align-items:center;gap:21px;width:min(100%,485px);min-height:64px;padding:10px 25px;border:1px solid var(--brass);border-radius:13px;background:transparent;color:var(--brass);cursor:pointer;transition:background .18s,color .18s}.ds-install code{font:400 clamp(22px,2.15vw,33px) \"JetBrains Mono\",monospace;letter-spacing:-.035em}.ds-install span{color:var(--muted);font:34px \"Space Grotesk\",sans-serif}.ds-install svg{margin-left:auto;width:22px;height:22px;fill:none;stroke:var(--paper);stroke-width:1.5}.ds-install:hover{background:var(--brass);color:var(--ink)}.ds-install:hover span{color:var(--ink)}.ds-install:hover svg{stroke:var(--ink)}.ds-install:focus-visible{outline:2px solid var(--brass);outline-offset:5px}@media(prefers-reduced-motion:reduce){.ds-install{transition:none}}"
+    },
+    {
+      "name": "Navigation",
+      "kind": "nav",
+      "refersTo": "navigation",
+      "description": "Plain navigation with readable hit areas.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Example navigation\"><a href=\"/docs/\">Docs</a><a href=\"/docs/commands/\">Commands</a></nav>",
+      "css": ".ds-nav{display:flex;gap:28px;font:400 15px \"Space Grotesk\",sans-serif}.ds-nav a{display:inline-flex;align-items:center;min-height:44px;color:var(--paper);text-decoration:none}.ds-nav a:hover{color:var(--brass)}.ds-nav a:focus-visible{outline:2px solid var(--brass);outline-offset:5px}"
+    },
+    {
+      "name": "Feature link",
+      "kind": "button",
+      "refersTo": "text-link",
+      "description": "Secondary action for supporting documentation.",
+      "html": "<a class=\"ds-link\" href=\"/docs/commands/\">Meet the commands <span aria-hidden=\"true\">\u2192</span></a>",
+      "css": ".ds-link{display:inline-flex;align-items:center;min-height:44px;gap:12px;color:var(--brass);font:17px \"Space Grotesk\",sans-serif;text-decoration:none}.ds-link:hover{text-decoration:underline;text-underline-offset:5px}.ds-link:focus-visible{outline:2px solid var(--brass);outline-offset:5px}"
+    },
+    {
+      "name": "Product window",
+      "kind": "card",
+      "refersTo": "product-window",
+      "description": "Flat frame and caption around production media.",
+      "html": "<figure class=\"ds-window\"><figcaption>Browser people.</figcaption><a href=\"/shots/dashboard.png\">Open the full dashboard screenshot</a></figure>",
+      "css": ".ds-window{margin:0;border:1px solid var(--line);border-radius:12px;padding:15px;overflow:hidden;min-width:0;background:var(--ink);color:var(--paper);font-family:\"Space Grotesk\",sans-serif}.ds-window figcaption{font-size:20px;font-weight:700;line-height:1.3;margin-bottom:14px}.ds-window a{color:var(--paper);text-underline-offset:5px}.ds-window a:hover{color:var(--brass)}.ds-window a:focus-visible{outline:2px solid var(--brass);outline-offset:5px}"
+    },
+    {
+      "name": "Documentation code",
+      "kind": "custom",
+      "refersTo": "code-block",
+      "description": "Scrollable command evidence on the secondary surface.",
+      "html": "<pre class=\"ds-code\"><code>chaching wrapped --png --redact</code></pre>",
+      "css": ".ds-code{font:13px/1.8 \"JetBrains Mono\",monospace;padding:24px;overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--paper);tab-size:2}.ds-code code{font:inherit}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Register & Receipt",
+    "overview": "The public site extends Chaching\u2019s established Register & Receipt identity: warm ink, brass controls, off-white type and cream thermal receipts. Strong display type carries the gallows humour; quiet borders and generous spacing give real product evidence room to speak.\n\nThe existing Chaching! lockup stays unchanged. Space Grotesk and JetBrains Mono are self-hosted from the bundled product fonts. Production dashboard and receipt imagery retains its renderer\u2019s palette and uses fictional fixture data.",
+    "keyCharacteristics": [
+      "Warm register surfaces and brass interaction cues.",
+      "Large, tightly set headlines with readable supporting copy.",
+      "Real product captures and tactile receipt paper."
+    ],
+    "rules": [],
+    "dos": [
+      "Do inherit the shared Register & Receipt tokens and bundled fonts.",
+      "Do use actual production renderers with fictional data for product evidence.",
+      "Do retain visible keyboard focus, readable text and reduced-motion alternatives."
+    ],
+    "donts": [
+      "Don't redraw the dashboard or terminal as marketing evidence.",
+      "Don't recolour the existing wordmark or production receipts.",
+      "Don't describe the implemented monthly Wrapped recap as yearly."
+    ]
+  }
+}
