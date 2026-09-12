@@ -2,7 +2,7 @@
 
 Run the **Release** GitHub action on `main` with a patch, minor or major bump. Set `dry_run` to check the exact proposed release commit and packed install without updating main, tagging or publishing. A temporary `release-candidate/` branch and Actions artifacts retain the result for inspection.
 
-The nightly schedule stays disabled until the first verified trusted-publisher release. Once enabled, 03:17 UTC runs publish a patch only for unreleased app or build changes. Documentation, tests, CI and the standalone site do not qualify. The classifier reads both Git trees and resolved runtime/build dependency closures; new build tools must be included in `tools/release-inputs.mjs`.
+At 03:17 UTC nightly, the workflow publishes a patch only for unreleased app or build changes. Documentation, tests, CI and the standalone site do not qualify. The classifier reads both Git trees and resolved runtime/build dependency closures; new build tools must be included in `tools/release-inputs.mjs`.
 
 Every release tests its version/changelog commit through the existing Linux and macOS CI matrix, then promotes main and its annotated tag atomically. If main advances during CI, the run fails without overwriting it. Rerun Release on current main. The canonical Linux tarball is published unchanged by a second invocation of the same workflow at the release tag.
 

@@ -1,5 +1,7 @@
 name: Release
 on:
+  schedule:
+    - cron: '17 3 * * *'
   workflow_dispatch:
     inputs:
       bump:
@@ -15,7 +17,6 @@ on:
         description: Automated continuation tag (dispatch at this exact tag)
         type: string
         default: ''
-# Enable the 03:17 UTC schedule only after the first verified OIDC release.
 permissions:
   contents: read
 concurrency:
