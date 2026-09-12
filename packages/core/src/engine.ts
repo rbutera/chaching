@@ -1,3 +1,5 @@
+import type { SessionActivity } from '@chaching/shared/types';
+import { sessionActivity, hasSessionEvidence } from './history/wrapped';
 // Framework-free ingestion engine. ONE cold scan per engine (not per request),
 // then per-provider liveness: claude is tailed via fs.watch (recursive) + an
 // mtime-poll fallback; codex + opencode are re-polled incrementally on an interval
@@ -128,6 +130,7 @@ class Ingestion {
 	private providerStatus = new ProviderStatus();
 	private disposed = false;
 	private historyStore: HistoryStore | null = null;
+	private wrappedRecords = new Map<string, UsageRecord>();
 	private readonly valuations = new Map<string, UsageRecord>();
 	private pricingRefresh: PricingRefresh<PricingCatalog> | null = null;
 	private pricingTimer: NodeJS.Timeout | null = null;
@@ -176,6 +179,7 @@ class Ingestion {
 		this.historyStore?.correctValuations(repairs);
 		for (const { before, after } of repairs) {
 			this.valuations.set(usageDedupKey(after), after);
+			this.captureWrappedRecord(after);
 			this.rollup.correctValuation(before, after);
 		}
 		if (repairs.length) {
@@ -204,6 +208,7 @@ class Ingestion {
 	/** Peer aggregate overlay, keyed by (sourceScope, grain). Replaced in place on republish. */
 	private peerDay = new Map<string, PeerDayAgg>();
 	private peerHour = new Map<string, PeerHourAgg>();
+	private peerActivity = new Map<string, SessionActivity>();
 	private peerSession = new Map<string, PeerSession>();
 	/** Incremental peer read watermark: max `updated_at` (ISO) seen so far, null = read all. */
 	private syncWatermark: string | null = null;
@@ -415,9 +420,11 @@ class Ingestion {
 			? this.rollup.allHourAggregates(hourFloor)
 			: this.rollup.dirtyHourAggregates(hourFloor);
 		const sessions = full ? this.rollup.allSessionSummaries() : this.rollup.dirtySessionSummaries();
+		const activity = this.localActivity();
 		await this.syncStore.publishDayAggregates(scope, days);
 		await this.syncStore.publishHourAggregates(scope, hours);
 		await this.syncStore.publishSessions(scope, sessions);
+		await this.syncStore.publishSessionActivity(scope, activity);
 		if (this.tokenmaxxQuota?.observedAt) {
 			await this.syncStore.publishProviderQuota(
 				'tokenmaxx',
@@ -464,6 +471,7 @@ class Ingestion {
 				session
 			);
 		}
+		for (const row of load.activity ?? []) this.peerActivity.set(JSON.stringify([row.machineId, row.provider, row.sessionId]), row);
 		this.syncWatermark = load.watermark;
 		// Bound the hour overlay: peers prune their own rows past 7d but their DELETEs are
 		// invisible to us, so drop stale buckets locally too (blocks only span recent time).
@@ -500,6 +508,7 @@ class Ingestion {
 			this.rollup.restoreFrozenValuations(records.filter(record => frozen.has(record.day)));
 			for (const record of records) {
 				this.valuations.set(usageDedupKey(record), record);
+				this.captureWrappedRecord(record);
 				this.dedup.add(usageDedupKey(record));
 				if (!frozen.has(record.day)) this.rollup.add(record);
 			}
@@ -763,9 +772,9 @@ class Ingestion {
 		const cfg = this.resolvedConfig;
 		const stamped = cfg && isConfigured(cfg.sync) ? { ...record, machineId: cfg.sync.machineId } : record;
 		const existing = this.valuations.get(usageDedupKey(stamped));
-		if (existing) return existing;
+		if (existing) return this.captureWrappedRecord(existing);
 		// Legacy frozen history has no proven record identities or eligibility.
-		if (this.rollup.isFrozenDay(record.day) || record.key.startsWith('__nokey__:')) return stamped;
+		if (this.rollup.isFrozenDay(record.day) || record.key.startsWith('__nokey__:')) return this.captureWrappedRecord(stamped);
 		const valuation = stamped.reportedCost ? undefined : this.valueRecord(stamped);
 		const valued = valuation ? { ...stamped, valuation, cost: valuation.cost } : stamped;
 		this.historyStore?.retainValuation(valued);
@@ -774,7 +783,23 @@ class Ingestion {
 			this.pricingMiss = true;
 			if (this.watchEnabled) void this.refreshPricing();
 		}
-		return valued;
+		return this.captureWrappedRecord(valued);
+	}
+
+	private captureWrappedRecord(record: UsageRecord): UsageRecord {
+		if (!hasSessionEvidence(record)) return record;
+		if (this.historyStore) this.historyStore.retainWrappedEvidence(record);
+		else this.wrappedRecords.set(JSON.stringify([record.provider, record.key]), record);
+		return record;
+	}
+
+	private localActivity(): SessionActivity[] {
+		const machineId = this.resolvedConfig?.sync.machineId ?? hostname();
+		const rows = this.historyStore ? this.historyStore.loadWrappedEvidence() : [...sessionActivity(this.wrappedRecords.values())].map(([key, activity]) => {
+			const [provider, sessionId]: string[] = JSON.parse(key);
+			return { provider, sessionId, activity };
+		});
+		return rows.map(row => ({ ...row, machineId }));
 	}
 
 	private syncHooks() {
@@ -928,7 +953,8 @@ class Ingestion {
 			if (agg.partial) peerPartialDays.add(agg.day);
 		}
 		const merged = mergePooledSnapshot(local, peer, today, peerPartialDays);
-		return { ...attachAccounts(merged, this.syncAccountIndex), pricing: getPricingCatalog() };
+		merged.activity = [...this.localActivity(), ...this.peerActivity.values()];
+		return { ...attachAccounts(merged, this.syncAccountIndex), poolId: this.resolvedConfig?.sync.poolId ?? undefined, pricing: getPricingCatalog() };
 	}
 
 	private emitSyncSnapshot(): void {
@@ -1114,7 +1140,9 @@ class Ingestion {
 
 	snapshot(): RollupSnapshot {
 		if (this.syncStore) return this.buildSyncSnapshot();
-		return { ...attachAccounts(this.rollup.snapshot(this.now(), this.coverageInput()), this.syncAccountIndex), pricing: getPricingCatalog() };
+		const snapshot = this.rollup.snapshot(this.now(), this.coverageInput());
+		snapshot.activity = this.localActivity();
+		return { ...attachAccounts(snapshot, this.syncAccountIndex), pricing: getPricingCatalog() };
 	}
 
 	setCutover(ts: number | null): void {

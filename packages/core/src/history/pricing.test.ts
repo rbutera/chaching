@@ -28,7 +28,7 @@ it('retains current contributions, repairs down and up once, and recovers comple
 	const exact = record('exact', 'existing-model', catalog('existing-model', 3));
 	expect(estimated.valuation?.kind).toBe('estimated'); expect(missing.cost).toBeNull();
 	const original = [estimated, missing, exact]; const rollup = new Rollup();
-	for (const row of original) { store.retainValuation(row); rollup.add(row); }
+	for (const row of original) { store.retainValuation(row); store.retainWrappedEvidence(row); rollup.add(row); }
 	store.retainValuation(estimated); expect(store.loadValuations()).toHaveLength(3);
 	const days = new Set(['2026-09-01']); const frozen = rollup.freezeCandidates(days); store.freezeDays(days, frozen.aggregates, frozen.sessions);
 	const afterEstimate = record('estimated', estimated.model, catalog(estimated.model, 1));
@@ -41,6 +41,7 @@ it('retains current contributions, repairs down and up once, and recovers comple
 	const reopened = new HistoryStore(); reopened.open(path);
 	const recovered = new Rollup(); recovered.setFrozenDays(reopened.frozenDays()); recovered.loadAggregates(reopened.loadAggregates(), reopened.loadSessions()); recovered.restoreFrozenValuations(reopened.loadValuations());
 	const snapshot = recovered.snapshot();
+	expect(reopened.loadWrappedEvidence().flatMap(row => row.activity).reduce((sum, row) => sum + row.cost, 0)).toBeCloseTo(0.012);
 	expect(snapshot.totals.cost).toBeCloseTo(0.012); expect(snapshot.totals.requests).toBe(3); expect(snapshot.totals.tokens).toEqual(rollup.snapshot().totals.tokens);
 	expect(snapshot.totals.costUnknownRequests).toBe(0); expect(snapshot.sessions[0].cost).toBeCloseTo(0.012);
 	expect(recovered.allHourAggregates(0).reduce((sum, row) => sum + row.cost, 0)).toBeCloseTo(0.012); expect(recovered.allHourAggregates(0).reduce((sum, row) => sum + row.requests, 0)).toBe(3);

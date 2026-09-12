@@ -597,7 +597,7 @@ function addTokensInto(into: TokenCounts, from: TokenCounts): void {
  * segment (`/a/web` vs `/b/web`) stay separate rows. Empty/whitespace or the literal
  * `unknown` placeholder collapse to `''` (the unknown bucket).
  */
-function normalizeProjectKey(project: string): string {
+export function normalizeProjectKey(project: string): string {
 	const t = (project ?? '').trim().replace(/\/+$/, '');
 	if (t === '' || t.toLowerCase() === 'unknown') return '';
 	return t;

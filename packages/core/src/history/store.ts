@@ -1,3 +1,4 @@
+import { hasSessionEvidence } from './wrapped';
 // Durable local history: finalized aggregates plus record-level monetary evidence.
 // Current-day contributions are retained before publication; frozen legacy aggregates
 // remain authoritative when they have no proven record identities.
@@ -9,7 +10,7 @@ import { dirname } from 'node:path';
 import type { SessionSummary, TokenCounts, UsageRecord } from '@chaching/shared/types';
 import type { FrozenAgg } from '../rollup/rollup';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /**
  * A writable SQLite store of frozen past-day aggregates + finalized sessions.
@@ -55,7 +56,12 @@ export class HistoryStore {
 
 	private createSchema(db: DatabaseSync): void {
 		db.exec(`
-			CREATE TABLE IF NOT EXISTS valuation (
+			CREATE TABLE IF NOT EXISTS wrapped_evidence (
+                provider TEXT NOT NULL, record_key TEXT NOT NULL, day TEXT NOT NULL,
+                session_id TEXT NOT NULL, project TEXT NOT NULL, cost REAL,
+                PRIMARY KEY (provider, record_key)
+            );
+            CREATE TABLE IF NOT EXISTS valuation (
                 scope_key TEXT PRIMARY KEY,
                 day TEXT NOT NULL,
                 provider TEXT NOT NULL,
@@ -399,6 +405,28 @@ export class HistoryStore {
 			.run(`${record.provider}\u001f${record.key}`, record.day, record.provider, record.model, record.sessionId, JSON.stringify(record));
 	}
 
+	retainWrappedEvidence(record: UsageRecord): void {
+		if (!hasSessionEvidence(record)) return;
+		this.require().prepare(`INSERT INTO wrapped_evidence
+			(provider, record_key, day, session_id, project, cost) VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT(provider, record_key) DO NOTHING`)
+			.run(record.provider, record.key, record.day, record.sessionId, record.project, record.cost);
+	}
+
+	loadWrappedEvidence(): { provider: string; sessionId: string; activity: import('@chaching/shared/types').SessionDay[] }[] {
+		const groups = new Map<string, { provider: string; sessionId: string; activity: import('@chaching/shared/types').SessionDay[] }>();
+		for (const row of this.require().prepare(`SELECT provider, session_id, day, project,
+			COUNT(*) AS requests, COALESCE(SUM(cost), 0) AS cost, SUM(cost IS NULL) AS unknown
+			FROM wrapped_evidence GROUP BY provider, session_id, day, project`).all()) {
+			const provider = stringValue(row.provider), sessionId = stringValue(row.session_id);
+			const key = JSON.stringify([provider, sessionId]);
+			const group = groups.get(key) ?? { provider, sessionId, activity: [] };
+			group.activity.push({ day: stringValue(row.day), project: stringValue(row.project), requests: numberValue(row.requests), cost: numberValue(row.cost), costUnknownRequests: numberValue(row.unknown) });
+			groups.set(key, group);
+		}
+		return [...groups.values()];
+	}
+
 	loadValuations(): UsageRecord[] {
 		return this.require().prepare('SELECT record FROM valuation ORDER BY day, scope_key').all().map(row => {
 			if (typeof row.record !== 'string') throw new Error('Invalid durable valuation');
@@ -427,6 +455,7 @@ export class HistoryStore {
 				const result = db.prepare("UPDATE valuation SET record = ? WHERE scope_key = ? AND json_extract(record, '$.valuation') = ? AND json_extract(record, '$.valuation.kind') IN ('missing', 'estimated')")
 					.run(JSON.stringify(after), `${before.provider}\u001f${before.key}`, JSON.stringify(before.valuation));
 				if (result.changes !== 1) throw new Error('Valuation changed during correction');
+				db.prepare('UPDATE wrapped_evidence SET cost = ? WHERE provider = ? AND record_key = ?').run(after.cost, after.provider, after.key);
 				const delta = (after.cost ?? 0) - (before.cost ?? 0);
 				const unknown = Number(after.cost == null) - Number(before.cost == null);
 				db.prepare(`UPDATE day_model_agg SET cost = cost + ?, cost_unknown_requests = cost_unknown_requests + ?

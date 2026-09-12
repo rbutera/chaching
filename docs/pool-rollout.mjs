@@ -42,7 +42,7 @@ const version = () => Number(sql('SELECT version FROM chaching_sync.schema_versi
 const roster = () => JSON.parse(sql("SELECT coalesce(json_agg(x),'[]') FROM (SELECT pool_id,id FROM chaching_sync.machine) x;")).sort((a,b) => a.pool_id.localeCompare(b.pool_id) || a.id.localeCompare(b.id));
 function baseline() {
  const v = version();
- if (![2, 3, 4, 5].includes(v)) fail(`Expected schema 2, 3, 4 or 5; found ${v}.`);
+ if (![2, 3, 4, 5, 6].includes(v)) fail(`Expected schema 2, 3, 4, 5 or 6; found ${v}.`);
  const tables = ['pool', 'machine', 'machine_day_agg', 'machine_hour_agg', 'machine_session_agg', 'machine_provider_status'];
  const queries = Object.fromEntries(tables.map(table => [table, `SELECT * FROM chaching_sync.${table}`]));
  if (v < 5) queries.machine_day_agg = 'SELECT *, NULL::jsonb AS monetary FROM chaching_sync.machine_day_agg';
@@ -112,7 +112,7 @@ try {
   if (!rosterPath || !artifact || !cli) fail('preflight requires roster JSON, target package artifact and extracted target bin/chaching.js.');
   dedicatedDatabase();
   const originalSchema = version();
-  if (![2, 3, 4].includes(originalSchema)) fail('Start a rollout from schema 2, 3 or 4; reuse its directory for reruns after migration.');
+  if (![2, 3, 4, 5].includes(originalSchema)) fail('Start a rollout from schema 2, 3, 4 or 5; reuse its directory for reruns after migration.');
   const manifest = { schema: originalSchema, clients: json(rosterPath), targetArtifact: resolve(artifact), targetSha256: hash(artifact), targetCli: resolve(cli), targetCliSha256: hash(cli), targetRuntime: resolve(cli, '../../cli/index.js'), targetRuntimeSha256: hash(resolve(cli, '../../cli/index.js')), database: createHash('sha256').update(JSON.stringify([pgEnvironment().PGHOST, pgEnvironment().PGPORT, pgEnvironment().PGDATABASE])).digest('hex'), baseline: baseline() };
   for (const [entry, expected] of [['package/bin/chaching.js', manifest.targetCliSha256], ['package/cli/index.js', manifest.targetRuntimeSha256]]) {
    const packed = execFileSync('tar', ['-xOf', artifact, entry], { maxBuffer: 128 * 1024 * 1024 });
@@ -146,7 +146,7 @@ try {
     run('pg_restore', ['--no-owner', '--file=' + restoreSql, dump]);
     run('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '--single-transaction', '-c', 'DROP SCHEMA chaching_sync CASCADE;', '-f', restoreSql]);
    }
-   equal(version(), phase === 'restore' ? manifest.schema : 5, 'Resulting schema');
+   equal(version(), phase === 'restore' ? manifest.schema : 6, 'Resulting schema');
    equal(baseline(), manifest.baseline, 'Aggregate, fee and link inventory');
   }
  }

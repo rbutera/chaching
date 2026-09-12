@@ -13,7 +13,9 @@
 		"./wrapped/render-text": "./src/wrapped/render-text.ts",
 		"./wrapped/model": "./src/wrapped/model.ts",
 		"./wrapped/render-png": "./src/wrapped/render-png.ts",
-		"./receipt/node-context": "./src/receipt/node-context.ts"
+		"./receipt/node-context": "./src/receipt/node-context.ts",
+		"./wrapped/yearly": "./src/wrapped/yearly.ts",
+		"./wrapped/yearly-png": "./src/wrapped/yearly-png.ts"
 	},
 	"dependencies": {
 		"@chaching/shared": "workspace:*"

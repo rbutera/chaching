@@ -336,7 +336,7 @@
 			<span class="ver" title="chaching version">v{version}</span>
 
 		</div>
-		<nav aria-label="Main navigation">{#each ['Dashboard', 'Explore', 'Settings'] as label}<button class:active={section === label} onclick={() => { if(label === 'Dashboard' || label === 'Explore' || label === 'Settings') section = label; }}>{label}</button>{/each}</nav>
+		<nav aria-label="Main navigation"><a href={resolve('/wrapped')}>Wrapped</a>{#each ['Dashboard', 'Explore', 'Settings'] as label}<button class:active={section === label} onclick={() => { if(label === 'Dashboard' || label === 'Explore' || label === 'Settings') section = label; }}>{label}</button>{/each}</nav>
 		<div class="topbar-right">
 			<!-- Opt-in joy (default OFF): a sound toggle + a mute. No AudioContext, no
 			     asset, no canvas-confetti loads until enabled and a crossing fires. The
