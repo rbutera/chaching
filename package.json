@@ -43,8 +43,8 @@
 		"preview": "pnpm exec nx run web:preview",
 		"start": "node dist/chaching/bin/chaching.js",
 		"pack:dry": "pnpm --dir dist/chaching pack --dry-run",
-		"site:dev": "pnpm build:cli && node tools/marketing/pages.mjs && pnpm exec vite apps/site --host 0.0.0.0 --port 4320",
-		"site:build": "pnpm build:cli && pnpm exec tsx tools/marketing/brand.ts && node tools/marketing/freshness.mjs && node tools/marketing/pages.mjs && pnpm exec vite build apps/site",
+		"site:dev": "pnpm --dir apps/site dev",
+		"site:build": "pnpm --dir apps/site build",
 		"site:refresh": "pnpm package && pnpm exec tsx tools/marketing/brand.ts && pnpm exec tsx tools/marketing/refresh.ts && pnpm --dir apps/web exec tsx scripts/gen-og.ts && node tools/marketing/freshness.mjs --write",
 		"site:check": "node tools/marketing/inspect.mjs"
 	},
