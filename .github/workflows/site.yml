@@ -9,10 +9,6 @@ on:
       - 'apps/site/vite.config.ts'
       - 'tools/marketing/pages.mjs'
       - 'tools/marketing/brand.ts'
-      - 'CONFIG.md'
-      - 'docs/sync.md'
-      - 'CHANGELOG.md'
-      - 'LICENSE'
       - '.github/workflows/site.yml'
   workflow_dispatch:
 permissions:

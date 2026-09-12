@@ -18,6 +18,6 @@ The production Wrapped renderer currently supports monthly output. A yearly Wrap
 
 ## Production deployment
 
-Cloudflare Pages project `chaching` serves `https://chaching.fyi` (`chaching-f1u.pages.dev`). The `Marketing site` GitHub Actions workflow builds and deploys pushes to `main` that change published site source/assets, its build configuration/generators, or the Markdown documents published on the site. Dashboard/CLI-only edits, tests and design notes do not trigger this workflow. A manual run on `main` is available for recovery.
+Cloudflare Pages project `chaching` serves `https://chaching.fyi` (`chaching-f1u.pages.dev`). The `Marketing site` GitHub Actions workflow builds and deploys pushes to `main` that change published site source/assets or its build configuration/generators. Dashboard/CLI-only edits, repository Markdown, tests and design notes do not trigger this workflow. Published documentation is regenerated from the current repository whenever the site deploys. A manual run on `main` is available for recovery.
 
 The `marketing-production` GitHub environment permits only `main`. It holds `CLOUDFLARE_PAGES_API_TOKEN` and the `CLOUDFLARE_ACCOUNT_ID` variable. Wrangler is version-pinned in the workflow; Cloudflare Git integration is disabled because GitHub Actions owns the deployment. A build or freshness failure prevents upload. The workflow checks the public homepage and docs after uploading.
