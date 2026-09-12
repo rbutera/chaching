@@ -6,6 +6,8 @@ The nightly schedule stays disabled until the first verified trusted-publisher r
 
 Every release tests its version/changelog commit through the existing Linux and macOS CI matrix, then promotes main and its annotated tag atomically. If main advances during CI, the run fails without overwriting it. Rerun Release on current main. The canonical Linux tarball is published unchanged by a second invocation of the same workflow at the release tag.
 
+The dashboard build ID is the package version. The canonical CI leg also repeats the build without cache and requires byte-identical tarballs, so same-commit recovery cannot depend on a build timestamp.
+
 ## Setup
 
 The package's trusted publisher must identify `rbutera/chaching`, workflow `release.yml`, environment `npm-release`, with direct publication allowed. The environment allows `v*` tags and has no routine required reviewer. Keep account 2FA enabled and use no npm token. The pinned npm CLI runs through pnpm only in the publishing job. Repository metadata is retained in the assembled package for provenance.
