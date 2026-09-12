@@ -151,7 +151,8 @@ function gateEvidence(runId, attempt) {
 async function verify(manifest, { draft = false, poll = false } = {}) {
   const live = annotated(manifest.tag);
   assert.deepEqual(live, manifest);
-  const release = api(`releases/tags/${manifest.tag}`);
+  const release = draft ? releases().find(release => release.tag_name === manifest.tag) : api(`releases/tags/${manifest.tag}`);
+  assert(release, `GitHub release ${manifest.tag} is missing`);
   assert.equal(release.prerelease, false);
   if (!draft) assert.equal(release.draft, false, 'GitHub release is still a draft');
   assert.equal(release.body, manifest.notes);
