@@ -16,6 +16,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { resolvePrice } from './pricing/cost';
 import { PRICE_OVERRIDES } from '@chaching/shared/pricing/overrides';
 import { resolvePriceClient } from '@chaching/shared/pricing-client';
 
@@ -165,5 +166,31 @@ describe('resolvePriceClient — negative + family-intent cases (review hardenin
 	it('does not invent unlisted OpenAI siblings', () => {
 		expect(resolvePriceClient('gpt-5.5-codex')).toBeNull();
 		expect(resolvePriceClient('gpt-5.4-codex-mini')).toBeNull();
+	});
+});
+
+
+describe('server and browser pricing parity', () => {
+	const models = new Set([
+		...Object.keys(PRICE_OVERRIDES),
+		...Object.keys(snapshot.prices),
+		'fable-5.1', 'mythos-5.1',
+		'claude-fable-5-1[1m]', 'claude-mythos-5-1[1m]',
+		'claude-fable-9', 'claude-mythos-9',
+		'claude-fable-5-1[unexpected]',
+		'claude-fablefish-9', 'claude-mythosaurus-9', 'affable-9',
+		'gpt-5.6-mars', 'unrecognized'
+	]);
+	it('matches every rate and missing result for exact IDs, aliases and family estimates', () => {
+		for (const model of models) {
+			const server = resolvePrice(model);
+			expect(resolvePriceClient(model), model).toEqual(server === null ? null : {
+				input: server.input_cost_per_token,
+				output: server.output_cost_per_token,
+				cacheCreation: server.cache_creation_input_token_cost,
+				cacheCreation1h: server.cache_creation_input_token_cost_above_1hr,
+				cacheRead: server.cache_read_input_token_cost
+			});
+		}
 	});
 });

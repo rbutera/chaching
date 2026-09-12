@@ -77,7 +77,7 @@ function rate(value: unknown, divisor = 1): number | undefined {
 export function inferPricingProvider(model: string): string {
 	const prefix = model.match(/^(anthropic|openai|google|moonshotai)\//)?.[1];
 	if (prefix) return prefix;
-	if (/^(claude-|opus-|sonnet-|haiku-)/i.test(model)) return 'anthropic';
+	if (/^(claude-|opus-|sonnet-|haiku-|fable-|mythos-)/i.test(model)) return 'anthropic';
 	if (/^(gpt-|o[134](?:-|$)|codex-)/i.test(model)) return 'openai';
 	return '';
 }
@@ -385,11 +385,11 @@ export function priceEntry(rates: Rates): PriceEntry {
 	};
 }
 const families: [RegExp, string][] = [
-	[/fable/i, 'claude-fable-5-1'],
-	[/mythos/i, 'claude-mythos-5-1'],
-	[/opus/i, 'claude-opus-4-8'],
-	[/sonnet/i, 'claude-sonnet-4-6'],
-	[/haiku/i, 'claude-haiku-4-5']
+	[/(?:^|[-./])fable(?:-|$)/i, 'claude-fable-5-1'],
+	[/(?:^|[-./])mythos(?:-|$)/i, 'claude-mythos-5-1'],
+	[/(?:^|[-./])opus(?:-|$)/i, 'claude-opus-4-8'],
+	[/(?:^|[-./])sonnet(?:-|$)/i, 'claude-sonnet-4-6'],
+	[/(?:^|[-./])haiku(?:-|$)/i, 'claude-haiku-4-5']
 ];
 const orderedCatalogs = new WeakMap<PricingCatalog, CatalogEntry[]>();
 export function resolveValuation(

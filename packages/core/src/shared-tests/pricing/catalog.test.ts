@@ -3,7 +3,8 @@ import {
 	normalizeCatalog,
 	resolveValuation,
 	mergeCatalogs,
-	validateCatalog
+	validateCatalog,
+	inferPricingProvider
 } from '@chaching/shared/pricing/catalog';
 import { bundledCatalog } from '@chaching/shared/pricing/bundled';
 import { resolvePrice } from '@chaching/core/pricing/cost';
@@ -25,6 +26,18 @@ describe('shared catalog', () => {
 			'estimated'
 		);
 		expect(lookup(bundledCatalog, 'unrecognized').kind).toBe('missing');
+	});
+	it('recognizes Fable and Mythos aliases as exact Anthropic valuations', () => {
+		for (const model of ['fable-5.1', 'mythos-5.1', 'fable-5.1[1m]', 'mythos-5.1[1m]']) {
+			expect(lookup(bundledCatalog, model, inferPricingProvider(model)), model).toMatchObject({
+				kind: 'exact', provider: 'anthropic'
+			});
+		}
+	});
+	it('does not infer a family from a substring in an unknown model name', () => {
+		for (const model of ['affable-9', 'claude-fablefish-9', 'claude-mythosaurus-9', 'octopus-9', 'sonneteer-9', 'haikurious-9']) {
+			expect(lookup(bundledCatalog, model), model).toMatchObject({ kind: 'missing', cost: null });
+		}
 	});
 	it('prices input-only usage with a partial rate row and retains it through cache validation', () => {
 		const partial = normalizeCatalog(
