@@ -11,5 +11,9 @@
 		"typescript": "6.0.3",
 		"vitest": "4.1.7",
 		"vite": "8.1.0"
+	},
+	"scripts": {
+		"build": "cd ../.. && pnpm build:cli && pnpm exec tsx tools/marketing/brand.ts && node tools/marketing/freshness.mjs && node tools/marketing/pages.mjs && pnpm --dir apps/site exec vite build",
+		"dev": "cd ../.. && pnpm build:cli && node tools/marketing/pages.mjs && pnpm --dir apps/site exec vite --host 0.0.0.0 --port 4320"
 	}
 }

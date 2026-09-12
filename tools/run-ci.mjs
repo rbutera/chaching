@@ -18,6 +18,8 @@ run(process.execPath, ['--test', 'tools/verify-ci-tests.test.mjs', 'tools/nx-cac
 pnpm('boundaries');
 pnpm('check');
 pnpm('build');
+pnpm('site:build');
+run(process.execPath, ['--test', 'tools/marketing/freshness.test.mjs']);
 run('git', ['diff', '--exit-code']);
 const projects = JSON.parse(run('pnpm', ['exec', 'nx', 'show', 'projects', '--withTarget=test', '--json'], true));
 if (!Array.isArray(projects) || !projects.length) throw new Error('Nx found no test projects');
