@@ -1,3 +1,9 @@
+## 1.18.2 (2026-09-13)
+
+### Other changes
+
+- Harden pricing family aliases and server/browser parity \(\#49\) (c913b15)
+
 ## 1.18.1 (2026-09-12)
 
 ### Other changes
