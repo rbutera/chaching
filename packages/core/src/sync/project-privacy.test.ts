@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SessionActivity, SessionDay, SessionSummary } from '@chaching/shared/types';
 import {
 	HIDDEN_PROJECT,
+	policyFromKey,
 	projectPolicyKey,
 	projectPublishPolicy,
 	reconcileActivityFragments,
@@ -102,23 +103,48 @@ describe('publish payload redaction', () => {
 	});
 });
 
+describe('policyFromKey', () => {
+	it('reads the provenance stamped on published rows; none means full paths', () => {
+		expect(policyFromKey(undefined)).toEqual(FULL);
+		expect(policyFromKey('basename')).toEqual(BASENAME);
+		expect(policyFromKey('label:Conveo')).toEqual(CONVEO);
+		expect(policyFromKey(projectPolicyKey({ mode: 'label', label: 'a:b' }))).toEqual({ mode: 'label', label: 'a:b' });
+		expect(policyFromKey('label:')).toEqual(HIDDEN);
+		expect(policyFromKey('garbage')).toEqual(HIDDEN);
+	});
+});
+
 describe('reconcileActivityFragments', () => {
-	it('rewrites previously published full paths when local evidence is gone', () => {
+	it('relabels full paths published before the setting, including sessions gone locally', () => {
 		const stored = [day('2026-10-01', '/home/coder/conveo/old-feature', 4)];
-		expect(reconcileActivityFragments(stored, undefined, CONVEO)).toEqual([day('2026-10-01', 'Conveo', 4)]);
+		expect(reconcileActivityFragments(stored, undefined, FULL, CONVEO)).toEqual([day('2026-10-01', 'Conveo', 4)]);
 	});
 
-	it('drops stale labels on days local covers, so switching back to full never double-counts', () => {
-		const stored = [day('2026-11-07', 'Conveo', 5), day('2026-10-01', 'Conveo', 2)];
-		const local = [day('2026-11-07', '/home/coder/conveo/a', 5)];
-		expect(reconcileActivityFragments(stored, local, FULL)).toEqual([
-			day('2026-10-01', 'Conveo', 2),
-			day('2026-11-07', '/home/coder/conveo/a', 5)
+	it('keeps requests local evidence no longer explains when it is partial', () => {
+		const stored = [day('2026-11-07', '/a', 3), day('2026-11-07', '/b', 2)];
+		const local = [day('2026-11-07', '/a', 3)];
+		expect(reconcileActivityFragments(stored, local, FULL, CONVEO)).toEqual([
+			{ day: '2026-11-07', project: 'Conveo', requests: 5, cost: 0.5, costUnknownRequests: 0 }
 		]);
 	});
 
-	it('is a no-op for rows already in line with the policy, keeping the larger stored count', () => {
-		const stored = [day('2026-11-07', '/p', 9)];
-		expect(reconcileActivityFragments(stored, [day('2026-11-07', '/p', 7)], FULL)).toEqual(stored);
+	it('switching back to full restores local paths without double counting, keeping an unexplained remainder', () => {
+		const stored = [day('2026-11-07', 'Conveo', 5), day('2026-10-01', 'Conveo', 2)];
+		const local = [day('2026-11-07', '/home/coder/conveo/a', 3)];
+		expect(reconcileActivityFragments(stored, local, CONVEO, FULL)).toEqual([
+			day('2026-10-01', 'Conveo', 2),
+			day('2026-11-07', '/home/coder/conveo/a', 3),
+			{ day: '2026-11-07', project: 'Conveo', requests: 2, cost: 0.2, costUnknownRequests: 0 }
+		]);
+	});
+
+	it('moves a label to another label one-for-one', () => {
+		const stored = [day('2026-11-07', 'Conveo', 5)];
+		const local = [day('2026-11-07', '/x', 5)];
+		expect(reconcileActivityFragments(stored, local, CONVEO, { mode: 'label', label: 'Work' })).toEqual([day('2026-11-07', 'Work', 5)]);
+	});
+
+	it('lets newer local evidence win over a smaller stored count', () => {
+		expect(reconcileActivityFragments([day('d', '/p', 2)], [day('d', '/p', 7)], FULL, BASENAME)).toEqual([day('d', 'p', 7)]);
 	});
 });

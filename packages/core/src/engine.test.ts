@@ -385,6 +385,52 @@ describe('M5 — sync burst reliability', () => {
 		engine.dispose();
 	});
 
+	it('a project policy change republishes every session, and keeps trying until a full publish succeeds', async () => {
+		const engine = createEngine(disabledConfig());
+		const cfg = syncConfiguredConfig();
+		let failDay = true;
+		const sessionBatches: number[] = [];
+		const reconciled: string[] = [];
+		const fakeStore = {
+			publishDayAggregates: async () => {
+				if (failDay) { failDay = false; throw new Error('pg dropped mid-publish'); }
+			},
+			publishHourAggregates: async () => {},
+			publishSessions: async (_scope: unknown, sessions: readonly unknown[]) => { sessionBatches.push(sessions.length); },
+			publishSessionActivity: async () => {},
+			setProjectPolicy: (policy: { mode: string }) => { reconciled.push(policy.mode); },
+			reconcileProjectPrivacy: async () => ({ sessions: 0, activity: 0 }),
+			markPublished: async () => {},
+			heartbeat: async () => {},
+			mappingFingerprint: async () => '[]',
+			allMappings: async () => [],
+			loadAggregates: async () => loadStub()
+		};
+		const internal = engine as unknown as {
+			syncStore: typeof fakeStore | null;
+			rollup: Rollup;
+			reconciledProjectPolicy: string | null;
+			runSyncBurst: (c: chachingConfig) => Promise<void>;
+		};
+		internal.syncStore = fakeStore;
+		internal.reconciledProjectPolicy = 'full';
+		// An idle session: published long ago, nothing dirty.
+		internal.rollup.add({ ...usage('idle'), machineId: cfg.sync.machineId ?? undefined });
+		internal.rollup.clearPublishDirty();
+		const labelled = { ...cfg, sync: { ...cfg.sync, publishProjects: 'label' as const, projectLabel: 'Conveo' } };
+
+		await internal.runSyncBurst(labelled); // policy changed, publish fails before sessions
+		expect(engine.stats.providerErrors.sync).toBeTruthy();
+		expect(sessionBatches).toEqual([]);
+		await internal.runSyncBurst(labelled); // no new change, but the full republish is still owed
+		expect(sessionBatches).toEqual([1]);
+		await internal.runSyncBurst(labelled); // back to dirty-only
+		expect(sessionBatches).toEqual([1, 0]);
+		expect(reconciled.every(mode => mode === 'label')).toBe(true);
+		internal.syncStore = null;
+		engine.dispose();
+	});
+
 	it('leaves sync errored and publish-dirty intact after a failed publish', async () => {
 		const engine = createEngine(disabledConfig());
 		const cfg = syncConfiguredConfig();

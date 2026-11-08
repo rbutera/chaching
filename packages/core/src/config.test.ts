@@ -137,6 +137,7 @@ describe('config', () => {
 			.toMatchObject({ publishProjects: 'label', projectLabel: 'Conveo' });
 		expect(normalizeConfig({ sync: { publishProjects: 'lable' } }).sync.publishProjects).toBe('hidden');
 		expect(normalizeConfig({ sync: { publishProjects: 42 } }).sync.publishProjects).toBe('hidden');
+		expect(normalizeConfig({ sync: { publishProjects: null } }).sync.publishProjects).toBe('hidden');
 	});
 
 	it('does not invent a bill for a provider without configured subscription settings', () => {

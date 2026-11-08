@@ -224,10 +224,15 @@ class Ingestion {
 	private syncStore: PostgresSyncStore | null = null;
 	/**
 	 * Key of the project publish policy this machine's pooled rows were last reconciled to. Null
-	 * until the first connect, so every process start re-checks once (cheap and idempotent), and
-	 * a policy change seen mid-run rewrites the old rows before the next publish.
+	 * until the first connect, so every process start re-checks once (SQL-filtered, idempotent),
+	 * and a policy change seen mid-run rewrites the old rows before the next publish.
 	 */
 	private reconciledProjectPolicy: string | null = null;
+	/**
+	 * Set when the project policy changed mid-run and cleared only after a FULL publish succeeds,
+	 * so a failed burst can't leave idle sessions under the old policy's project value.
+	 */
+	private projectRepublishPending = false;
 	/**
 	 * Cursor Admin API spend is an account-global fact. In pooled mode it feeds ONLY this
 	 * publish-side rollup (never the local rollup), is published under the account scope, and
@@ -951,20 +956,24 @@ class Ingestion {
 			// A transient PG outage at boot leaves syncStore null but the scheduler still runs
 			// (C5). Try to (re)connect first; connectSync on success does the full publish + peer
 			// load itself, so emit and return — don't double-publish this cycle.
+			const current = this.config ? cfg : await loadConfig();
+			if (!isConfigured(current.sync) || current.sync.poolId !== cfg.sync.poolId ||
+				current.sync.databaseUrl !== cfg.sync.databaseUrl || current.sync.machineId !== cfg.sync.machineId) return;
 			if (!this.syncStore) {
-				await this.connectSync(cfg);
+				// Reconnect with the CURRENT config, so a privacy change made while the pool was down
+				// governs the very first publish.
+				await this.connectSync(current);
 				if (!this.syncStore) return; // still down; connectSync recorded the error
 				if (!this.disposed) this.emitSyncSnapshot();
 				return;
 			}
-			const current = this.config ? cfg : await loadConfig();
-			if (!isConfigured(current.sync) || current.sync.poolId !== cfg.sync.poolId ||
-				current.sync.databaseUrl !== cfg.sync.databaseUrl || current.sync.machineId !== cfg.sync.machineId) return;
 			await publishDiscoveredAccounts(this.syncStore, current);
 			// A policy change republishes everything, so idle sessions this machine still has get their
 			// real (re-redacted) project back rather than keeping the old policy's value.
-			const policyChanged = await this.applyProjectPolicy(current);
-			const published = await this.publishLocal(policyChanged);
+			if (await this.applyProjectPolicy(current)) this.projectRepublishPending = true;
+			const full = this.projectRepublishPending;
+			const published = await this.publishLocal(full);
+			if (full) this.projectRepublishPending = false;
 			// Clear only what was published; keys dirtied during the awaits survive to next burst (C3).
 			this.rollup.clearPublishDirty(published ?? undefined);
 			if (this.cursorRollup) this.cursorRollup.clearPublishDirty();

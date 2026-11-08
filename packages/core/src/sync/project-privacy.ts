@@ -76,38 +76,48 @@ export function redactFragments(fragments: readonly SessionDay[], policy: Projec
 }
 
 /**
- * Rewrite one pooled session-activity row after the publish policy changed. `stored` is what the
- * pool holds (possibly published under an older policy); `local` is this machine's current
- * evidence for the session, already redacted with the current policy (absent once the session is
- * gone locally).
+ * The policy a stored row was published under, from the `projectPolicy` key its payload carries.
+ * Rows from before this setting existed carry none and were published with full paths.
+ */
+export function policyFromKey(key: unknown): ProjectPublishPolicy {
+	if (key === undefined || key === null || key === 'full') return FULL_PROJECTS;
+	if (key === 'basename' || key === 'hidden') return { mode: key };
+	if (typeof key === 'string' && key.startsWith('label:') && key.length > 'label:'.length) return { mode: 'label', label: key.slice('label:'.length) };
+	return { mode: 'hidden' };
+}
+
+/**
+ * Rewrite one pooled session-activity row from the policy it was published under (`from`) to the
+ * current one (`to`). `local` is this machine's raw (unredacted) evidence for the session, or
+ * undefined once the session is gone locally.
  *
- * - Stored fragments are redacted with the current policy (a rename to a label, or to a basename).
- * - Where local evidence covers a day, a stored fragment whose project local doesn't have for
- *   that day is stale labelling from an older policy and is dropped, so a later switch (e.g. back
- *   to `full`) can't count the same requests twice under two names.
- * - The rest merges like the publish upsert: one fragment per (day, project), the larger
- *   request count winning (ties go to local).
+ * Each stored fragment is matched against local evidence redacted the OLD way. The part local
+ * still explains is replaced by local's own fragments, redacted the new way; any remainder (work
+ * the pool knows about but local evidence no longer covers) is kept under the stored project,
+ * redacted the new way. Requests are therefore neither dropped nor counted twice, whatever the
+ * direction of the change (label to full, full to label, label to another label).
  */
 export function reconcileActivityFragments(
 	stored: readonly SessionDay[],
 	local: readonly SessionDay[] | undefined,
-	policy: ProjectPublishPolicy
+	from: ProjectPublishPolicy,
+	to: ProjectPublishPolicy
 ): SessionDay[] {
-	const localProjects = new Map<string, Set<string>>();
-	for (const fragment of local ?? []) {
-		const projects = localProjects.get(fragment.day) ?? new Set<string>();
-		projects.add(fragment.project);
-		localProjects.set(fragment.day, projects);
-	}
-	const kept = redactFragments(stored, policy).filter(fragment =>
-		localProjects.get(fragment.day)?.has(fragment.project) ?? true);
-	const merged = new Map<string, SessionDay>();
-	for (const fragment of [...kept, ...(local ?? [])]) {
-		const key = fragmentKey(fragment.day, fragment.project);
-		const existing = merged.get(key);
-		if (!existing || fragment.requests >= existing.requests) merged.set(key, fragment);
-	}
-	return [...merged.values()].sort((a, b) => fragmentKey(a.day, a.project).localeCompare(fragmentKey(b.day, b.project)));
+	const explained = new Map(redactFragments(local ?? [], from).map(fragment => [fragmentKey(fragment.day, fragment.project), fragment]));
+	const remainder = stored.flatMap(fragment => {
+		const matched = explained.get(fragmentKey(fragment.day, fragment.project));
+		const requests = fragment.requests - (matched?.requests ?? 0);
+		if (requests <= 0) return [];
+		return [{
+			day: fragment.day,
+			project: fragment.project,
+			requests,
+			cost: Math.max(0, fragment.cost - (matched?.cost ?? 0)),
+			costUnknownRequests: Math.min(requests, Math.max(0, fragment.costUnknownRequests - (matched?.costUnknownRequests ?? 0)))
+		}];
+	});
+	return redactFragments([...remainder, ...(local ?? [])], to)
+		.sort((a, b) => fragmentKey(a.day, a.project).localeCompare(fragmentKey(b.day, b.project)));
 }
 
 function fragmentKey(day: string, project: string): string {

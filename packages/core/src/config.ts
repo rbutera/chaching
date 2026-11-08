@@ -306,7 +306,7 @@ function stringOrEmpty(value: unknown, fallback: string): string {
  * `hidden`: a typo in a privacy setting must never publish full project paths.
  */
 function projectPublishModeOr(value: unknown, fallback: ProjectPublishMode): ProjectPublishMode {
-	if (value === undefined || value === null) return fallback;
+	if (value === undefined) return fallback;
 	return PROJECT_PUBLISH_MODES.find(mode => mode === value) ?? 'hidden';
 }
 

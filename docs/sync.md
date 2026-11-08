@@ -200,14 +200,22 @@ is per machine: a personal laptop can stay on `full` while a work machine in the
 dashboard, TUI, receipts and history database always keep the full paths.
 
 Set it **before** `chaching sync join` on a machine whose paths must never reach the pool. If you
-change it on a machine that has already published, the next publish rewrites this machine's
-existing rows: session summaries get the new project value, and daily activity is relabelled.
-Projects that collapse onto one label on the same day are summed, not dropped. This includes
-sessions whose local logs were pruned long ago, which no ordinary publish would touch again. The
-rewrite runs once per policy change, and once at each start as an idempotent check that writes
-nothing when the rows already match. Switching back to `full` restores the paths of sessions the
-machine still has locally. Sessions it no longer has keep the redacted value, because the original
-path can't be recovered.
+change it on a machine that has already published, the next publish rewrites that machine's existing
+rows before it publishes anything new. This includes sessions whose local logs were pruned long ago,
+which no ordinary publish would touch again:
+
+- Session summaries get the new project value.
+- Daily activity is rewritten exactly. Each activity row records the policy it was published under,
+  and the rewrite matches the stored counts against this machine's local evidence. The part local
+  evidence explains takes the new project value. Any remainder keeps its stored project, redacted
+  the new way. Projects that collapse onto one label on the same day are summed, so no request is
+  dropped or counted twice.
+
+The rewrite is idempotent. The check at each start reads only rows published under a different
+policy, so it costs nothing when the rows already match. Switching back to `full` restores the paths
+of sessions the machine still has locally. Work it no longer has keeps the redacted value, because
+the original path can't be recovered. If a session's local evidence was missing during the rewrite
+and later comes back, its daily activity for that work can appear under both names.
 
 A running `chaching serve` reads the setting at start, so restart it after changing the setting
 from the CLI. Pool-wide Cursor Admin API sessions published by a redacting machine are redacted the

@@ -355,9 +355,10 @@ suite('sync project privacy', () => {
 			]));
 
 			// Switching back to full restores paths the machine still has, without counting the
-			// relabelled requests twice; the pruned session keeps its label.
+			// relabelled requests twice; the pruned session keeps its label. A second run is a no-op.
 			storeA.setProjectPolicy({ mode: 'full' });
-			await storeA.reconcileProjectPrivacy(scopeFor(a), localNow);
+			expect(await storeA.reconcileProjectPrivacy(scopeFor(a), localNow)).toEqual({ sessions: 0, activity: 2 });
+			expect(await storeA.reconcileProjectPrivacy(scopeFor(a), localNow)).toEqual({ sessions: 0, activity: 0 });
 			await storeA.publishSessionActivity(scopeFor(a), localNow);
 			const restored = (await storeB.loadAggregates(null)).activity ?? [];
 			expect(restored.find(row => row.sessionId === 'live')?.activity).toEqual(activityFor('live', live, 3).activity);
