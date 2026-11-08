@@ -2,12 +2,11 @@ import { isCalendarDay } from '@chaching/shared/view-model';
 import { Pool, type PoolClient } from 'pg';
 import type { MonetaryComponents } from '@chaching/shared/pricing/catalog';
 import { mergeMonetary } from '@chaching/shared/aggregate';
-import type { SessionSummary, SessionActivity } from '@chaching/shared/types';
+import type { SessionSummary, SessionActivity, SessionDay } from '@chaching/shared/types';
 import type { FrozenAgg, HourAgg } from '../rollup/rollup';
 import {
 	FULL_PROJECTS,
 	HIDDEN_PROJECT,
-	policyFromKey,
 	projectPolicyKey,
 	reconcileActivityFragments,
 	redactActivity,
@@ -706,10 +705,11 @@ export class PostgresSyncStore {
 					) retained
 				), '[]'::jsonb)),
 				updated_at = now()`, [poolId, scope.sourceScope, scope.machineId,
-			// Each payload records the policy it was published under (readers ignore the extra key), so
-			// a later policy change can rewrite exactly what this policy wrote (reconcileProjectPrivacy).
+			// Each fragment records the policy it was published under (readers ignore the extra key).
+			// The upsert merges fragments, so provenance must live on the fragment, not the row: a
+			// later policy change then rewrites exactly what each policy wrote (reconcileProjectPrivacy).
 			JSON.stringify(redactActivity(rows, this.projectPolicy).map(row => ({ provider: row.provider, sessionId: row.sessionId,
-				payload: { ...row, projectPolicy: projectPolicyKey(this.projectPolicy) } })))]);
+				payload: { ...row, activity: stampPolicy(row.activity, this.projectPolicy) } })))]);
 	}
 
 	/**
@@ -719,10 +719,11 @@ export class PostgresSyncStore {
 	 * a relabelled fragment would sit beside the old one.
 	 *
 	 * Session rows get `project` re-redacted in place (redaction composes, so this is safe to
-	 * repeat). Activity rows are rewritten from the policy each was published under (its
-	 * `projectPolicy` key; none means full paths) by {@link reconcileActivityFragments}, using
-	 * `local`, this machine's raw evidence, then stamped with the current policy. Both reads are
-	 * filtered in SQL to rows that need work, so a start with nothing to change transfers nothing.
+	 * repeat). Activity rows holding any fragment published under another policy (its
+	 * `projectPolicy` key; none means full paths) are rewritten by {@link reconcileActivityFragments}
+	 * against `local`, this machine's raw evidence, and every fragment is stamped with the current
+	 * policy. Both reads are filtered in SQL to rows that need work, so a start with nothing to
+	 * change transfers nothing.
 	 * Rewritten rows get `updated_at = now()` so peers re-read them.
 	 */
 	async reconcileProjectPrivacy(scope: PublishScope, local: readonly SessionActivity[]): Promise<ProjectPrivacyReconcile> {
@@ -731,6 +732,7 @@ export class PostgresSyncStore {
 		const policy = this.projectPolicy;
 		const key = projectPolicyKey(policy);
 		const params = [poolId, scope.sourceScope];
+		const localByKey = new Map(local.map(row => [sessionKey(row.provider, row.sessionId), row.activity]));
 
 		// Full publishes the real path, which only the next full publish can restore: nothing to
 		// rewrite. Otherwise read only rows whose project isn't already the redacted form.
@@ -754,19 +756,23 @@ export class PostgresSyncStore {
 			);
 		}
 
-		const localByKey = new Map(local.map(row => [sessionKey(row.provider, row.sessionId), row.activity]));
 		const activityRows = await this.pool.query(
 			`SELECT provider, session_id, payload FROM ${SCHEMA}.machine_session_activity
-			 WHERE pool_id = $1 AND source_scope = $2 AND COALESCE(payload->>'projectPolicy', 'full') <> $3`,
+			 WHERE pool_id = $1 AND source_scope = $2 AND EXISTS (
+				SELECT 1 FROM jsonb_array_elements(COALESCE(payload->'activity', '[]'::jsonb)) AS f(fragment)
+				WHERE COALESCE(fragment->>'projectPolicy', 'full') <> $3)`,
 			[...params, key]
 		);
 		const activity = activityRows.rows.map(row => {
 			const payload = jsonObject(row.payload);
-			const stored = parseSessionActivity(payload, scope.machineId!).activity;
+			const raw = payload.activity as { projectPolicy?: unknown }[];
+			// Validate like a peer read, then re-attach each fragment's provenance (index-aligned).
+			const stored = parseSessionActivity(payload, scope.machineId!).activity
+				.map((fragment, index) => ({ ...fragment, projectPolicy: raw[index]?.projectPolicy }));
 			const provider = String(row.provider);
 			const sessionId = String(row.session_id);
-			return { provider, session_id: sessionId, payload: { ...payload, projectPolicy: key,
-				activity: reconcileActivityFragments(stored, localByKey.get(sessionKey(provider, sessionId)), policyFromKey(payload.projectPolicy), policy) } };
+			const next = reconcileActivityFragments(stored, localByKey.get(sessionKey(provider, sessionId)), policy);
+			return { provider, session_id: sessionId, payload: { ...payload, activity: stampPolicy(next, policy) } };
 		});
 		if (activity.length) {
 			await this.pool.query(
@@ -1093,6 +1099,11 @@ async function upsertMachine(
 		 SET name = EXCLUDED.name, hostname = EXCLUDED.hostname, last_seen_at = now()`,
 		[poolId, machineId, machineName, hostname]
 	);
+}
+
+function stampPolicy(fragments: readonly SessionDay[], policy: ProjectPublishPolicy): (SessionDay & { projectPolicy: string })[] {
+	const projectPolicy = projectPolicyKey(policy);
+	return fragments.map(fragment => ({ ...fragment, projectPolicy }));
 }
 
 function sessionKey(provider: string, sessionId: string): string {

@@ -365,4 +365,24 @@ suite('sync project privacy', () => {
 			expect(restored.find(row => row.sessionId === 'pruned')?.activity[0].project).toBe('Conveo');
 		} finally { await storeA.close(); await storeB.close(); }
 	});
+
+	it('repairs a row an older full-path publisher merged into after the switch', { timeout: 30_000 }, async () => {
+		const { poolId, a, storeA, storeB } = await pooledPair();
+		const older = new PostgresSyncStore(databaseUrl!, poolId, a); // same machine, still on full
+		const secret = '/home/coder/conveo/secret';
+		try {
+			await storeA.publishSessionActivity(scopeFor(a), [activityFor('s', secret, 3)]);
+			storeA.setProjectPolicy({ mode: 'hidden' });
+			await storeA.reconcileProjectPrivacy(scopeFor(a), [activityFor('s', secret, 3)]);
+			await older.publishSessionActivity(scopeFor(a), [activityFor('s', secret, 3)]);
+			await storeA.publishSessionActivity(scopeFor(a), [activityFor('s', secret, 3)]);
+			expect(await ownRowsText(poolId, a)).toContain(secret);
+
+			expect(await storeA.reconcileProjectPrivacy(scopeFor(a), [activityFor('s', secret, 3)])).toEqual({ sessions: 0, activity: 1 });
+			expect(await ownRowsText(poolId, a)).not.toContain(secret);
+			expect((await storeB.loadAggregates(null)).activity?.[0].activity).toEqual([
+				{ day: '2026-11-07', project: '(hidden)', requests: 3, cost: 3, costUnknownRequests: 0 }
+			]);
+		} finally { await older.close(); await storeA.close(); await storeB.close(); }
+	});
 });

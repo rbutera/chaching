@@ -76,8 +76,8 @@ export function redactFragments(fragments: readonly SessionDay[], policy: Projec
 }
 
 /**
- * The policy a stored row was published under, from the `projectPolicy` key its payload carries.
- * Rows from before this setting existed carry none and were published with full paths.
+ * The policy a stored fragment was published under, from its `projectPolicy` key. Fragments from
+ * before this setting existed carry none and were published with full paths.
  */
 export function policyFromKey(key: unknown): ProjectPublishPolicy {
 	if (key === undefined || key === null || key === 'full') return FULL_PROJECTS;
@@ -86,37 +86,59 @@ export function policyFromKey(key: unknown): ProjectPublishPolicy {
 	return { mode: 'hidden' };
 }
 
+/** A pooled activity fragment with the policy it was published under (absent: full paths). */
+export type StoredFragment = SessionDay & { projectPolicy?: unknown };
+
 /**
- * Rewrite one pooled session-activity row from the policy it was published under (`from`) to the
- * current one (`to`). `local` is this machine's raw (unredacted) evidence for the session, or
- * undefined once the session is gone locally.
+ * Rewrite one pooled session-activity row to the current policy (`to`). Each stored fragment
+ * carries the policy it was published under, so one row can mix fragments from different policies
+ * (e.g. an older chaching on the same machine merged full paths in after a change). `local` is
+ * this machine's raw (unredacted) evidence for the session, or undefined once it is gone locally.
  *
- * Each stored fragment is matched against local evidence redacted the OLD way. The part local
- * still explains is replaced by local's own fragments, redacted the new way; any remainder (work
- * the pool knows about but local evidence no longer covers) is kept under the stored project,
- * redacted the new way. Requests are therefore neither dropped nor counted twice, whatever the
- * direction of the change (label to full, full to label, label to another label).
+ * Each stored fragment is compared with local evidence redacted the way THAT fragment was. The part
+ * local explains is replaced by local's own fragments, redacted the new way. A remainder (work the
+ * pool knows about but local evidence no longer covers) keeps its stored project, redacted the new
+ * way. Remainders from one policy that collapse onto one project are summed (distinct work);
+ * remainders from different policies that land on one project are the same work published twice,
+ * so the larger wins. Nothing is dropped, and nothing is counted twice.
  */
 export function reconcileActivityFragments(
-	stored: readonly SessionDay[],
+	stored: readonly StoredFragment[],
 	local: readonly SessionDay[] | undefined,
-	from: ProjectPublishPolicy,
 	to: ProjectPublishPolicy
 ): SessionDay[] {
-	const explained = new Map(redactFragments(local ?? [], from).map(fragment => [fragmentKey(fragment.day, fragment.project), fragment]));
-	const remainder = stored.flatMap(fragment => {
+	const explainedBy = new Map<string, Map<string, SessionDay>>();
+	const remaindersBy = new Map<string, SessionDay[]>();
+	for (const fragment of stored) {
+		const from = policyFromKey(fragment.projectPolicy);
+		const fromKey = projectPolicyKey(from);
+		let explained = explainedBy.get(fromKey);
+		if (!explained) {
+			explained = new Map(redactFragments(local ?? [], from).map(row => [fragmentKey(row.day, row.project), row]));
+			explainedBy.set(fromKey, explained);
+		}
 		const matched = explained.get(fragmentKey(fragment.day, fragment.project));
 		const requests = fragment.requests - (matched?.requests ?? 0);
-		if (requests <= 0) return [];
-		return [{
+		if (requests <= 0) continue;
+		const remainders = remaindersBy.get(fromKey) ?? [];
+		remainders.push({
 			day: fragment.day,
 			project: fragment.project,
 			requests,
 			cost: Math.max(0, fragment.cost - (matched?.cost ?? 0)),
 			costUnknownRequests: Math.min(requests, Math.max(0, fragment.costUnknownRequests - (matched?.costUnknownRequests ?? 0)))
-		}];
-	});
-	return redactFragments([...remainder, ...(local ?? [])], to)
+		});
+		remaindersBy.set(fromKey, remainders);
+	}
+	const remainder = new Map<string, SessionDay>();
+	for (const group of remaindersBy.values()) {
+		for (const fragment of redactFragments(group, to)) {
+			const key = fragmentKey(fragment.day, fragment.project);
+			const existing = remainder.get(key);
+			if (!existing || fragment.requests > existing.requests) remainder.set(key, fragment);
+		}
+	}
+	return redactFragments([...remainder.values(), ...(local ?? [])], to)
 		.sort((a, b) => fragmentKey(a.day, a.project).localeCompare(fragmentKey(b.day, b.project)));
 }
 

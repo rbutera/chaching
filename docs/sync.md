@@ -205,8 +205,10 @@ rows before it publishes anything new. This includes sessions whose local logs w
 which no ordinary publish would touch again:
 
 - Session summaries get the new project value.
-- Daily activity is rewritten exactly. Each activity row records the policy it was published under,
-  and the rewrite matches the stored counts against this machine's local evidence. The part local
+- Daily activity is rewritten exactly. Each activity fragment records the policy it was published
+  under, and the rewrite matches the stored counts against this machine's local evidence. A row
+  that mixes policies, for example after an older chaching on the same machine published into it,
+  is detected and repaired the same way. The part local
   evidence explains takes the new project value. Any remainder keeps its stored project, redacted
   the new way. Projects that collapse onto one label on the same day are summed, so no request is
   dropped or counted twice.
