@@ -15,7 +15,7 @@ afterEach(() => { installPricingCatalog(originalCatalog); vi.restoreAllMocks(); 
 function config(root: string): chachingConfig {
 	return { version: 1, accounts: [], providerAccounts: {}, cutoverTs: null,
 		server: { host: '127.0.0.1', port: 5178, origin: '' }, history: { enabled: true, dbPath: join(root, 'history.db') }, tokenmaxx: { enabled: false, dbPath: '' },
-		sync: { enabled: false, databaseUrl: '', poolId: null, machineId: null, machineName: '', intervalMinutes: 15 },
+		sync: { enabled: false, databaseUrl: '', poolId: null, machineId: null, machineName: '', intervalMinutes: 15, publishProjects: 'full', projectLabel: '' },
 		providers: { claude: { enabled: true, roots: [root] }, codex: { enabled: false, root: '' }, cursor: { enabled: false, adminApiToken: '', email: null, pollSeconds: 3600 }, opencode: { enabled: false, dbPath: '' }, pi: { enabled: false, roots: [] } }
 	};
 }

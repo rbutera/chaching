@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, appendFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Pool } from 'pg';
 import { describe, expect, it } from 'vitest';
 import { type chachingConfig } from './config';
 import { createEngine } from './engine';
@@ -28,7 +29,9 @@ function baseConfig(poolId: string, machineId: string, over: Partial<chachingCon
 			poolId,
 			machineId,
 			machineName: 'kinto',
-			intervalMinutes: 15
+			intervalMinutes: 15,
+			publishProjects: 'full',
+			projectLabel: ''
 		},
 		providers: {
 			claude: { enabled: false, roots: [] },
@@ -288,6 +291,64 @@ suite('engine PostgreSQL sync mode (v2 aggregate ledger)', () => {
 		} finally {
 			engine?.dispose();
 			await store.close();
+		}
+	});
+	it('publishes redacted projects, rewrites rows this machine published earlier, and keeps local paths', { timeout: 30_000 }, async () => {
+		const poolId = randomUUID();
+		const kinto = randomUUID();
+		const store = new PostgresSyncStore(databaseUrl!);
+		const root = await mkdtemp(join(tmpdir(), 'chaching-privacy-'));
+		const engines: ReturnType<typeof createEngine>[] = [];
+		const ownRows = async () => {
+			const pg = new Pool({ connectionString: databaseUrl });
+			try {
+				const result = await pg.query(
+					`SELECT payload::text AS t FROM chaching_sync.machine_session_agg WHERE pool_id = $1 AND machine_id = $2
+					 UNION ALL SELECT payload::text FROM chaching_sync.machine_session_activity WHERE pool_id = $1 AND machine_id = $2`,
+					[poolId, kinto]
+				);
+				return result.rows.map(row => String(row.t)).join('\n');
+			} finally { await pg.end(); }
+		};
+		const start = async (cfg: chachingConfig) => {
+			const engine = createEngine(cfg, () => Date.parse('2026-11-08T08:00:00Z'));
+			engines.push(engine);
+			await engine.ensureStarted();
+			return engine;
+		};
+		try {
+			await store.createPool({ poolId, poolName: 'privacy', machineId: kinto, machineName: 'kinto', hostname: 'kinto' });
+			const projectsDir = join(root, 'projects', '-home-coder-conveo-reelport');
+			await mkdir(projectsDir, { recursive: true });
+			await writeFile(join(projectsDir, 'session.jsonl'), `${claudeAssistantLine('msg_1', '2026-11-07')}\n`);
+			const cfg = baseConfig(poolId, kinto);
+			cfg.providers.claude = { enabled: true, roots: [root] };
+
+			// Before the setting: the machine publishes its full local path.
+			(await start(cfg)).dispose();
+			expect(await ownRows()).toContain('/home/coder/conveo/reelport');
+
+			// First start with label mode: the old rows are rewritten and nothing new leaks.
+			const labelled = { ...cfg, sync: { ...cfg.sync, publishProjects: 'label' as const, projectLabel: 'Conveo' } };
+			const engine = await start(labelled);
+			expect(engine.stats.providerErrors.sync).toBeFalsy();
+			const rows = await ownRows();
+			expect(rows).not.toContain('/home/coder');
+			expect(rows).toContain('"project": "Conveo"');
+			// The local dashboard keeps the real path.
+			expect(engine.snapshot().sessions[0]?.project).toBe('/home/coder/conveo/reelport');
+
+			// A policy change seen by a running engine applies on its next burst.
+			await (engine as unknown as { runSyncBurst: (c: chachingConfig) => Promise<void> }).runSyncBurst(
+				{ ...labelled, sync: { ...labelled.sync, publishProjects: 'basename' } });
+			expect(engine.stats.providerErrors.sync).toBeFalsy();
+			const basenamed = await ownRows();
+			expect(basenamed).toContain('"project": "reelport"');
+			expect(basenamed).not.toContain('Conveo');
+		} finally {
+			for (const engine of engines) engine.dispose();
+			await store.close();
+			await rm(root, { recursive: true, force: true });
 		}
 	});
 });

@@ -3,8 +3,10 @@ import { PostgresSyncStore, SCHEMA_VERSION } from '@chaching/core/sync/store';
 import {
 	getSyncStatus,
 	performSyncAction,
+	setProjectPrivacy,
 	setSyncInterval
 } from '@chaching/core/sync/manager';
+import { loadConfig } from '@chaching/core/config';
 import type { SyncStatus } from '@chaching/shared/sync-types';
 
 export async function runSync(argv: string[]): Promise<void> {
@@ -56,6 +58,21 @@ export async function runSync(argv: string[]): Promise<void> {
 		);
 		return;
 	}
+	if (command === 'privacy') {
+		const mode = flag(rest, '--projects');
+		const label = flag(rest, '--label');
+		const consumed = [mode, label].filter(value => value !== null && rest.includes(value as string)).length;
+		const flags = rest.filter(arg => /^--(projects|label)(=|$)/.test(arg)).length;
+		if (flags + consumed !== rest.length)
+			throw new Error('usage: chaching sync privacy [--projects full|basename|hidden|label] [--label <name>]');
+		const saved = mode === null && label === null
+			? (await loadConfig()).sync
+			: await setProjectPrivacy(mode ?? (await loadConfig()).sync.publishProjects, label ?? undefined);
+		console.log(`published projects: ${describeProjects(saved.publishProjects, saved.projectLabel)}`);
+		if (mode !== null || label !== null)
+			console.log('the local dashboard and history keep full paths; restart a running `chaching serve` to apply it (its next publish rewrites this machine\'s pooled rows)');
+		return;
+	}
 	if (command === 'join') {
 		const status = await performSyncAction({
 			action: 'join',
@@ -105,8 +122,15 @@ export async function runSync(argv: string[]): Promise<void> {
 		return;
 	}
 	throw new Error(
-		'chaching sync: expected create|join|status|schema|leave|interval|account add|map (run chaching --help)'
+		'chaching sync: expected create|join|status|schema|leave|interval|privacy|account add|map (run chaching --help)'
 	);
+}
+
+function describeProjects(mode: string, label: string): string {
+	if (mode === 'full') return 'full (local project paths)';
+	if (mode === 'basename') return 'basename (last path segment only)';
+	if (mode === 'label') return label ? `label (every project published as "${label}")` : 'hidden (label mode has no label)';
+	return 'hidden (every project published as "(hidden)")';
 }
 
 function printStatus(status: SyncStatus): void {

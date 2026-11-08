@@ -80,6 +80,8 @@ Chaching Sync:
   chaching sync status [--json]
   CHACHING_DATABASE_URL=<url> chaching sync schema [--migrate --clients-stopped]
   chaching sync interval <minutes>   # publish cadence (>=1, default 15; higher = cheaper serverless)
+  chaching sync privacy [--projects full|basename|hidden|label] [--label <name>]
+      # what this machine publishes as project names (default full; e.g. --projects label --label Conveo)
   chaching sync account add --provider <name> --name <label>
       [--account <label>] [--tier <tier>] --monthly-usd <amount>
   chaching sync map --provider <name> --account <id|none> [--machine <id>]

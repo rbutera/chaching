@@ -67,7 +67,21 @@ export interface SyncConfig {
 	 * lands in one narrow window and Neon's scale-to-zero engages between bursts.
 	 */
 	intervalMinutes: number;
+	/**
+	 * What this machine publishes as each session's `project` (default `full`). Applied only at
+	 * the pool publish boundary: the local dashboard and SQLite always keep the real path.
+	 */
+	publishProjects: ProjectPublishMode;
+	/** The single project name published for every session when `publishProjects` is `label`. */
+	projectLabel: string;
 }
+
+/**
+ * `full` publishes the local project path; `basename` only its last segment; `hidden` the fixed
+ * `(hidden)` marker; `label` the configured `projectLabel` (e.g. an employer name).
+ */
+export const PROJECT_PUBLISH_MODES = ['full', 'basename', 'hidden', 'label'] as const;
+export type ProjectPublishMode = (typeof PROJECT_PUBLISH_MODES)[number];
 
 export interface chachingConfig {
 	version: number;

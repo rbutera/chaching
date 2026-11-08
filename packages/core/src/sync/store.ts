@@ -2,8 +2,16 @@ import { isCalendarDay } from '@chaching/shared/view-model';
 import { Pool, type PoolClient } from 'pg';
 import type { MonetaryComponents } from '@chaching/shared/pricing/catalog';
 import { mergeMonetary } from '@chaching/shared/aggregate';
-import type { SessionSummary, SessionActivity } from '@chaching/shared/types';
+import type { SessionSummary, SessionActivity, SessionDay } from '@chaching/shared/types';
 import type { FrozenAgg, HourAgg } from '../rollup/rollup';
+import {
+	FULL_PROJECTS,
+	reconcileActivityFragments,
+	redactActivity,
+	redactProject,
+	redactSessions,
+	type ProjectPublishPolicy
+} from './project-privacy';
 import type {
 	ProviderQuotaStatus,
 	SyncMachine,
@@ -120,9 +128,16 @@ export function coalesceSessionsForPublish(
 	return [...byIdentity.values()];
 }
 
+/** Rows rewritten by {@link PostgresSyncStore.reconcileProjectPrivacy}. */
+export interface ProjectPrivacyReconcile {
+	sessions: number;
+	activity: number;
+}
+
 export class PostgresSyncStore {
 	private pool: Pool;
 	private opened = false;
+	private projectPolicy: ProjectPublishPolicy = FULL_PROJECTS;
 
 	constructor(
 		databaseUrl: string,
@@ -180,6 +195,14 @@ export class PostgresSyncStore {
 	/** True when the recorded schema_version already matches SCHEMA_VERSION (no DDL needed). */
 	private async schemaIsCurrent(): Promise<boolean> {
 		return schemaVersionAt(this.pool, SCHEMA_VERSION);
+	}
+
+	/**
+	 * Set what every session `project` published through this store becomes (the publish
+	 * boundary). Defaults to full paths, so a store nobody configured behaves as before.
+	 */
+	setProjectPolicy(policy: ProjectPublishPolicy): void {
+		this.projectPolicy = policy;
 	}
 
 	setIdentity(poolId: string, machineId: string): void {
@@ -642,7 +665,7 @@ export class PostgresSyncStore {
 	async publishSessions(scope: PublishScope, sessions: readonly SessionSummary[]): Promise<void> {
 		if (sessions.length === 0) return;
 		const { poolId } = this.identity();
-		const payload = coalesceSessionsForPublish(sessions, scope.machineId).map((s) => ({
+		const payload = coalesceSessionsForPublish(redactSessions(sessions, this.projectPolicy), scope.machineId).map((s) => ({
 			provider: s.provider,
 			session_id: s.sessionId,
 			payload: s
@@ -680,7 +703,65 @@ export class PostgresSyncStore {
 					) retained
 				), '[]'::jsonb)),
 				updated_at = now()`, [poolId, scope.sourceScope, scope.machineId,
-			JSON.stringify(rows.map(row => ({ provider: row.provider, sessionId: row.sessionId, payload: row })))]);
+			JSON.stringify(redactActivity(rows, this.projectPolicy).map(row => ({ provider: row.provider, sessionId: row.sessionId, payload: row })))]);
+	}
+
+	/**
+	 * Bring this machine's already-published rows in line with the current project policy. The
+	 * publish upserts alone can't: a dirty-only burst never touches idle sessions, sessions pruned
+	 * locally are never republished, and the activity upsert MERGES fragments by (day, project),
+	 * so a relabelled fragment would sit beside the old full-path one. Session rows get their
+	 * `project` rewritten in place; activity rows are rewritten by {@link reconcileActivityFragments}
+	 * against `local` (this machine's current evidence). Only rows that change are written, with
+	 * `updated_at = now()` so peers re-read them. Idempotent: a second run writes nothing.
+	 */
+	async reconcileProjectPrivacy(scope: PublishScope, local: readonly SessionActivity[]): Promise<ProjectPrivacyReconcile> {
+		if (!scope.machineId) return { sessions: 0, activity: 0 };
+		const { poolId } = this.identity();
+		const policy = this.projectPolicy;
+		const params = [poolId, scope.sourceScope];
+
+		const sessionRows = await this.pool.query(
+			`SELECT provider, session_id, payload->>'project' AS project
+			 FROM ${SCHEMA}.machine_session_agg WHERE pool_id = $1 AND source_scope = $2`,
+			params
+		);
+		const sessions = sessionRows.rows.flatMap(row => {
+			if (typeof row.project !== 'string') return [];
+			const project = redactProject(row.project, policy);
+			return project === row.project ? [] : [{ provider: String(row.provider), session_id: String(row.session_id), project }];
+		});
+		if (sessions.length) {
+			await this.pool.query(
+				`UPDATE ${SCHEMA}.machine_session_agg AS t
+				 SET payload = jsonb_set(t.payload, '{project}', to_jsonb(x.project)), updated_at = now()
+				 FROM jsonb_to_recordset($3::jsonb) AS x(provider text, session_id text, project text)
+				 WHERE t.pool_id = $1 AND t.source_scope = $2 AND t.provider = x.provider AND t.session_id = x.session_id`,
+				[...params, JSON.stringify(sessions)]
+			);
+		}
+
+		const localByKey = new Map(redactActivity(local, policy).map(row => [sessionKey(row.provider, row.sessionId), row.activity]));
+		const activityRows = await this.pool.query(
+			`SELECT provider, session_id, payload FROM ${SCHEMA}.machine_session_activity
+			 WHERE pool_id = $1 AND source_scope = $2`,
+			params
+		);
+		const activity = activityRows.rows.flatMap(row => {
+			const stored = parseSessionActivity(jsonObject(row.payload), scope.machineId!).activity;
+			const next = reconcileActivityFragments(stored, localByKey.get(sessionKey(String(row.provider), String(row.session_id))), policy);
+			return sameFragments(stored, next) ? [] : [{ provider: String(row.provider), session_id: String(row.session_id), activity: next }];
+		});
+		if (activity.length) {
+			await this.pool.query(
+				`UPDATE ${SCHEMA}.machine_session_activity AS t
+				 SET payload = jsonb_set(t.payload, '{activity}', x.activity), updated_at = now()
+				 FROM jsonb_to_recordset($3::jsonb) AS x(provider text, session_id text, activity jsonb)
+				 WHERE t.pool_id = $1 AND t.source_scope = $2 AND t.provider = x.provider AND t.session_id = x.session_id`,
+				[...params, JSON.stringify(activity)]
+			);
+		}
+		return { sessions: sessions.length, activity: activity.length };
 	}
 
 	/**
@@ -996,6 +1077,17 @@ async function upsertMachine(
 		 SET name = EXCLUDED.name, hostname = EXCLUDED.hostname, last_seen_at = now()`,
 		[poolId, machineId, machineName, hostname]
 	);
+}
+
+function sessionKey(provider: string, sessionId: string): string {
+	return `${provider}\u001f${sessionId}`;
+}
+
+function sameFragments(a: readonly SessionDay[], b: readonly SessionDay[]): boolean {
+	const canonical = (rows: readonly SessionDay[]) => JSON.stringify(rows
+		.map(({ day, project, requests, cost, costUnknownRequests }) => ({ day, project, requests, cost, costUnknownRequests }))
+		.sort((x, y) => x.day === y.day ? x.project.localeCompare(y.project) : x.day.localeCompare(y.day)));
+	return canonical(a) === canonical(b);
 }
 
 function dateString(value: unknown): string | null {

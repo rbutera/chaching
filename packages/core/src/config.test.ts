@@ -124,9 +124,19 @@ describe('config', () => {
 			machineId: 'machine-1',
 			machineName: 'kinto',
 			intervalMinutes: 15,
+			publishProjects: 'full',
+			projectLabel: '',
 			databaseConfigured: true
 		});
 		expect(JSON.stringify(publicConfig(cfg))).not.toContain('secret@kinto');
+	});
+
+	it('defaults sync project publishing to full paths and fails closed on unknown modes', () => {
+		expect(normalizeConfig({}).sync).toMatchObject({ publishProjects: 'full', projectLabel: '' });
+		expect(normalizeConfig({ sync: { publishProjects: 'label', projectLabel: '  Conveo ' } }).sync)
+			.toMatchObject({ publishProjects: 'label', projectLabel: 'Conveo' });
+		expect(normalizeConfig({ sync: { publishProjects: 'lable' } }).sync.publishProjects).toBe('hidden');
+		expect(normalizeConfig({ sync: { publishProjects: 42 } }).sync.publishProjects).toBe('hidden');
 	});
 
 	it('does not invent a bill for a provider without configured subscription settings', () => {

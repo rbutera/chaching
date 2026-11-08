@@ -21,7 +21,9 @@ function syncConfiguredConfig(databaseUrl = 'postgresql://u:p@127.0.0.1:1/db'): 
 		poolId: randomUUID(),
 		machineId: randomUUID(),
 		machineName: 'test-machine',
-		intervalMinutes: 15
+		intervalMinutes: 15,
+		publishProjects: 'full',
+		projectLabel: ''
 	};
 	return cfg;
 }
@@ -39,7 +41,9 @@ function disabledConfig(): chachingConfig {
 			poolId: null,
 			machineId: null,
 			machineName: '',
-			intervalMinutes: 15
+			intervalMinutes: 15,
+			publishProjects: 'full',
+			projectLabel: ''
 		},
 		providers: {
 			claude: { enabled: false, roots: [] },
@@ -352,6 +356,8 @@ describe('M5 — sync burst reliability', () => {
 			publishHourAggregates: async () => {},
 			publishSessions: async () => {},
 			publishSessionActivity: async () => {},
+			setProjectPolicy: () => {},
+			reconcileProjectPrivacy: async () => ({ sessions: 0, activity: 0 }),
 			markPublished: async () => {},
 			heartbeat: async () => {},
 			mappingFingerprint: async () => '[]',
@@ -389,6 +395,8 @@ describe('M5 — sync burst reliability', () => {
 			publishHourAggregates: async () => {},
 			publishSessions: async () => {},
 			publishSessionActivity: async () => {},
+			setProjectPolicy: () => {},
+			reconcileProjectPrivacy: async () => ({ sessions: 0, activity: 0 }),
 			markPublished: async () => {},
 			heartbeat: async () => {},
 			mappingFingerprint: async () => '[]',
@@ -428,6 +436,8 @@ describe('M5 — sync burst reliability', () => {
 			publishHourAggregates: async () => {},
 			publishSessions: async () => {},
 			publishSessionActivity: async () => {},
+			setProjectPolicy: () => {},
+			reconcileProjectPrivacy: async () => ({ sessions: 0, activity: 0 }),
 			markPublished: async () => {},
 			heartbeat: async () => {},
 			mappingFingerprint: async () => '[]',
@@ -479,6 +489,8 @@ describe('M5 — sync burst reliability', () => {
 			publishHourAggregates: async () => {},
 			publishSessions: async () => {},
 			publishSessionActivity: async () => {},
+			setProjectPolicy: () => {},
+			reconcileProjectPrivacy: async () => ({ sessions: 0, activity: 0 }),
 			markPublished: async () => {},
 			heartbeat: async () => {},
 			mappingFingerprint: async () => '[]',

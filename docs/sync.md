@@ -15,11 +15,14 @@ The pool stores **aggregates only**, never raw usage records:
 - `machine_hour_agg` — last-48h hour buckets (7-day server retention) so shared 5-hour cap windows
   can be reconstructed pool-wide.
 - `machine_session_agg` — per-session summaries.
+- `machine_session_activity` — per-session daily activity (day, project, requests, cost).
 - pool / machine / account / mapping rows — the roster and attribution tables.
 
-**Raw records never leave the machine.** Prompts, file paths, session contents, and per-request
-rows all stay in local SQLite; only the rolled-up token/cost counts are published. That is a
-privacy win as well as a bandwidth one.
+**Raw records never leave the machine.** Prompts, session contents, and per-request rows all stay
+in local SQLite; only the rolled-up token/cost counts are published. That is a privacy win as well
+as a bandwidth one. The one path that does leave is each session's **project**, which by default is
+the full local working directory (for example `/Users/rai/focused/launchpad`). Use
+`publishProjects` to reduce it; see [Project names in the pool](#project-names-in-the-pool).
 
 ## Mental model
 
@@ -176,6 +179,39 @@ pool shares fewer wake windows. The only thing a larger interval affects is how 
 data is on this machine — your own machine's numbers are always live (they come straight from the
 local rollup, never a round-trip). `chaching sync status` shows the current interval and this
 machine's last-published time.
+
+## Project names in the pool
+
+Session summaries and daily session activity carry a `project` field. By default it is the full
+local path, so a work machine's paths, such as `/home/coder/conveo/<feature-worktree>`, would name
+employer features in the pooled database. Choose what each machine publishes:
+
+```sh
+chaching sync privacy                                  # show the current setting
+chaching sync privacy --projects label --label Conveo  # every project becomes "Conveo"
+chaching sync privacy --projects basename              # last path segment only: "reel-port"
+chaching sync privacy --projects hidden                # every project becomes "(hidden)"
+chaching sync privacy --projects full                  # default: the local path
+```
+
+This writes `sync.publishProjects` and `sync.projectLabel` in the local config (see CONFIG.md). It
+is per machine: a personal laptop can stay on `full` while a work machine in the same pool uses
+`label`. Peers see and group that machine's sessions under the published value. This machine's own
+dashboard, TUI, receipts and history database always keep the full paths.
+
+Set it **before** `chaching sync join` on a machine whose paths must never reach the pool. If you
+change it on a machine that has already published, the next publish rewrites this machine's
+existing rows: session summaries get the new project value, and daily activity is relabelled.
+Projects that collapse onto one label on the same day are summed, not dropped. This includes
+sessions whose local logs were pruned long ago, which no ordinary publish would touch again. The
+rewrite runs once per policy change, and once at each start as an idempotent check that writes
+nothing when the rows already match. Switching back to `full` restores the paths of sessions the
+machine still has locally. Sessions it no longer has keep the redacted value, because the original
+path can't be recovered.
+
+A running `chaching serve` reads the setting at start, so restart it after changing the setting
+from the CLI. Pool-wide Cursor Admin API sessions published by a redacting machine are redacted the
+same way.
 
 ## Runtime synchronization
 

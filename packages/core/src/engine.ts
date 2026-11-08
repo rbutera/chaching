@@ -37,6 +37,7 @@ import { fetchCursorUsageRecords } from './providers/cursor/api';
 import type { RollupDelta, RollupSnapshot, UsageRecord } from '@chaching/shared/types';
 import { isConfigured, publishDiscoveredAccounts, localAccountMappings } from './sync/manager';
 import { isPoolGlobalUsage, usageDedupKey } from './sync/record-key';
+import { projectPolicyKey, projectPublishPolicy } from './sync/project-privacy';
 import {
 	PostgresSyncStore,
 	cursorAccountScope,
@@ -222,6 +223,12 @@ class Ingestion {
 
 	private syncStore: PostgresSyncStore | null = null;
 	/**
+	 * Key of the project publish policy this machine's pooled rows were last reconciled to. Null
+	 * until the first connect, so every process start re-checks once (cheap and idempotent), and
+	 * a policy change seen mid-run rewrites the old rows before the next publish.
+	 */
+	private reconciledProjectPolicy: string | null = null;
+	/**
 	 * Cursor Admin API spend is an account-global fact. In pooled mode it feeds ONLY this
 	 * publish-side rollup (never the local rollup), is published under the account scope, and
 	 * is rendered — for every machine including the poller — from the peer overlay. That is
@@ -382,6 +389,8 @@ class Ingestion {
 			await publishDiscoveredAccounts(store, cfg);
 			this.syncStore = store;
 			await this.refreshAccountIndex();
+			// Rewrite rows published under an older project policy before publishing anything new.
+			await this.applyProjectPolicy(cfg);
 			// Full publish on connect: every local day/session (frozen history + live) plus the
 			// last 48h of hour buckets and the account-scoped cursor spend. Idempotent LWW.
 			const published = await this.publishLocal(true);
@@ -397,6 +406,22 @@ class Ingestion {
 			void store.close().catch(() => {});
 			this.syncStore = null;
 		}
+	}
+
+	/**
+	 * Point the store's publish boundary at the configured project policy and, when the policy
+	 * differs from the one this machine's pooled rows were last reconciled to, rewrite those rows
+	 * first so no earlier full path survives in the pool. Returns whether it reconciled.
+	 */
+	private async applyProjectPolicy(cfg: chachingConfig): Promise<boolean> {
+		if (!this.syncStore) return false;
+		const policy = projectPublishPolicy(cfg.sync);
+		this.syncStore.setProjectPolicy(policy);
+		const key = projectPolicyKey(policy);
+		if (key === this.reconciledProjectPolicy) return false;
+		await this.syncStore.reconcileProjectPrivacy(this.ownScope(), this.localActivity());
+		this.reconciledProjectPolicy = key;
+		return true;
 	}
 
 	private ownScope(): PublishScope {
@@ -936,7 +961,10 @@ class Ingestion {
 			if (!isConfigured(current.sync) || current.sync.poolId !== cfg.sync.poolId ||
 				current.sync.databaseUrl !== cfg.sync.databaseUrl || current.sync.machineId !== cfg.sync.machineId) return;
 			await publishDiscoveredAccounts(this.syncStore, current);
-			const published = await this.publishLocal(false);
+			// A policy change republishes everything, so idle sessions this machine still has get their
+			// real (re-redacted) project back rather than keeping the old policy's value.
+			const policyChanged = await this.applyProjectPolicy(current);
+			const published = await this.publishLocal(policyChanged);
 			// Clear only what was published; keys dirtied during the awaits survive to next burst (C3).
 			this.rollup.clearPublishDirty(published ?? undefined);
 			if (this.cursorRollup) this.cursorRollup.clearPublishDirty();

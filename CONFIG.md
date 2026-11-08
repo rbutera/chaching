@@ -84,7 +84,9 @@ never published. If the database or quota tables do not exist, this source is a 
 	"poolId": null,
 	"machineId": null,
 	"machineName": "",
-	"intervalMinutes": 15
+	"intervalMinutes": 15,
+	"publishProjects": "full",
+	"projectLabel": ""
 }
 ```
 
@@ -104,6 +106,25 @@ and scales back to zero between them. Higher = cheaper on serverless Postgres; i
 stale *peers'* data is (your own numbers are always live). Set it with `chaching sync interval
 <minutes>` or the wizard. On a serverless free tier keep it at 15 or higher — see the Neon
 arithmetic in docs/sync.md.
+
+`publishProjects` sets what this machine publishes as each session's project name. Session
+summaries and daily session activity carry it; day and hour aggregates have no project field.
+
+| Value | Published project | Example for `/home/coder/conveo/reel-port` |
+| --- | --- | --- |
+| `full` (default) | the local path, as before | `/home/coder/conveo/reel-port` |
+| `basename` | the last path segment | `reel-port` |
+| `hidden` | a fixed marker | `(hidden)` |
+| `label` | `projectLabel` for every session | `Conveo` |
+
+The setting applies only to what leaves the machine. The local dashboard, TUI, receipts and
+history database keep full paths. An empty (unknown) project stays empty in every mode. Two fail-closed
+rules apply: `label` with an empty `projectLabel` publishes `(hidden)`, and an unrecognised
+`publishProjects` value is treated as `hidden`. Set it with
+`chaching sync privacy --projects label --label Conveo`, before joining a pool when possible. When
+the policy changes, the next publish rewrites the rows this machine already published, including
+sessions whose local logs are gone. Restart a running `chaching serve` after changing it from the
+CLI. See [Project names in the pool](docs/sync.md#project-names-in-the-pool).
 
 See [docs/sync.md](docs/sync.md) for Docker, Tailscale, Account mapping, the interval/cost
 trade-off, dashboard filters, and the threat model.
