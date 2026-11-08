@@ -1,3 +1,9 @@
+## 1.19.0 (2026-11-08)
+
+### Other changes
+
+- Sync: per-machine project privacy \(publishProjects\) \(\#52\) (8332261)
+
 ## 1.18.3 (2026-11-08)
 
 ### Other changes
