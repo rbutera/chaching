@@ -1,3 +1,9 @@
+## 1.18.3 (2026-11-08)
+
+### Other changes
+
+- Stop serve's re-pricing hot loop; add Opus 5.5 and current prices \(\#51\) (ecdf7e6)
+
 ## 1.18.2 (2026-09-13)
 
 ### Other changes
