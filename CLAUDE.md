@@ -40,6 +40,7 @@ npx vitest                            # watch mode
 - `createEngine()` → live engine (watchers + Cursor polling); used by `chaching serve` and the TUI.
 - `runOnce()` → single cold scan, snapshot, dispose (no lingering timers); used by `stats` and `receipt`.
 - The SvelteKit server holds **one engine per Node process** via `apps/web/src/lib/server/service.ts` (`getService()` singleton), streaming snapshots/deltas over SSE at `GET /api/feed`. The web client pauses when the tab is hidden.
+- `apps/web/src/hooks.server.ts` starts that engine at server boot (`init` → `warmService()`, never awaited, so the listener isn't blocked), so `serve` freezes history and publishes to a sync pool with no request ever made. It also owns shutdown: adapter-node's SIGTERM/SIGINT handler only closes the HTTP server and never exits, so the hook ends SSE feeds, awaits `shutdownService()` and exits, with a 10 s hard ceiling.
 
 ### Providers (`packages/core/src/providers/`)
 

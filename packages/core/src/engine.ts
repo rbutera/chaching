@@ -89,6 +89,8 @@ export interface Engine {
 	subscribe(fn: DeltaListener): () => void;
 	setCutover(ts: number | null): void;
 	dispose(): void;
+	/** dispose(), then wait until the sync pool's connections have closed. */
+	shutdown(): Promise<void>;
 	readonly stats: EngineStats;
 }
 
@@ -104,6 +106,8 @@ class Ingestion {
 	private cursorTimer: NodeJS.Timeout | null = null;
 	private localProviderTimer: NodeJS.Timeout | null = null;
 	private syncTimer: NodeJS.Timeout | null = null;
+	/** The sync pool's close, started by dispose() and awaited by shutdown(). */
+	private syncClosing: Promise<void> = Promise.resolve();
 	private localPollInFlight = false;
 	private syncBurstInFlight = false;
 	/** codex session files already counted in stats.filesScanned (re-polls don't re-count) */
@@ -361,6 +365,8 @@ class Ingestion {
 		// local rollup. A connect failure records the sync error and degrades to local-only —
 		// the local data is already loaded, so this is the local-first fallback (B1).
 		await this.refreshPricing();
+		// Disposed during the cold scan (e.g. SIGTERM at boot): don't open a pool nobody closes.
+		if (this.disposed) return;
 		if (isConfigured(cfg.sync)) await this.connectSync(cfg);
 
 		// Freeze newly-complete past days (day < today, scanned, not already frozen). Runs in
@@ -392,6 +398,11 @@ class Ingestion {
 			await store.open();
 			await store.heartbeat(cfg.sync.machineName, hostname());
 			await publishDiscoveredAccounts(store, cfg);
+			if (this.disposed) {
+				// dispose() ran while we were connecting, so it could not close this store.
+				await store.close();
+				return;
+			}
 			this.syncStore = store;
 			await this.refreshAccountIndex();
 			// Rewrite rows published under an older project policy before publishing anything new.
@@ -1256,10 +1267,15 @@ class Ingestion {
 			this.historyStore = null;
 		}
 		if (this.syncStore) {
-			void this.syncStore.close().catch(() => {});
+			this.syncClosing = this.syncStore.close().catch(() => {});
 			this.syncStore = null;
 		}
 		this.listeners.clear();
+	}
+
+	async shutdown(): Promise<void> {
+		this.dispose();
+		await this.syncClosing;
 	}
 
 	get stats(): EngineStats {
