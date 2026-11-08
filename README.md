@@ -425,7 +425,7 @@ The web app and the TUI share one in-process engine. `chaching stats` and `chach
 
 ## Refresh the price map
 
-The vendored snapshot is `static/pricing/litellm-prices.json` (Claude + OpenAI/Codex, the two providers whose cost chaching computes). The checked-in snapshot metadata records its source and refresh date; GPT-5.6's request-sensitive long-context rules live in exact overrides because the upstream snapshot only carries base token rates. To pull a fresh copy:
+The vendored snapshot is `packages/shared/src/pricing/data/litellm-prices.json` (Claude + OpenAI/Codex, the two providers whose cost chaching computes). The checked-in snapshot metadata records its source and refresh date; GPT-5.6's request-sensitive long-context rules live in exact overrides because the upstream snapshot only carries base token rates. To pull a fresh copy (rows for retired models are kept, so local history stays priced):
 
 ```sh
 curl -s https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json \
@@ -439,14 +439,17 @@ curl -s https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_
               cache_creation_input_token_cost: .value.cache_creation_input_token_cost,
               cache_creation_input_token_cost_above_1hr: .value.cache_creation_input_token_cost_above_1hr,
               cache_read_input_token_cost: .value.cache_read_input_token_cost } } ] | from_entries) }' \
-> static/pricing/litellm-prices.json
+> /tmp/litellm-fresh.json
+f=packages/shared/src/pricing/data/litellm-prices.json
+jq -s '{ _meta: .[1]._meta, prices: (.[0].prices + .[1].prices) }' "$f" /tmp/litellm-fresh.json > "$f.tmp" && mv "$f.tmp" "$f"
 ```
 
-For a model LiteLLM doesn't have yet, add an exact-id row to `src/lib/core/pricing/overrides.ts` — it wins over the snapshot.
+For a model LiteLLM doesn't have yet, add an exact-id row to `packages/shared/src/pricing/overrides.ts` — it wins over the snapshot.
 
-The second snapshot is `static/pricing/modelsdev-prices.json` (the OpenCode Zen/Go catalogs plus OpenAI/Anthropic/zai/Google, used to price OpenCode and Cursor-via-bridge usage). Refresh it with:
+The second snapshot is `packages/shared/src/pricing/data/modelsdev-prices.json` (the OpenCode Zen/Go catalogs plus OpenAI/Anthropic/zai/Google, used to price OpenCode and Cursor-via-bridge usage). The generator keeps the previous snapshot's rows for models models.dev has since dropped. Refresh it with:
 
 ```sh
+cd packages/shared
 pnpm tsx scripts/gen-modelsdev-prices.ts
 # offline / sandboxed: fetch on a networked host, then transform locally
 # ssh <host> 'curl -s https://models.dev/api.json' > raw.json

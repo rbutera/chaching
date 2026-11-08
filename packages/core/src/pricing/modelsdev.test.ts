@@ -51,7 +51,8 @@ describe('resolveModelsDevPrice', () => {
 			expect(p!.input_cost_per_token).toBe(3e-6);
 			expect(p!.output_cost_per_token).toBe(15e-6);
 			expect(p!.cache_read_input_token_cost).toBe(0.3e-6);
-			expect(p!.cache_creation_input_token_cost).toBe(0);
+			// models.dev publishes Kimi K3's cache write at the input rate (snapshot 2026-11-08).
+			expect(p!.cache_creation_input_token_cost).toBe(3e-6);
 		}
 	);
 
@@ -85,14 +86,14 @@ describe('resolveModelsDevPrice', () => {
 		expect(p!.input_cost_per_token).not.toBe(1.07e-6);
 	});
 
-	it('opus family fallback resolves to the explicit claude-opus-4-8 rates (not order-dependent)', () => {
+	it('opus family fallback resolves to the newest Opus, claude-opus-5-5 (not order-dependent)', () => {
 		// An unknown opus-family id with no exact/normalised hit must fall back to
-		// the explicit representative (claude-opus-4-8: input 5, output 25 /Mtok),
+		// the explicit representative (claude-opus-5-5: input 4, output 20 /Mtok),
 		// NOT the first /opus/i key by insertion order (claude-opus-4-5).
 		const p = resolveModelsDevPrice('anthropic', 'opus-some-unreleased-variant');
 		expect(p).not.toBeNull();
-		expect(p!.input_cost_per_token).toBe(5e-6);
-		expect(p!.output_cost_per_token).toBe(25e-6);
+		expect(p!.input_cost_per_token).toBe(4e-6);
+		expect(p!.output_cost_per_token).toBe(20e-6);
 	});
 
 	it('normalises the "claude-<version>-<family>" id format (claude-4.5-sonnet -> Sonnet rates)', () => {

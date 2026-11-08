@@ -63,3 +63,68 @@ it('deduplicates current-day durable records after changing machine scope, inclu
 	const replacement = text.replace('12:00:00', '12:01:00'); writeFileSync(join(dir, 'transcript.jsonl'), replacement + '\r\n' + replacement + '\r\n');
 	const rewritten = await runOnce(cfg, now); expect(rewritten.totals.requests).toBe(4);
 });
+
+it('re-values retained estimates only when the installed catalog changes', async () => {
+	vi.stubEnv('CHACHING_PRICING_REFRESH', '0');
+	const root = mkdtempSync(join(tmpdir(), 'chaching-pricing-gate-')); roots.push(root);
+	const dir = join(root, 'projects', '-project'); mkdirSync(dir, { recursive: true });
+	writeFileSync(join(dir, 'transcript.jsonl'), [line('claude-sonnet-future', 1), line('claude-sonnet-future', 2)].join('\n') + '\n');
+	installPricingCatalog(mergeCatalogs('gate', normalizeCatalog('modelsdev', { anthropic: { models: { 'claude-sonnet-4-6': { cost: { input: 10, output: 10 } } } } }, 'gate')));
+	const engine = createEngine(config(root), () => Date.parse('2026-09-02T12:00Z'));
+	try {
+		await engine.ensureStarted();
+		const internals = engine as unknown as { correctPricing(): void; valueRecord(record: unknown): unknown };
+		const valueRecord = vi.spyOn(internals, 'valueRecord');
+		for (let i = 0; i < 5; i++) internals.correctPricing();
+		expect(valueRecord).not.toHaveBeenCalled();
+		installPricingCatalog(mergeCatalogs('gate-2', normalizeCatalog('modelsdev', { anthropic: { models: { 'claude-sonnet-future': { cost: { input: 1, output: 1 } } } } }, 'gate-2')));
+		internals.correctPricing();
+		expect(valueRecord).toHaveBeenCalledTimes(2);
+		expect(engine.snapshot().totals.cost).toBeCloseTo(0.004, 8);
+		internals.correctPricing();
+		expect(valueRecord).toHaveBeenCalledTimes(2);
+	} finally { engine.dispose(); }
+});
+
+it('never runs two pricing refreshes at once', async () => {
+	vi.stubEnv('CHACHING_PRICING_REFRESH', '0');
+	const root = mkdtempSync(join(tmpdir(), 'chaching-pricing-overlap-')); roots.push(root);
+	mkdirSync(join(root, 'projects'), { recursive: true });
+	const engine = createEngine(config(root), () => Date.parse('2026-09-02T12:00Z'));
+	try {
+		await engine.ensureStarted();
+		let release!: (value: boolean) => void;
+		const refresh = vi.fn(() => Promise.resolve(false));
+		refresh.mockImplementationOnce(() => new Promise<boolean>(resolve => { release = resolve; }));
+		const internals = engine as unknown as { pricingRefresh: { refresh: typeof refresh; dispose(): void } | null; refreshPricing(): Promise<void> };
+		internals.pricingRefresh = { refresh, dispose: () => {} };
+		const passes = [internals.refreshPricing(), internals.refreshPricing(), internals.refreshPricing()];
+		expect(refresh).toHaveBeenCalledTimes(1);
+		release(false);
+		await Promise.all(passes);
+		await internals.refreshPricing();
+		expect(refresh).toHaveBeenCalledTimes(2);
+	} finally { engine.dispose(); }
+});
+
+it('retries the same catalog when persisting its repairs fails', async () => {
+	vi.stubEnv('CHACHING_PRICING_REFRESH', '0');
+	const root = mkdtempSync(join(tmpdir(), 'chaching-pricing-retry-')); roots.push(root);
+	const dir = join(root, 'projects', '-project'); mkdirSync(dir, { recursive: true });
+	writeFileSync(join(dir, 'transcript.jsonl'), line('claude-sonnet-future', 1) + '\n');
+	installPricingCatalog(mergeCatalogs('retry', normalizeCatalog('modelsdev', { anthropic: { models: { 'claude-sonnet-4-6': { cost: { input: 10, output: 10 } } } } }, 'retry')));
+	const engine = createEngine(config(root), () => Date.parse('2026-09-02T12:00Z'));
+	try {
+		await engine.ensureStarted();
+		const internals = engine as unknown as { correctPricing(): void; historyStore: { correctValuations(repairs: unknown[]): void } };
+		const store = internals.historyStore;
+		const write = vi.spyOn(store, 'correctValuations').mockImplementationOnce(() => { throw new Error('SQLITE_BUSY'); });
+		installPricingCatalog(mergeCatalogs('retry-2', normalizeCatalog('modelsdev', { anthropic: { models: { 'claude-sonnet-future': { cost: { input: 1, output: 1 } } } } }, 'retry-2')));
+		expect(() => internals.correctPricing()).toThrow('SQLITE_BUSY');
+		internals.correctPricing();
+		expect(write).toHaveBeenCalledTimes(2);
+		expect(engine.snapshot().totals.cost).toBeCloseTo(0.002, 8);
+		internals.correctPricing();
+		expect(write).toHaveBeenCalledTimes(2);
+	} finally { engine.dispose(); }
+});

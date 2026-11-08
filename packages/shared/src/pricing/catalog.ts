@@ -365,6 +365,13 @@ export function overrideCatalog(): PricingCatalog {
 									cacheCreation:
 										p.cache_creation_input_token_cost *
 										(p.long_context_input_multiplier ?? 1),
+									...(p.cache_creation_input_token_cost_above_1hr === undefined
+										? {}
+										: {
+												cacheCreation1h:
+													p.cache_creation_input_token_cost_above_1hr *
+													(p.long_context_input_multiplier ?? 1)
+											}),
 									cacheRead:
 										p.cache_read_input_token_cost *
 										(p.long_context_input_multiplier ?? 1)
@@ -387,66 +394,114 @@ export function priceEntry(rates: Rates): PriceEntry {
 const families: [RegExp, string][] = [
 	[/(?:^|[-./])fable(?:-|$)/i, 'claude-fable-5-1'],
 	[/(?:^|[-./])mythos(?:-|$)/i, 'claude-mythos-5-1'],
-	[/(?:^|[-./])opus(?:-|$)/i, 'claude-opus-4-8'],
+	[/(?:^|[-./])opus(?:-|$)/i, 'claude-opus-5-5'],
 	[/(?:^|[-./])sonnet(?:-|$)/i, 'claude-sonnet-4-6'],
 	[/(?:^|[-./])haiku(?:-|$)/i, 'claude-haiku-4-5']
 ];
-const orderedCatalogs = new WeakMap<PricingCatalog, CatalogEntry[]>();
+/** Cross-provider fallbacks tried, in order, after the record's own provider misses. */
+const fallbackProviders = [
+	'anthropic',
+	'openai',
+	'google',
+	'moonshotai',
+	'opencode',
+	'opencode-go',
+	'zai'
+];
+/**
+ * Per-catalog lookup index. Each bucket lists entries in resolver rank order (overrides,
+ * then downloaded, then bundled; LiteLLM before models.dev), so a bucket lookup yields
+ * exactly the candidates a linear scan of the ranked catalog would, in the same order.
+ */
+interface CatalogIndex {
+	/** `provider\0model` keyed on the entry's literal model id. */
+	literal: Map<string, CatalogEntry[]>;
+	/**
+	 * `provider\0model` keyed on the literal id AND, for `provider/`-prefixed ids, the
+	 * id without the prefix, so `model` and `${provider}/${model}` share one ranked bucket.
+	 */
+	sameProvider: Map<string, CatalogEntry[]>;
+}
+const catalogIndexes = new WeakMap<PricingCatalog, CatalogIndex>();
+function rank(e: CatalogEntry) {
+	return e.source === 'override'
+		? 0
+		: (e.downloaded ? 1 : 3) + (e.source === 'modelsdev' ? 1 : 0);
+}
+function key(provider: string, model: string) {
+	return `${provider}\0${model}`;
+}
+function push(map: Map<string, CatalogEntry[]>, k: string, entry: CatalogEntry) {
+	const bucket = map.get(k);
+	if (bucket) bucket.push(entry);
+	else map.set(k, [entry]);
+}
+function indexCatalog(catalog: PricingCatalog): CatalogIndex {
+	let index = catalogIndexes.get(catalog);
+	if (index) return index;
+	index = { literal: new Map(), sameProvider: new Map() };
+	// Stable sort keeps catalog order within a rank, as the previous linear scan did.
+	for (const entry of [...catalog.entries].sort((a, b) => rank(a) - rank(b))) {
+		push(index.literal, key(entry.provider, entry.model), entry);
+		push(index.sameProvider, key(entry.provider, entry.model), entry);
+		const prefix = `${entry.provider}/`;
+		if (entry.model.startsWith(prefix))
+			push(
+				index.sameProvider,
+				key(entry.provider, entry.model.slice(prefix.length)),
+				entry
+			);
+	}
+	catalogIndexes.set(catalog, index);
+	return index;
+}
+export interface ValuationCandidate {
+	entry: CatalogEntry;
+	kind: 'exact' | 'estimated';
+}
+/**
+ * Every catalog entry that may price `input`, in preference order: the record's own provider
+ * (literal id, then normalized id), the cross-provider fallbacks, then the family
+ * representative. resolveValuation prices the first one whose rates cover the usage.
+ */
+export function valuationCandidates(
+	catalog: PricingCatalog,
+	input: Pick<BillingInput, 'provider' | 'model'>
+): ValuationCandidate[] {
+	const provider = aliases[input.provider] ?? input.provider;
+	const normalized = normalizeModelID(input.model);
+	const ids = normalized ? [input.model, normalized] : [input.model];
+	const index = indexCatalog(catalog);
+	const candidates: ValuationCandidate[] = [];
+	for (const model of ids)
+		for (const entry of index.sameProvider.get(key(provider, model)) ?? [])
+			candidates.push({ entry, kind: 'exact' });
+	for (const p of fallbackProviders) {
+		if (p === provider) continue;
+		for (const model of ids)
+			for (const entry of index.literal.get(key(p, model)) ?? [])
+				candidates.push({ entry, kind: 'estimated' });
+	}
+	const representative = families.find(([pattern]) =>
+		pattern.test(input.model)
+	)?.[1];
+	if (representative)
+		for (const entry of index.literal.get(key('anthropic', representative)) ?? [])
+			candidates.push({ entry, kind: 'estimated' });
+	return candidates;
+}
 export function resolveValuation(
 	catalog: PricingCatalog,
 	input: BillingInput
 ): Valuation {
 	const provider = aliases[input.provider] ?? input.provider;
-	const ids = [
-		input.model,
-		...(normalizeModelID(input.model) ? [normalizeModelID(input.model)!] : [])
-	];
-	let ordered = orderedCatalogs.get(catalog);
-	if (!ordered) {
-		ordered = [...catalog.entries].sort((a, b) => rank(a) - rank(b));
-		orderedCatalogs.set(catalog, ordered);
-	}
-	function rank(e: CatalogEntry) {
-		return e.source === 'override'
-			? 0
-			: (e.downloaded ? 1 : 3) + (e.source === 'modelsdev' ? 1 : 0);
-	}
-	const candidates: { entry: CatalogEntry; kind: 'exact' | 'estimated' }[] = [];
-	for (const model of ids)
-		for (const entry of ordered)
-			if (
-				entry.provider === provider &&
-				(entry.model === model || entry.model === `${provider}/${model}`)
-			)
-				candidates.push({ entry, kind: 'exact' });
-	for (const p of [
-		'anthropic',
-		'openai',
-		'google',
-		'moonshotai',
-		'opencode',
-		'opencode-go',
-		'zai'
-	])
-		for (const model of ids)
-			for (const entry of ordered)
-				if (
-					entry.provider === p &&
-					entry.provider !== provider &&
-					entry.model === model
-				)
-					candidates.push({ entry, kind: 'estimated' });
-	const representative = families.find(([pattern]) =>
-		pattern.test(input.model)
-	)?.[1];
-	if (representative)
-		for (const entry of ordered)
-			if (entry.provider === 'anthropic' && entry.model === representative)
-				candidates.push({ entry, kind: 'estimated' });
-	for (const { entry, kind } of candidates) {
+	for (const { entry, kind } of valuationCandidates(catalog, input)) {
 		if (entry.unsupported) continue;
 		const prompt =
-			input.promptTokens ?? input.tokens.input + input.tokens.cacheRead;
+			input.promptTokens ??
+			// Every prompt token counts toward a context tier: uncached input, cache reads
+			// and cache writes of either TTL (Anthropic counts all three for its 100K/200K tiers).
+			input.tokens.input + input.tokens.cacheRead + input.tokens.cacheCreation;
 		let rates = entry.rates;
 		for (const tier of entry.tiers)
 			if (tier.inclusive ? prompt >= tier.threshold : prompt > tier.threshold) {

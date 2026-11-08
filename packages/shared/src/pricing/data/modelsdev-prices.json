@@ -1,7 +1,7 @@
 {
   "_meta": {
     "source": "models.dev",
-    "snapshot_date": "2026-07-17"
+    "snapshot_date": "2026-11-08"
   },
   "providers": {
     "opencode": {
@@ -181,10 +181,10 @@
         "gpt-5.6-terra": {
           "name": "GPT-5.6 Terra",
           "cost": {
-            "input": 2.5,
-            "output": 15,
-            "cache_read": 0.25,
-            "cache_write": 3.125
+            "input": 2,
+            "output": 12,
+            "cache_read": 0.2,
+            "cache_write": 2.5
           }
         },
         "kimi-k2.7-code": {
@@ -367,7 +367,7 @@
           "cost": {
             "input": 2,
             "output": 6,
-            "cache_read": 0.5
+            "cache_read": 0.3
           }
         },
         "minimax-m3-free": {
@@ -446,7 +446,7 @@
           "name": "DeepSeek V4 Pro",
           "cost": {
             "input": 1.74,
-            "output": 3.84,
+            "output": 3.48,
             "cache_read": 0.145
           }
         },
@@ -521,10 +521,10 @@
         "gpt-5.6-luna": {
           "name": "GPT-5.6 Luna",
           "cost": {
-            "input": 1,
-            "output": 6,
-            "cache_read": 0.1,
-            "cache_write": 1.25
+            "input": 0.2,
+            "output": 1.2,
+            "cache_read": 0.02,
+            "cache_write": 0.25
           }
         },
         "gemini-3-pro": {
@@ -549,7 +549,7 @@
           "cost": {
             "input": 0.6,
             "output": 3,
-            "cache_read": 0.08
+            "cache_read": 0.1
           }
         },
         "claude-opus-4-6": {
@@ -614,10 +614,10 @@
         "gpt-5.6-sol": {
           "name": "GPT-5.6 Sol",
           "cost": {
-            "input": 5,
-            "output": 30,
-            "cache_read": 0.5,
-            "cache_write": 6.25
+            "input": 4,
+            "output": 20,
+            "cache_read": 0.4,
+            "cache_write": 5
           }
         },
         "gpt-5.5": {
@@ -651,6 +651,457 @@
             "output": 2.2,
             "cache_read": 0.1
           }
+        },
+        "gemini-3.7-flash": {
+          "name": "Gemini 3.7 Flash",
+          "cost": {
+            "input": 1.5,
+            "output": 7.5,
+            "cache_read": 0.15
+          }
+        },
+        "deepseek-v4-flash-vision-exp": {
+          "name": "DeepSeek V4 Flash Vision Exp",
+          "cost": {
+            "input": 0.14,
+            "output": 0.28,
+            "cache_read": 0.028
+          }
+        },
+        "glm-5.3": {
+          "name": "GLM-5.3",
+          "cost": {
+            "input": 1.4,
+            "output": 4.4,
+            "cache_read": 0.26
+          }
+        },
+        "ling-3.0-tiny-free": {
+          "name": "Ling-3.0-tiny Free",
+          "cost": {
+            "input": 0,
+            "output": 0
+          }
+        },
+        "glm-5.3-flash": {
+          "name": "GLM-5.3-Flash",
+          "cost": {
+            "input": 0.15,
+            "output": 0.5,
+            "cache_read": 0.03
+          }
+        },
+        "gpt-6.1-sol": {
+          "name": "GPT-6.1 Sol",
+          "cost": {
+            "input": 2,
+            "output": 10,
+            "cache_read": 0.1,
+            "cache_write": 2.5
+          }
+        },
+        "claude-sonnet-5-5": {
+          "name": "Claude Sonnet 5.5",
+          "cost": {
+            "input": 2,
+            "output": 10,
+            "cache_read": 0.2,
+            "cache_write": 2.5
+          }
+        },
+        "ll-alpha-free": {
+          "name": "LL Alpha Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "minimax-m3.1-flash-free": {
+          "name": "MiniMax M3.1 Flash Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "step-5-preview-free": {
+          "name": "Step 5 Preview Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "muse-spark-1.2-contributor-free": {
+          "name": "Muse Spark 1.2 Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "mimo-v2.6-flash-free": {
+          "name": "MiMo-V2.6-Flash Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "gpt-6-luna": {
+          "name": "GPT-6 Luna",
+          "cost": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125
+          }
+        },
+        "muse-wonder-1.0": {
+          "name": "Muse Wonder",
+          "cost": {
+            "input": 4,
+            "output": 20,
+            "cache_read": 0.2
+          }
+        },
+        "exo-free": {
+          "name": "Exo Free",
+          "cost": {
+            "input": 0,
+            "output": 0
+          }
+        },
+        "gpt-6-astra": {
+          "name": "GPT-6 Astra",
+          "cost": {
+            "input": 10,
+            "output": 50,
+            "cache_read": 1,
+            "cache_write": 12.5
+          }
+        },
+        "nemotron-3.5-super-vl-free": {
+          "name": "Nemotron 3.5 Super VL Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "flint-40b-free": {
+          "name": "Flint 40B Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "beam-free": {
+          "name": "Beam Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "deepseek-v4.1-flash-free": {
+          "name": "DeepSeek V4.1 Flash Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "ling-3.0-flash-free": {
+          "name": "Ling-3.0-flash Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "inkling-2-small-free": {
+          "name": "Inkling 2 Small Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0,
+            "cache_write": 0
+          }
+        },
+        "deepseek-v4.1-flash": {
+          "name": "DeepSeek V4.1 Flash",
+          "cost": {
+            "input": 0.3,
+            "output": 1.2,
+            "cache_read": 0.006
+          }
+        },
+        "gpt-6-sol": {
+          "name": "GPT-6 Sol",
+          "cost": {
+            "input": 2,
+            "output": 10,
+            "cache_read": 0.2,
+            "cache_write": 2.5
+          }
+        },
+        "claude-opus-5-5": {
+          "name": "Claude Opus 5.5",
+          "cost": {
+            "input": 4,
+            "output": 20,
+            "cache_read": 0.2,
+            "cache_write": 5
+          }
+        },
+        "mistral-large-4": {
+          "name": "Mistral Large 4",
+          "cost": {
+            "input": 0.68,
+            "output": 2.09,
+            "cache_read": 0.07
+          }
+        },
+        "ling-3.0-flash-fin-free": {
+          "name": "Ling 3.0 Flash Fin Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "fledge-alpha-free": {
+          "name": "Fledge Alpha Free",
+          "cost": {
+            "input": 0,
+            "output": 0
+          }
+        },
+        "cat-jam-free": {
+          "name": "Cat Jam Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "iceman-free": {
+          "name": "Iceman Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "x-preview-f-free": {
+          "name": "Ox Alpha Free (Unlimited)",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "kimi-k3": {
+          "name": "Kimi K3",
+          "cost": {
+            "input": 3,
+            "output": 15,
+            "cache_read": 0.3,
+            "cache_write": 3
+          }
+        },
+        "gemini-3.8-flash": {
+          "name": "Gemini 3.8 Flash",
+          "cost": {
+            "input": 1.5,
+            "output": 7.5,
+            "cache_read": 0.15
+          }
+        },
+        "ling-3.1-flash-free": {
+          "name": "Ling 3.1 Flash Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "nemotron-3.5-lightning-free": {
+          "name": "Nemotron 3.5 Lightning Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "muse-spark-1.2": {
+          "name": "Muse Spark 1.2",
+          "cost": {
+            "input": 1.25,
+            "output": 4.25,
+            "cache_read": 0.15
+          }
+        },
+        "muse-spark-1.3-contributor-free": {
+          "name": "Muse Spark 1.3 Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "space-bunny-free": {
+          "name": "Space Bunny Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0,
+            "cache_write": 0
+          }
+        },
+        "muse-spark-1.3": {
+          "name": "Muse Spark 1.3",
+          "cost": {
+            "input": 1.25,
+            "output": 4.25,
+            "cache_read": 0.15
+          }
+        },
+        "longcat-2.0-free": {
+          "name": "LongCat-2.0 Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "claude-haiku-5-5": {
+          "name": "Claude Haiku 5.5",
+          "cost": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125
+          }
+        },
+        "longcat-2.5-preview-free": {
+          "name": "LongCat 2.5 Preview Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "gemini-3.6-flash": {
+          "name": "Gemini 3.6 Flash",
+          "cost": {
+            "input": 1.5,
+            "output": 7.5,
+            "cache_read": 0.15
+          }
+        },
+        "claude-opus-5": {
+          "name": "Claude Opus 5",
+          "cost": {
+            "input": 5,
+            "output": 25,
+            "cache_read": 0.5,
+            "cache_write": 6.25
+          }
+        },
+        "claude-fable-5-1": {
+          "name": "Claude Fable 5.1",
+          "cost": {
+            "input": 10,
+            "output": 50,
+            "cache_read": 0.25,
+            "cache_write": 12.5
+          }
+        },
+        "grok-4.6": {
+          "name": "Grok 4.6",
+          "cost": {
+            "input": 2,
+            "output": 6,
+            "cache_read": 0.5
+          }
+        },
+        "crouton-alpha-free": {
+          "name": "Crouton Alpha Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "qwen3.8-flash": {
+          "name": "Qwen3.8 Flash",
+          "cost": {
+            "input": 0.15,
+            "output": 0.47,
+            "cache_read": 0.016,
+            "cache_write": 0.2
+          }
+        },
+        "laguna-s-2.1-free": {
+          "name": "Laguna S 2.1 Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "glm-5.3-flash-free": {
+          "name": "GLM-5.3-Flash Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "qwen3.8-max": {
+          "name": "Qwen3.8 Max",
+          "cost": {
+            "input": 2,
+            "output": 6,
+            "cache_read": 0.25,
+            "cache_write": 2.5
+          }
+        },
+        "pulse-alpha-free": {
+          "name": "Pulse Alpha Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "gemini-4-argon": {
+          "name": "Gemini 4 Argon",
+          "cost": {
+            "input": 2,
+            "output": 10,
+            "cache_read": 0.1
+          }
+        },
+        "grok-4.7": {
+          "name": "Grok 4.7",
+          "cost": {
+            "input": 2,
+            "output": 6,
+            "cache_read": 0.5
+          }
+        },
+        "gemini-3.5-flash-lite": {
+          "name": "Gemini 3.5 Flash Lite",
+          "cost": {
+            "input": 0.3,
+            "output": 2.5,
+            "cache_read": 0.03
+          }
         }
       }
     },
@@ -659,9 +1110,9 @@
         "mimo-v2.5-pro": {
           "name": "MiMo V2.5 Pro",
           "cost": {
-            "input": 1.74,
-            "output": 3.48,
-            "cache_read": 0.0145
+            "input": 0.435,
+            "output": 0.87,
+            "cache_read": 0.003625
           }
         },
         "kimi-k2.7-code": {
@@ -685,7 +1136,8 @@
           "cost": {
             "input": 3,
             "output": 15,
-            "cache_read": 0.3
+            "cache_read": 0.3,
+            "cache_write": 3
           }
         },
         "deepseek-v4-flash": {
@@ -749,9 +1201,9 @@
         "deepseek-v4-pro": {
           "name": "DeepSeek V4 Pro",
           "cost": {
-            "input": 1.74,
-            "output": 3.48,
-            "cache_read": 0.0145
+            "input": 0.66,
+            "output": 1.98,
+            "cache_read": 0.022
           }
         },
         "mimo-v2-omni": {
@@ -825,7 +1277,255 @@
           "cost": {
             "input": 0.3,
             "output": 1.2,
-            "cache_read": 0.06
+            "cache_read": 0.06,
+            "cache_write": 0.375
+          }
+        },
+        "longcat-2.0": {
+          "name": "LongCat-2.0",
+          "cost": {
+            "input": 0.3,
+            "output": 1.2,
+            "cache_read": 0.006
+          }
+        },
+        "glm-5.3": {
+          "name": "GLM-5.3",
+          "cost": {
+            "input": 1.4,
+            "output": 4.4,
+            "cache_read": 0.26
+          }
+        },
+        "glm-5.3-flash": {
+          "name": "GLM-5.3-Flash",
+          "cost": {
+            "input": 0.15,
+            "output": 0.5,
+            "cache_read": 0.03
+          }
+        },
+        "hy3": {
+          "name": "Hy3",
+          "cost": {
+            "input": 0.14,
+            "output": 0.58,
+            "cache_read": 0.035
+          }
+        },
+        "minimax-m3.1-flash-free": {
+          "name": "MiniMax M3.1 Flash Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "step-5-preview-free": {
+          "name": "Step 5 Preview Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "gpt-6-luna": {
+          "name": "GPT-6 Luna",
+          "cost": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125
+          }
+        },
+        "step-5-preview": {
+          "name": "Step 5 Preview",
+          "cost": {
+            "input": 1,
+            "output": 2.7,
+            "cache_read": 0.1
+          }
+        },
+        "beam-free": {
+          "name": "Beam Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "deepseek-v4.1-flash": {
+          "name": "DeepSeek V4.1 Flash",
+          "cost": {
+            "input": 0.15,
+            "output": 0.6,
+            "cache_read": 0.003
+          }
+        },
+        "gpt-5.6-luna": {
+          "name": "GPT-5.6 Luna",
+          "cost": {
+            "input": 0.2,
+            "output": 1.2,
+            "cache_read": 0.02,
+            "cache_write": 0.25
+          }
+        },
+        "gemini-4-argon-contributor": {
+          "name": "Gemini 4 Argon Contributor",
+          "cost": {
+            "input": 4,
+            "output": 20,
+            "cache_read": 0.2
+          }
+        },
+        "cat-jam-free": {
+          "name": "Cat Jam Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "mimo-v2.6-flash": {
+          "name": "MiMo-V2.6-Flash",
+          "cost": {
+            "input": 0.14,
+            "output": 0.28,
+            "cache_read": 0.0028
+          }
+        },
+        "hy4-preview": {
+          "name": "Hy4 preview",
+          "cost": {
+            "input": 0.834,
+            "output": 2.501,
+            "cache_read": 0.042
+          }
+        },
+        "muse-spark-1.3-contributor": {
+          "name": "Muse Spark 1.3 Contributor",
+          "cost": {
+            "input": 0.1,
+            "output": 0.2,
+            "cache_read": 0.002
+          }
+        },
+        "space-bunny": {
+          "name": "Space Bunny",
+          "cost": {
+            "input": 0.15,
+            "output": 0.6,
+            "cache_read": 0.03,
+            "cache_write": 0
+          }
+        },
+        "kimi-k3.1-pro": {
+          "name": "Kimi K3.1 Pro",
+          "cost": {
+            "input": 2,
+            "output": 10,
+            "cache_read": 0.2,
+            "cache_write": 2
+          }
+        },
+        "minimax-m3.1-flash": {
+          "name": "MiniMax M3.1 Flash",
+          "cost": {
+            "input": 0.15,
+            "output": 0.6,
+            "cache_read": 0.015
+          }
+        },
+        "mimo-v2.6-pro": {
+          "name": "MiMo-V2.6-Pro",
+          "cost": {
+            "input": 0.435,
+            "output": 0.87,
+            "cache_read": 0.003625
+          }
+        },
+        "hy4": {
+          "name": "Hy4",
+          "cost": {
+            "input": 0.834,
+            "output": 2.501,
+            "cache_read": 0.042
+          }
+        },
+        "iceman-contributor-free": {
+          "name": "Iceman Contributor Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "claude-haiku-5-5": {
+          "name": "Claude Haiku 5.5",
+          "cost": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125
+          }
+        },
+        "muse-spark-1.2-contributor": {
+          "name": "Muse Spark 1.2 Contributor",
+          "cost": {
+            "input": 0.1,
+            "output": 0.2,
+            "cache_read": 0.002
+          }
+        },
+        "longcat-2.5-preview-free": {
+          "name": "LongCat 2.5 Preview Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "crouton-alpha-free": {
+          "name": "Crouton Alpha Free",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0
+          }
+        },
+        "qwen3.8-flash": {
+          "name": "Qwen3.8 Flash",
+          "cost": {
+            "input": 0.15,
+            "output": 0.47,
+            "cache_read": 0.016,
+            "cache_write": 0.2
+          }
+        },
+        "qwen3.8-max": {
+          "name": "Qwen3.8 Max",
+          "cost": {
+            "input": 2,
+            "output": 6,
+            "cache_read": 0.25,
+            "cache_write": 2.5
+          }
+        },
+        "gemini-4-argon": {
+          "name": "Gemini 4 Argon",
+          "cost": {
+            "input": 2,
+            "output": 10,
+            "cache_read": 0.1
+          }
+        },
+        "grok-4.7": {
+          "name": "Grok 4.7",
+          "cost": {
+            "input": 2,
+            "output": 6,
+            "cache_read": 0.5
           }
         }
       }
@@ -944,10 +1644,10 @@
         "gpt-5.6-terra": {
           "name": "GPT-5.6 Terra",
           "cost": {
-            "input": 2.5,
-            "output": 15,
-            "cache_read": 0.25,
-            "cache_write": 3.125
+            "input": 2,
+            "output": 12,
+            "cache_read": 0.2,
+            "cache_write": 2.5
           }
         },
         "gpt-5.3-codex": {
@@ -1124,10 +1824,10 @@
         "gpt-5.6": {
           "name": "GPT-5.6",
           "cost": {
-            "input": 5,
-            "output": 30,
-            "cache_read": 0.5,
-            "cache_write": 6.25
+            "input": 4,
+            "output": 20,
+            "cache_read": 0.4,
+            "cache_write": 5
           }
         },
         "o3-deep-research": {
@@ -1188,10 +1888,10 @@
         "gpt-5.6-luna": {
           "name": "GPT-5.6 Luna",
           "cost": {
-            "input": 1,
-            "output": 6,
-            "cache_read": 0.1,
-            "cache_write": 1.25
+            "input": 0.2,
+            "output": 1.2,
+            "cache_read": 0.02,
+            "cache_write": 0.25
           }
         },
         "gpt-5-pro": {
@@ -1211,10 +1911,10 @@
         "gpt-5.6-sol": {
           "name": "GPT-5.6 Sol",
           "cost": {
-            "input": 5,
-            "output": 30,
-            "cache_read": 0.5,
-            "cache_write": 6.25
+            "input": 4,
+            "output": 20,
+            "cache_read": 0.4,
+            "cache_write": 5
           }
         },
         "o3-pro": {
@@ -1238,6 +1938,69 @@
             "input": 5,
             "output": 30,
             "cache_read": 1.25
+          }
+        },
+        "gpt-6.1-sol": {
+          "name": "GPT-6.1 Sol",
+          "cost": {
+            "input": 2,
+            "output": 10,
+            "cache_read": 0.1,
+            "cache_write": 2.5
+          }
+        },
+        "gpt-6-luna": {
+          "name": "GPT-6 Luna",
+          "cost": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125
+          }
+        },
+        "gpt-6-astra": {
+          "name": "GPT-6 Astra",
+          "cost": {
+            "input": 10,
+            "output": 50,
+            "cache_read": 1,
+            "cache_write": 12.5
+          }
+        },
+        "gpt-daybreak-red-latest": {
+          "name": "Daybreak Red",
+          "cost": {
+            "input": 12.5,
+            "output": 75,
+            "cache_read": 1.25,
+            "cache_write": 15.625
+          }
+        },
+        "gpt-6-sol": {
+          "name": "GPT-6 Sol",
+          "cost": {
+            "input": 2,
+            "output": 10,
+            "cache_read": 0.2,
+            "cache_write": 2.5
+          }
+        },
+        "gpt-6.1-terra": {
+          "name": "GPT-6.1 Terra",
+          "cost": {
+            "input": 1,
+            "output": 5,
+            "cache_read": 0.05,
+            "cache_write": 1.25
+          }
+        },
+        "gpt-daybreak-blue-latest": {
+          "name": "Daybreak Blue",
+          "cost": {
+            "input": 4,
+            "output": 20,
+            "cache_read": 0.4,
+            "cache_write": 5
           }
         }
       }
@@ -1369,6 +2132,51 @@
             "cache_read": 0.3,
             "cache_write": 3.75
           }
+        },
+        "claude-sonnet-5-5": {
+          "name": "Claude Sonnet 5.5",
+          "cost": {
+            "input": 2,
+            "output": 10,
+            "cache_read": 0.1,
+            "cache_write": 2.5
+          }
+        },
+        "claude-opus-5-5": {
+          "name": "Claude Opus 5.5",
+          "cost": {
+            "input": 4,
+            "output": 20,
+            "cache_read": 0.2,
+            "cache_write": 5
+          }
+        },
+        "claude-haiku-5-5": {
+          "name": "Claude Haiku 5.5",
+          "cost": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125
+          }
+        },
+        "claude-opus-5": {
+          "name": "Claude Opus 5",
+          "cost": {
+            "input": 5,
+            "output": 25,
+            "cache_read": 0.5,
+            "cache_write": 6.25
+          }
+        },
+        "claude-fable-5-1": {
+          "name": "Claude Fable 5.1",
+          "cost": {
+            "input": 10,
+            "output": 50,
+            "cache_read": 0.25,
+            "cache_write": 12.5
+          }
         }
       }
     },
@@ -1403,7 +2211,8 @@
           "cost": {
             "input": 3,
             "output": 15,
-            "cache_read": 0.3
+            "cache_read": 0.3,
+            "cache_write": 3
           }
         },
         "kimi-k2-thinking": {
@@ -1452,6 +2261,24 @@
             "input": 1.15,
             "output": 8,
             "cache_read": 0.15
+          }
+        },
+        "kimi-k3.1-pro": {
+          "name": "Kimi K3.1 Pro",
+          "cost": {
+            "input": 2,
+            "output": 10,
+            "cache_read": 0.2,
+            "cache_write": 2
+          }
+        },
+        "kimi-k3.1-pro-highspeed": {
+          "name": "Kimi K3.1 Pro Highspeed",
+          "cost": {
+            "input": 4,
+            "output": 20,
+            "cache_read": 0.2,
+            "cache_write": 4
           }
         }
       }
@@ -1516,14 +2343,18 @@
           "name": "GLM-4.6V",
           "cost": {
             "input": 0.3,
-            "output": 0.9
+            "output": 0.9,
+            "cache_read": 0.05,
+            "cache_write": 0
           }
         },
         "glm-4.5v": {
           "name": "GLM-4.5V",
           "cost": {
             "input": 0.6,
-            "output": 1.8
+            "output": 1.8,
+            "cache_read": 0.11,
+            "cache_write": 0
           }
         },
         "glm-4.7-flash": {
@@ -1577,6 +2408,42 @@
             "input": 0.6,
             "output": 2.2,
             "cache_read": 0.11,
+            "cache_write": 0
+          }
+        },
+        "glm-5.3": {
+          "name": "GLM-5.3",
+          "cost": {
+            "input": 1.4,
+            "output": 4.4,
+            "cache_read": 0.26,
+            "cache_write": 0
+          }
+        },
+        "glm-5.3-flash": {
+          "name": "GLM-5.3-Flash",
+          "cost": {
+            "input": 0.15,
+            "output": 0.5,
+            "cache_read": 0.03,
+            "cache_write": 0
+          }
+        },
+        "glm-4.6v-flash": {
+          "name": "GLM-4.6V-Flash",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cache_read": 0,
+            "cache_write": 0
+          }
+        },
+        "glm-5.3-flashx": {
+          "name": "GLM-5.3-FlashX",
+          "cost": {
+            "input": 0.37,
+            "output": 1.25,
+            "cache_read": 0.075,
             "cache_write": 0
           }
         }
@@ -1716,9 +2583,9 @@
         "gemini-flash-latest": {
           "name": "Gemini Flash Latest",
           "cost": {
-            "input": 1.5,
-            "output": 9,
-            "cache_read": 0.15
+            "input": 0.75,
+            "output": 3.75,
+            "cache_read": 0.075
           }
         },
         "gemini-2.5-flash": {
@@ -1732,9 +2599,9 @@
         "gemini-flash-lite-latest": {
           "name": "Gemini Flash-Lite Latest",
           "cost": {
-            "input": 0.25,
-            "output": 1.5,
-            "cache_read": 0.025
+            "input": 0.3,
+            "output": 2.5,
+            "cache_read": 0.03
           }
         },
         "gemini-3.1-pro-preview": {
@@ -1743,6 +2610,140 @@
             "input": 2,
             "output": 12,
             "cache_read": 0.2
+          }
+        },
+        "gemini-3.7-flash": {
+          "name": "Gemini 3.7 Flash",
+          "cost": {
+            "input": 0.75,
+            "output": 3.75,
+            "cache_read": 0.075
+          }
+        },
+        "gemini-pro-latest": {
+          "name": "Gemini Pro Latest",
+          "cost": {
+            "input": 2,
+            "output": 12,
+            "cache_read": 0.2
+          }
+        },
+        "lyria-3-clip-preview": {
+          "name": "Lyria 3 Clip Preview",
+          "cost": {
+            "input": 0,
+            "output": 0
+          }
+        },
+        "deep-research-max-preview-04-2026": {
+          "name": "Deep Research Max Preview (Apr-21-2026)",
+          "cost": {
+            "input": 2,
+            "output": 12,
+            "cache_read": 0.2
+          }
+        },
+        "deep-research-preview-04-2026": {
+          "name": "Deep Research Preview (Apr-21-2026)",
+          "cost": {
+            "input": 2,
+            "output": 12,
+            "cache_read": 0.2
+          }
+        },
+        "lyria-3-pro-preview": {
+          "name": "Lyria 3 Pro Preview",
+          "cost": {
+            "input": 0,
+            "output": 0
+          }
+        },
+        "gemini-3.1-flash-lite-image": {
+          "name": "Nano Banana 2 Lite",
+          "cost": {
+            "input": 0.25,
+            "output": 30
+          }
+        },
+        "gemini-2.5-computer-use-preview-10-2025": {
+          "name": "Gemini 2.5 Computer Use Preview 10-2025",
+          "cost": {
+            "input": 1.25,
+            "output": 10
+          }
+        },
+        "gemini-3-pro-image": {
+          "name": "Nano Banana Pro",
+          "cost": {
+            "input": 2,
+            "output": 120
+          }
+        },
+        "gemini-3.5-live-translate-preview": {
+          "name": "Gemini 3.5 Live Translate Preview",
+          "cost": {
+            "input": 3.5,
+            "output": 21
+          }
+        },
+        "gemini-3.1-flash-image": {
+          "name": "Nano Banana 2",
+          "cost": {
+            "input": 0.5,
+            "output": 60
+          }
+        },
+        "gemini-embedding-2": {
+          "name": "Gemini Embedding 2",
+          "cost": {
+            "input": 0.2,
+            "output": 0
+          }
+        },
+        "gemini-3.1-flash-tts-preview": {
+          "name": "Gemini 3.1 Flash TTS Preview",
+          "cost": {
+            "input": 1,
+            "output": 20
+          }
+        },
+        "gemini-3.8-flash": {
+          "name": "Gemini 3.8 Flash",
+          "cost": {
+            "input": 0.75,
+            "output": 3.75,
+            "cache_read": 0.075
+          }
+        },
+        "gemini-3.6-flash": {
+          "name": "Gemini 3.6 Flash",
+          "cost": {
+            "input": 0.75,
+            "output": 3.75,
+            "cache_read": 0.075
+          }
+        },
+        "gemini-3.1-flash-live-preview": {
+          "name": "Gemini 3.1 Flash Live Preview",
+          "cost": {
+            "input": 0.75,
+            "output": 4.5
+          }
+        },
+        "gemini-4-argon": {
+          "name": "Gemini 4 Argon",
+          "cost": {
+            "input": 2,
+            "output": 10,
+            "cache_read": 0.1
+          }
+        },
+        "gemini-3.5-flash-lite": {
+          "name": "Gemini 3.5 Flash Lite",
+          "cost": {
+            "input": 0.3,
+            "output": 2.5,
+            "cache_read": 0.03
           }
         }
       }
