@@ -138,7 +138,7 @@
     "packages/core/src/sync/fixtures/pool-v3.sql": "d8c9f1edf2a5d7e20f1c41b9cf9e6dfb701cd5515e2f7c553d38ab6eb5f0cfe1",
     "packages/core/src/sync/manager.ts": "f6e1d8731d83b399c420b112820e4c6f2a0333036fd79f40bea138526bd0bb08",
     "packages/core/src/sync/overlay.ts": "aff168b121d4fc42d847317886c5f55b8432ab136fe7c10740aab67da98c98ab",
-    "packages/core/src/sync/project-privacy.ts": "db15691aa8c4ed8a4028250b62afcca37292e7b8ea28f94c0ce183d588354525",
+    "packages/core/src/sync/project-privacy.ts": "ee0dedfd4a5cc7c10b0214ac78c66ef08502fa3b94848d03a3efe360a5457f70",
     "packages/core/src/sync/record-key.ts": "8ee1bbcd142c35c61258bde978ac58824ee159c751adf61cb38f03748c05ead2",
     "packages/core/src/sync/store.ts": "3e286a6a71bcbf2823a0a973ff8bdb508d84f2de2131a315f41346ac029e3b5b",
     "packages/core/src/watch/tail.ts": "c26d5caff8d8b0e625e2f4c6e60a273412bf4c394a826baaf6aed97182d45bdb",

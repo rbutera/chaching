@@ -98,9 +98,13 @@ export type StoredFragment = SessionDay & { projectPolicy?: unknown };
  * Each stored fragment is compared with local evidence redacted the way THAT fragment was. The part
  * local explains is replaced by local's own fragments, redacted the new way. A remainder (work the
  * pool knows about but local evidence no longer covers) keeps its stored project, redacted the new
- * way. Remainders from one policy that collapse onto one project are summed (distinct work);
- * remainders from different policies that land on one project are the same work published twice,
- * so the larger wins. Nothing is dropped, and nothing is counted twice.
+ * way. Remainders from one policy that collapse onto one project are summed (distinct work).
+ * Remainders from different policies that land on one project are taken to be the same work
+ * published twice, so the larger wins, matching the publish upsert's own larger-count rule. That
+ * is a deliberate choice for a case nothing can decide: with no local evidence left, a mixed row
+ * can't show whether its fragments overlap. Summing would double-count the common case (one session
+ * republished under the new policy); taking the larger undercounts only disjoint work that a second,
+ * older publisher added after the switch. Local evidence, when present, makes the result exact.
  */
 export function reconcileActivityFragments(
 	stored: readonly StoredFragment[],

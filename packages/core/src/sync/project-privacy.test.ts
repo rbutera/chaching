@@ -153,4 +153,11 @@ describe('reconcileActivityFragments', () => {
 		// Same mix with the local evidence gone: the two copies are one piece of work.
 		expect(reconcileActivityFragments(stored, undefined, HIDDEN)).toEqual([day('d', HIDDEN_PROJECT, 3)]);
 	});
+
+	it('without local evidence, cross-policy remainders on one project take the larger (documented trade-off)', () => {
+		const stored = [...as('hidden', [day('d', HIDDEN_PROJECT, 3)]), ...as(undefined, [day('d', '/b', 2)])];
+		expect(reconcileActivityFragments(stored, undefined, HIDDEN)).toEqual([day('d', HIDDEN_PROJECT, 3)]);
+		// With local evidence for both, the result is exact.
+		expect(reconcileActivityFragments(stored, [day('d', '/a', 3), day('d', '/b', 2)], HIDDEN)).toEqual([day('d', HIDDEN_PROJECT, 5)]);
+	});
 });
