@@ -310,3 +310,79 @@ suite('retained monetary peer publication', () => {
 		} finally {await storeA.close();await storeB.close();}
 	});
 });
+
+suite('sync project privacy', () => {
+	const live = '/home/coder/conveo/reel-port';
+	const pruned = '/home/coder/conveo/old-feature';
+	const activityFor = (sessionId: string, project: string, requests: number) => ({
+		provider: 'claude', sessionId,
+		activity: [{ day: '2026-11-07', project, requests, cost: requests, costUnknownRequests: 0 }]
+	});
+
+	async function ownRowsText(poolId: string, machineId: string): Promise<string> {
+		const pg = new Pool({ connectionString: databaseUrl });
+		try {
+			const sessions = await pg.query(`SELECT payload::text AS t FROM chaching_sync.machine_session_agg WHERE pool_id = $1 AND machine_id = $2`, [poolId, machineId]);
+			const activity = await pg.query(`SELECT payload::text AS t FROM chaching_sync.machine_session_activity WHERE pool_id = $1 AND machine_id = $2`, [poolId, machineId]);
+			return [...sessions.rows, ...activity.rows].map(row => String(row.t)).join('\n');
+		} finally { await pg.end(); }
+	}
+
+	it('re-publishes rows already published with full paths under the new label, once, without double counting', { timeout: 30_000 }, async () => {
+		const { poolId, a, storeA, storeB } = await pooledPair();
+		try {
+			// Published before the setting existed: full local paths, including a session whose
+			// local logs have since been pruned (so no later publish would ever touch it).
+			await storeA.publishSessions(scopeFor(a), [{ ...session('claude', 'live'), project: live }, { ...session('claude', 'pruned'), project: pruned }]);
+			await storeA.publishSessionActivity(scopeFor(a), [activityFor('live', live, 3), activityFor('pruned', pruned, 2)]);
+			expect(await ownRowsText(poolId, a)).toContain(live);
+
+			storeA.setProjectPolicy({ mode: 'label', label: 'Conveo' });
+			const localNow = [activityFor('live', live, 3)];
+			expect(await storeA.reconcileProjectPrivacy(scopeFor(a), localNow)).toEqual({ sessions: 2, activity: 2 });
+			// The next burst republishes the live session through the redacting boundary.
+			await storeA.publishSessions(scopeFor(a), [{ ...session('claude', 'live'), project: live }]);
+			await storeA.publishSessionActivity(scopeFor(a), localNow);
+			expect(await storeA.reconcileProjectPrivacy(scopeFor(a), localNow)).toEqual({ sessions: 0, activity: 0 });
+
+			const rows = await ownRowsText(poolId, a);
+			expect(rows).not.toContain('/home/coder');
+			const peer = await storeB.loadAggregates(null);
+			expect(peer.sessions.map(s => s.project)).toEqual(['Conveo', 'Conveo']);
+			expect(peer.activity?.map(row => row.activity)).toEqual(expect.arrayContaining([
+				[{ day: '2026-11-07', project: 'Conveo', requests: 3, cost: 3, costUnknownRequests: 0 }],
+				[{ day: '2026-11-07', project: 'Conveo', requests: 2, cost: 2, costUnknownRequests: 0 }]
+			]));
+
+			// Switching back to full restores paths the machine still has, without counting the
+			// relabelled requests twice; the pruned session keeps its label. A second run is a no-op.
+			storeA.setProjectPolicy({ mode: 'full' });
+			expect(await storeA.reconcileProjectPrivacy(scopeFor(a), localNow)).toEqual({ sessions: 0, activity: 2 });
+			expect(await storeA.reconcileProjectPrivacy(scopeFor(a), localNow)).toEqual({ sessions: 0, activity: 0 });
+			await storeA.publishSessionActivity(scopeFor(a), localNow);
+			const restored = (await storeB.loadAggregates(null)).activity ?? [];
+			expect(restored.find(row => row.sessionId === 'live')?.activity).toEqual(activityFor('live', live, 3).activity);
+			expect(restored.find(row => row.sessionId === 'pruned')?.activity[0].project).toBe('Conveo');
+		} finally { await storeA.close(); await storeB.close(); }
+	});
+
+	it('repairs a row an older full-path publisher merged into after the switch', { timeout: 30_000 }, async () => {
+		const { poolId, a, storeA, storeB } = await pooledPair();
+		const older = new PostgresSyncStore(databaseUrl!, poolId, a); // same machine, still on full
+		const secret = '/home/coder/conveo/secret';
+		try {
+			await storeA.publishSessionActivity(scopeFor(a), [activityFor('s', secret, 3)]);
+			storeA.setProjectPolicy({ mode: 'hidden' });
+			await storeA.reconcileProjectPrivacy(scopeFor(a), [activityFor('s', secret, 3)]);
+			await older.publishSessionActivity(scopeFor(a), [activityFor('s', secret, 3)]);
+			await storeA.publishSessionActivity(scopeFor(a), [activityFor('s', secret, 3)]);
+			expect(await ownRowsText(poolId, a)).toContain(secret);
+
+			expect(await storeA.reconcileProjectPrivacy(scopeFor(a), [activityFor('s', secret, 3)])).toEqual({ sessions: 0, activity: 1 });
+			expect(await ownRowsText(poolId, a)).not.toContain(secret);
+			expect((await storeB.loadAggregates(null)).activity?.[0].activity).toEqual([
+				{ day: '2026-11-07', project: '(hidden)', requests: 3, cost: 3, costUnknownRequests: 0 }
+			]);
+		} finally { await older.close(); await storeA.close(); await storeB.close(); }
+	});
+});

@@ -15,11 +15,14 @@ The pool stores **aggregates only**, never raw usage records:
 - `machine_hour_agg` — last-48h hour buckets (7-day server retention) so shared 5-hour cap windows
   can be reconstructed pool-wide.
 - `machine_session_agg` — per-session summaries.
+- `machine_session_activity` — per-session daily activity (day, project, requests, cost).
 - pool / machine / account / mapping rows — the roster and attribution tables.
 
-**Raw records never leave the machine.** Prompts, file paths, session contents, and per-request
-rows all stay in local SQLite; only the rolled-up token/cost counts are published. That is a
-privacy win as well as a bandwidth one.
+**Raw records never leave the machine.** Prompts, session contents, and per-request rows all stay
+in local SQLite; only the rolled-up token/cost counts are published. That is a privacy win as well
+as a bandwidth one. The one path that does leave is each session's **project**, which by default is
+the full local working directory (for example `/Users/rai/focused/launchpad`). Use
+`publishProjects` to reduce it; see [Project names in the pool](#project-names-in-the-pool).
 
 ## Mental model
 
@@ -176,6 +179,49 @@ pool shares fewer wake windows. The only thing a larger interval affects is how 
 data is on this machine — your own machine's numbers are always live (they come straight from the
 local rollup, never a round-trip). `chaching sync status` shows the current interval and this
 machine's last-published time.
+
+## Project names in the pool
+
+Session summaries and daily session activity carry a `project` field. By default it is the full
+local path, so a work machine's paths, such as `/home/coder/conveo/<feature-worktree>`, would name
+employer features in the pooled database. Choose what each machine publishes:
+
+```sh
+chaching sync privacy                                  # show the current setting
+chaching sync privacy --projects label --label Conveo  # every project becomes "Conveo"
+chaching sync privacy --projects basename              # last path segment only: "reel-port"
+chaching sync privacy --projects hidden                # every project becomes "(hidden)"
+chaching sync privacy --projects full                  # default: the local path
+```
+
+This writes `sync.publishProjects` and `sync.projectLabel` in the local config (see CONFIG.md). It
+is per machine: a personal laptop can stay on `full` while a work machine in the same pool uses
+`label`. Peers see and group that machine's sessions under the published value. This machine's own
+dashboard, TUI, receipts and history database always keep the full paths.
+
+Set it **before** `chaching sync join` on a machine whose paths must never reach the pool. If you
+change it on a machine that has already published, the next publish rewrites that machine's existing
+rows before it publishes anything new. This includes sessions whose local logs were pruned long ago,
+which no ordinary publish would touch again:
+
+- Session summaries get the new project value.
+- Daily activity is rewritten exactly. Each activity fragment records the policy it was published
+  under, and the rewrite matches the stored counts against this machine's local evidence. A row
+  that mixes policies, for example after an older chaching on the same machine published into it,
+  is detected and repaired the same way. The part local
+  evidence explains takes the new project value. Any remainder keeps its stored project, redacted
+  the new way. Projects that collapse onto one label on the same day are summed, so no request is
+  dropped or counted twice.
+
+The rewrite is idempotent. The check at each start reads only rows published under a different
+policy, so it costs nothing when the rows already match. Switching back to `full` restores the paths
+of sessions the machine still has locally. Work it no longer has keeps the redacted value, because
+the original path can't be recovered. If a session's local evidence was missing during the rewrite
+and later comes back, its daily activity for that work can appear under both names.
+
+A running `chaching serve` reads the setting at start, so restart it after changing the setting
+from the CLI. Pool-wide Cursor Admin API sessions published by a redacting machine are redacted the
+same way.
 
 ## Runtime synchronization
 

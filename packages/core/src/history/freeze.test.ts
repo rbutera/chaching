@@ -72,7 +72,9 @@ function cfg(root: string, dbPath: string): chachingConfig {
 			poolId: null,
 			machineId: null,
 			machineName: '',
-			intervalMinutes: 15
+			intervalMinutes: 15,
+			publishProjects: 'full',
+			projectLabel: ''
 		},
 		providers: {
 			claude: { enabled: true, roots: [root] },

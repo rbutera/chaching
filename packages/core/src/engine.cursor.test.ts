@@ -66,7 +66,9 @@ function pooledCursorConfig(): chachingConfig {
 			poolId: randomUUID(),
 			machineId: randomUUID(),
 			machineName: 'kinto',
-			intervalMinutes: 15
+			intervalMinutes: 15,
+			publishProjects: 'full',
+			projectLabel: ''
 		},
 		providers: {
 			claude: { enabled: false, roots: [] },

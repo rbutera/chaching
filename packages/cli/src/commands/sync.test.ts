@@ -4,10 +4,14 @@ import type { SyncStatus } from '@chaching/shared/sync-types';
 vi.mock('@chaching/core/sync/manager', () => ({
 	getSyncStatus: vi.fn(),
 	performSyncAction: vi.fn(),
+	setProjectPrivacy: vi.fn(),
 	setSyncInterval: vi.fn()
 }));
+vi.mock('@chaching/core/config', () => ({
+	loadConfig: vi.fn(async () => ({ sync: { publishProjects: 'full', projectLabel: '' } }))
+}));
 
-import { getSyncStatus, performSyncAction } from '@chaching/core/sync/manager';
+import { getSyncStatus, performSyncAction, setProjectPrivacy } from '@chaching/core/sync/manager';
 import { runSync } from './sync';
 
 function status(accounts: SyncStatus['accounts']): SyncStatus {
@@ -83,5 +87,41 @@ describe('sync Account commands', () => {
 			accountId: 'account-1'
 		});
 		log.mockRestore();
+	});
+});
+
+describe('sync privacy', () => {
+	beforeEach(() => vi.clearAllMocks());
+
+	it('sets label mode with a label', async () => {
+		vi.mocked(setProjectPrivacy).mockResolvedValue({ publishProjects: 'label', projectLabel: 'Conveo' });
+		const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+		await runSync(['privacy', '--projects', 'label', '--label', 'Conveo']);
+		expect(setProjectPrivacy).toHaveBeenCalledWith('label', 'Conveo');
+		expect(log).toHaveBeenCalledWith('published projects: label (every project published as "Conveo")');
+		log.mockRestore();
+	});
+
+	it('accepts inline values and a label on its own keeps the current mode', async () => {
+		vi.mocked(setProjectPrivacy).mockResolvedValue({ publishProjects: 'full', projectLabel: 'Acme' });
+		const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+		await runSync(['privacy', '--label=Acme']);
+		expect(setProjectPrivacy).toHaveBeenCalledWith('full', 'Acme');
+		await runSync(['privacy', '--projects=hidden']);
+		expect(setProjectPrivacy).toHaveBeenLastCalledWith('hidden', undefined);
+		log.mockRestore();
+	});
+
+	it('prints the current setting without changing it', async () => {
+		const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+		await runSync(['privacy']);
+		expect(setProjectPrivacy).not.toHaveBeenCalled();
+		expect(log).toHaveBeenCalledWith('published projects: full (local project paths)');
+		log.mockRestore();
+	});
+
+	it.each([[['--projects', 'label', 'extra']], [['--project', 'label']]])('rejects unexpected arguments %j', async (args) => {
+		await expect(runSync(['privacy', ...args])).rejects.toThrow('usage: chaching sync privacy');
+		expect(setProjectPrivacy).not.toHaveBeenCalled();
 	});
 });

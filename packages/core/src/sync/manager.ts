@@ -11,6 +11,7 @@ import {
 	type chachingConfig,
 	type SyncConfig
 } from '../config';
+import { PROJECT_PUBLISH_MODES } from '@chaching/shared/config';
 import { PostgresSyncStore } from './store';
 import type { SyncAction, SyncStatus, SyncAccount, SyncMapping } from '@chaching/shared/sync-types';
 
@@ -211,6 +212,7 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 			// No history import: a machine simply publishes all its local days on the next engine
 			// burst (its rollup already merges frozen history + live), so joining loses nothing.
 			await updateConfig(current => withSync(current, {
+				...current.sync,
 				enabled: true,
 				databaseUrl,
 				poolId,
@@ -246,6 +248,7 @@ export async function performSyncAction(action: SyncAction): Promise<SyncStatus>
 			// No history import (see create): the engine publishes this machine's local days on
 			// its next burst, so there is nothing to migrate at join time.
 			await updateConfig(current => withSync(current, {
+				...current.sync,
 				enabled: true,
 				databaseUrl,
 				poolId,
@@ -339,6 +342,22 @@ export async function setSyncInterval(minutes: number): Promise<number> {
 	const intervalMinutes = parseIntervalMinutes(minutes);
 	await updateConfig(cfg => ({ ...cfg, sync: { ...cfg.sync, intervalMinutes } }));
 	return intervalMinutes;
+}
+
+/**
+ * Persist what this machine publishes as each session's project. `label` needs a non-empty
+ * label; a label passed with another mode is kept for later. A running server applies the new
+ * policy (rewriting this machine's already-published rows) on its next start.
+ */
+export async function setProjectPrivacy(mode: string, label?: string): Promise<Pick<SyncConfig, 'publishProjects' | 'projectLabel'>> {
+	const publishProjects = PROJECT_PUBLISH_MODES.find(known => known === mode.trim());
+	if (!publishProjects) throw new Error(`projects must be one of ${PROJECT_PUBLISH_MODES.join(', ')}`);
+	const saved = await updateConfig(cfg => {
+		const projectLabel = label?.trim() ?? cfg.sync.projectLabel;
+		if (publishProjects === 'label' && !projectLabel) throw new Error('label mode needs a non-empty --label');
+		return { ...cfg, sync: { ...cfg.sync, publishProjects, projectLabel } };
+	});
+	return { publishProjects: saved.sync.publishProjects, projectLabel: saved.sync.projectLabel };
 }
 
 export function isConfigured(

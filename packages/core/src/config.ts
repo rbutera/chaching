@@ -20,8 +20,8 @@ import type { Account, PrivateAccount } from '@chaching/shared/accounts';
 export const CONFIG_VERSION = 1;
 
 
-import type { ClaudeProviderConfig, CodexProviderConfig, PiProviderConfig, CursorProviderConfig, OpenCodeProviderConfig, HistoryConfig, TokenmaxxConfig, SyncConfig, chachingConfig, PublicchachingConfig } from '@chaching/shared/config';
-export type { ClaudeProviderConfig, CodexProviderConfig, PiProviderConfig, CursorProviderConfig, OpenCodeProviderConfig, HistoryConfig, TokenmaxxConfig, SyncConfig, chachingConfig, PublicchachingConfig } from '@chaching/shared/config';
+import { PROJECT_PUBLISH_MODES, type ClaudeProviderConfig, type CodexProviderConfig, type PiProviderConfig, type CursorProviderConfig, type OpenCodeProviderConfig, type HistoryConfig, type TokenmaxxConfig, type SyncConfig, type chachingConfig, type PublicchachingConfig, type ProjectPublishMode } from '@chaching/shared/config';
+export type { ClaudeProviderConfig, CodexProviderConfig, PiProviderConfig, CursorProviderConfig, OpenCodeProviderConfig, HistoryConfig, TokenmaxxConfig, SyncConfig, chachingConfig, PublicchachingConfig, ProjectPublishMode } from '@chaching/shared/config';
 
 export interface ConfigPathInput {
 	env?: Pick<NodeJS.ProcessEnv, 'XDG_CONFIG_HOME'>;
@@ -63,7 +63,9 @@ export function defaultConfig(): chachingConfig {
 			poolId: null,
 			machineId: null,
 			machineName: '',
-			intervalMinutes: 15
+			intervalMinutes: 15,
+			publishProjects: 'full',
+			projectLabel: ''
 		},
 		providers: {
 			claude: {
@@ -120,7 +122,9 @@ export function normalizeConfig(raw: unknown): chachingConfig {
 			poolId: nullableStringOr(sync.poolId, defaults.sync.poolId),
 			machineId: nullableStringOr(sync.machineId, defaults.sync.machineId),
 			machineName: stringOrEmpty(sync.machineName, defaults.sync.machineName),
-			intervalMinutes: positiveIntOr(sync.intervalMinutes, defaults.sync.intervalMinutes)
+			intervalMinutes: positiveIntOr(sync.intervalMinutes, defaults.sync.intervalMinutes),
+			publishProjects: projectPublishModeOr(sync.publishProjects, defaults.sync.publishProjects),
+			projectLabel: stringOrEmpty(sync.projectLabel, defaults.sync.projectLabel).trim()
 		},
 		providers: {
 			claude: {
@@ -164,6 +168,8 @@ export function publicConfig(cfg: chachingConfig): PublicchachingConfig {
 			machineId: cfg.sync.machineId,
 			machineName: cfg.sync.machineName,
 			intervalMinutes: cfg.sync.intervalMinutes,
+			publishProjects: cfg.sync.publishProjects,
+			projectLabel: cfg.sync.projectLabel,
 			databaseConfigured: cfg.sync.databaseUrl.length > 0
 		},
 		providers: {
@@ -293,6 +299,15 @@ function stringOr(value: unknown, fallback: string): string {
 
 function stringOrEmpty(value: unknown, fallback: string): string {
 	return typeof value === 'string' ? value : fallback;
+}
+
+/**
+ * A missing value keeps the default, but a present value that isn't a known mode fails closed to
+ * `hidden`: a typo in a privacy setting must never publish full project paths.
+ */
+function projectPublishModeOr(value: unknown, fallback: ProjectPublishMode): ProjectPublishMode {
+	if (value === undefined) return fallback;
+	return PROJECT_PUBLISH_MODES.find(mode => mode === value) ?? 'hidden';
 }
 
 function nullableStringOr(value: unknown, fallback: string | null): string | null {

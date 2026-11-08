@@ -10,7 +10,7 @@ import {
 	defaultConfig,
 	type chachingConfig
 } from '../config';
-import { assertCursorScopeReady, parseIntervalMinutes, setSyncInterval, performSyncAction, getSyncStatus, writePoolAccount } from './manager';
+import { assertCursorScopeReady, parseIntervalMinutes, setSyncInterval, setProjectPrivacy, performSyncAction, getSyncStatus, writePoolAccount } from './manager';
 
 function withCursor(enabled: boolean, email: string | null): chachingConfig {
 	const cfg = defaultConfig();
@@ -79,6 +79,52 @@ describe('setSyncInterval', () => {
 
 	it('rejects an invalid interval without touching config', async () => {
 		await expect(setSyncInterval(0)).rejects.toThrow(/minutes >= 1/);
+	});
+});
+
+describe('setProjectPrivacy', () => {
+	let tmpDir: string;
+	let prevXdg: string | undefined;
+
+	beforeEach(async () => {
+		prevXdg = process.env.XDG_CONFIG_HOME;
+		tmpDir = await mkdtemp(join(tmpdir(), 'chaching-privacy-'));
+		process.env.XDG_CONFIG_HOME = tmpDir;
+		clearConfigCache();
+	});
+
+	afterEach(async () => {
+		if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+		else process.env.XDG_CONFIG_HOME = prevXdg;
+		clearConfigCache();
+		await rm(tmpDir, { recursive: true, force: true });
+	});
+
+	it('persists label mode and its label to the config file', async () => {
+		expect(await setProjectPrivacy('label', ' Conveo ')).toEqual({ publishProjects: 'label', projectLabel: 'Conveo' });
+		const raw = JSON.parse(await readFile(configFilePath(), 'utf8')) as chachingConfig;
+		expect(raw.sync).toMatchObject({ publishProjects: 'label', projectLabel: 'Conveo' });
+		// Another mode keeps the saved label for later.
+		expect(await setProjectPrivacy('basename')).toEqual({ publishProjects: 'basename', projectLabel: 'Conveo' });
+	});
+
+	it('rejects unknown modes and label mode without a label, leaving config unchanged', async () => {
+		await expect(setProjectPrivacy('paths')).rejects.toThrow(/full, basename, hidden, label/);
+		await expect(setProjectPrivacy('label')).rejects.toThrow(/non-empty --label/);
+		await expect(setProjectPrivacy('label', '  ')).rejects.toThrow(/non-empty --label/);
+		expect((await loadConfig()).sync.publishProjects).toBe('full');
+	});
+
+	it.skipIf(!process.env.CHACHING_TEST_DATABASE_URL)('survives joining a pool, so privacy can be set before the first publish', async () => {
+		const databaseUrl = process.env.CHACHING_TEST_DATABASE_URL!;
+		const poolId = randomUUID();
+		const store = new PostgresSyncStore(databaseUrl);
+		try {
+			await store.createPool({ poolId, poolName: 'privacy join', machineId: randomUUID(), machineName: 'owner', hostname: 'owner' });
+			await setProjectPrivacy('label', 'Conveo');
+			await performSyncAction({ action: 'join', databaseUrl, poolId, machineName: 'spitfire' });
+			expect((await loadConfig()).sync).toMatchObject({ enabled: true, poolId, publishProjects: 'label', projectLabel: 'Conveo' });
+		} finally { await store.close(); }
 	});
 });
 
