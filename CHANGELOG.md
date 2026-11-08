@@ -1,3 +1,9 @@
+## 1.19.1 (2026-11-08)
+
+### Other changes
+
+- Start serve's engine at boot and exit promptly on SIGTERM \(\#53\) (916070e)
+
 ## 1.19.0 (2026-11-08)
 
 ### Other changes
