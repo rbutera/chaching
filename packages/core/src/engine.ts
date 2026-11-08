@@ -135,6 +135,9 @@ class Ingestion {
 	private pricingRefresh: PricingRefresh<PricingCatalog> | null = null;
 	private pricingTimer: NodeJS.Timeout | null = null;
 	private pricingMiss = false;
+	private pricingInFlight: Promise<void> | null = null;
+	/** Catalog the last correctPricing pass valued against; null forces the next pass. */
+	private correctedCatalog: PricingCatalog | null = null;
 
 	private initializePricing(cfg: chachingConfig): void {
 		if (process.env.CHACHING_PRICING_REFRESH === '0') return;
@@ -158,7 +161,17 @@ class Ingestion {
 		this.pricingRefresh.loadCached();
 	}
 
-	private async refreshPricing(): Promise<void> {
+	/**
+	 * Never overlaps itself: the minute timer and every unpriced record ask for a refresh,
+	 * and a pass that outlasts the interval must not stack another behind it. A skipped
+	 * caller's miss stays in `pricingMiss` for the next tick.
+	 */
+	private refreshPricing(): Promise<void> {
+		if (!this.pricingInFlight) this.pricingInFlight = this.runPricingRefresh().finally(() => { this.pricingInFlight = null; });
+		return this.pricingInFlight;
+	}
+
+	private async runPricingRefresh(): Promise<void> {
 		const exactMiss = this.pricingMiss || [...this.valuations.values()].some(record => record.valuation && record.valuation.kind !== 'exact');
 		this.pricingMiss = false;
 		try {
@@ -167,8 +180,16 @@ class Ingestion {
 		} catch (error) { this.providerStatus.recordError('pricing', error); }
 	}
 
+	/**
+	 * Re-values retained non-exact records against the installed catalog. Valuation is a pure
+	 * function of (record, catalog), so a pass only does work when the catalog object changed
+	 * since the last pass or records arrived that were valued against another catalog
+	 * (history load); otherwise it would repeat identical lookups every minute.
+	 */
 	private correctPricing(): void {
 		if (this.disposed) return;
+		const catalog = getPricingCatalog();
+		if (catalog === this.correctedCatalog) return;
 		const repairs: { before: UsageRecord; after: UsageRecord }[] = [];
 		for (const before of this.valuations.values()) {
 			if (!before.valuation || before.valuation.kind === 'exact' || before.reportedCost) continue;
@@ -182,6 +203,8 @@ class Ingestion {
 			this.captureWrappedRecord(after);
 			this.rollup.correctValuation(before, after);
 		}
+		// Only a pass that persisted its repairs retires the catalog; a failed write retries.
+		this.correctedCatalog = catalog;
 		if (repairs.length) {
 			this.emitSyncSnapshot();
 			if (this.syncStore && this.resolvedConfig) void this.runSyncBurst(this.resolvedConfig);
@@ -512,6 +535,8 @@ class Ingestion {
 				this.dedup.add(usageDedupKey(record));
 				if (!frozen.has(record.day)) this.rollup.add(record);
 			}
+			// Retained valuations came from an earlier process's catalog, so re-check them all.
+			this.correctedCatalog = null;
 			this.correctPricing();
 		} catch (error) {
 			this.providerStatus.recordError('history', error);
@@ -781,7 +806,9 @@ class Ingestion {
 		this.valuations.set(usageDedupKey(valued), valued);
 		if (valuation && valuation.kind !== 'exact') {
 			this.pricingMiss = true;
-			if (this.watchEnabled) void this.refreshPricing();
+			// During the cold scan the miss waits for start()'s own refresh: a download raced
+			// against the scan can miss its timeout and then sit out the 30-minute cooldown.
+			if (this.pricingTimer) void this.refreshPricing();
 		}
 		return this.captureWrappedRecord(valued);
 	}

@@ -51,9 +51,9 @@ describe('codex provider parser', () => {
 	});
 
 	it.each([
-		['gpt-5.6-sol', 0.1],
-		['gpt-5.6-terra', 0.05],
-		['gpt-5.6-luna', 0.02]
+		['gpt-5.6-sol', 0.074],
+		['gpt-5.6-terra', 0.04],
+		['gpt-5.6-luna', 0.004]
 	])('prices %s with cached input and reasoning output', (model, expectedCost) => {
 		const parser = createCodexLineParser({ sessionId: `rollout-${model}`, project: '/tmp/project' });
 		parser.parse(line({ timestamp: '2026-07-11T10:00:00Z', type: 'turn_context', payload: { model } }));
@@ -101,7 +101,7 @@ describe('codex provider parser', () => {
 		);
 
 		expect(rec?.tokens.cacheCreation).toBe(0);
-		expect(rec?.cost).toBeCloseTo(1.37001);
+		expect(rec?.cost).toBeCloseTo(1.036008);
 	});
 });
 

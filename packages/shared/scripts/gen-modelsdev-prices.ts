@@ -56,15 +56,33 @@ function today(): string {
 	return new Date().toISOString().slice(0, 10);
 }
 
-async function main(): Promise<void> {
-	const raw = await loadRaw();
-	const providers: Record<string, { models: Record<string, ModelsDevModel> }> = {};
+// models.dev drops retired models, but local history still holds their usage. Keep the
+// last published price of every model the previous snapshot carried; fresh rows win.
+function previousProviders(dest: string): Snapshot {
+	try {
+		return JSON.parse(readFileSync(dest, 'utf8')).providers ?? {};
+	} catch {
+		return {};
+	}
+}
 
+type Snapshot = Record<string, { models: Record<string, ModelsDevModel> }>;
+
+/**
+ * Filter models.dev to the wanted providers and keep each model's `cost` block, seeded with
+ * the previous snapshot's rows so a model (or a whole provider) models.dev has since dropped
+ * keeps its last published price. Fresh rows win.
+ */
+export function mergeSnapshot(
+	raw: Record<string, ModelsDevProvider>,
+	previous: Snapshot
+): Snapshot {
+	const providers: Snapshot = {};
 	for (const key of WANTED_PROVIDERS) {
-		const p = raw[key];
-		if (!p) continue;
-		const models: Record<string, ModelsDevModel> = {};
-		for (const [id, m] of Object.entries(p.models ?? {})) {
+		const models: Record<string, ModelsDevModel> = {
+			...(previous[key]?.models ?? {})
+		};
+		for (const [id, m] of Object.entries(raw[key]?.models ?? {})) {
 			if (!m?.cost) continue;
 			const c = m.cost;
 			models[id] = {
@@ -77,13 +95,18 @@ async function main(): Promise<void> {
 				}
 			};
 		}
-		providers[key] = { models };
+		if (Object.keys(models).length > 0) providers[key] = { models };
 	}
+	return providers;
+}
 
-	const out = { _meta: { source: 'models.dev', snapshot_date: today() }, providers };
-
+async function main(): Promise<void> {
+	const raw = await loadRaw();
 	const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 	const dest = join(root, 'src', 'pricing', 'data', 'modelsdev-prices.json');
+	const providers = mergeSnapshot(raw, previousProviders(dest));
+	const out = { _meta: { source: 'models.dev', snapshot_date: today() }, providers };
+
 	writeFileSync(dest, JSON.stringify(out, null, 2) + '\n');
 
 	const counts = Object.entries(providers)
@@ -92,4 +115,4 @@ async function main(): Promise<void> {
 	console.log(`[modelsdev] wrote ${dest} (${counts})`);
 }
 
-void main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) void main();

@@ -53,7 +53,7 @@ export function costFromPriceEntry(
 	tokens: TokenCounts,
 	cacheCreation1h = 0,
 	cacheCreation5m = 0,
-	promptTokens = tokens.input + tokens.cacheRead
+	promptTokens = tokens.input + tokens.cacheRead + tokens.cacheCreation
 ): number {
 	const longContext =
 		price.long_context_threshold_tokens != null &&
@@ -95,7 +95,7 @@ export function computeCost(
 	tokens: TokenCounts,
 	cacheCreation1h = 0,
 	cacheCreation5m = 0,
-	promptTokens = tokens.input + tokens.cacheRead
+	promptTokens = tokens.input + tokens.cacheRead + tokens.cacheCreation
 ): number | null {
 	return priceUsage({
 		provider: inferPricingProvider(model),
