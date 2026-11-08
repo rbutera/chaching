@@ -2,7 +2,7 @@
 // scan, send the current snapshot, then stream deltas. Cleans up on disconnect.
 
 import type { RequestHandler } from './$types';
-import { getService } from '../../../lib/server/service';
+import { getService, onServiceShutdown } from '../../../lib/server/service';
 import type { SSEMessage } from '@chaching/shared/types';
 
 export const GET: RequestHandler = async ({ request }) => {
@@ -14,6 +14,7 @@ export const GET: RequestHandler = async ({ request }) => {
 	const encoder = new TextEncoder();
 	let unsubscribe: (() => void) | null = null;
 	let heartbeat: ReturnType<typeof setInterval> | null = null;
+	let unregister: (() => void) | null = null;
 
 	const stream = new ReadableStream({
 		start(controller) {
@@ -42,6 +43,8 @@ export const GET: RequestHandler = async ({ request }) => {
 			if (heartbeat.unref) heartbeat.unref();
 
 			const cleanup = () => {
+				unregister?.();
+				unregister = null;
 				if (unsubscribe) {
 					unsubscribe();
 					unsubscribe = null;
@@ -58,8 +61,11 @@ export const GET: RequestHandler = async ({ request }) => {
 			};
 
 			request.signal.addEventListener('abort', cleanup);
+			// An open feed would hold the server's graceful close open; end it on shutdown.
+			unregister = onServiceShutdown(cleanup);
 		},
 		cancel() {
+			unregister?.();
 			if (unsubscribe) unsubscribe();
 			if (heartbeat) clearInterval(heartbeat);
 		}
