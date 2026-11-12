@@ -70,6 +70,12 @@ const CODEX_RESCAN_MARGIN_MS = 60_000;
 // Only the last ~48h of local hour buckets are published (the server prunes to 7d), which
 // is more than enough to reconstruct any live 5h-cap window across machines.
 const HOUR_PUBLISH_WINDOW_MS = 48 * 60 * 60 * 1000;
+/**
+ * A restart (or a one-shot `stats`) seeds the peer overlay from the local cache and reads only
+ * rows changed since its watermark. A full re-read still happens at least this often, so a row a
+ * peer deleted server-side (only possible by removing a machine) cannot linger forever.
+ */
+const PEER_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 // Random 0-15s jitter added to each wall-clock-aligned burst so all pool machines hit the
 // SAME serverless wake window (aligned instant) while spreading their connects within it.
 const SYNC_JITTER_MS = 15_000;
@@ -251,6 +257,12 @@ class Ingestion {
 	private peerSession = new Map<string, PeerSession>();
 	/** Incremental peer read watermark: max `updated_at` (ISO) seen so far, null = read all. */
 	private syncWatermark: string | null = null;
+	/**
+	 * Activity rows as last published by THIS process, keyed by (provider, sessionId). The
+	 * activity ledger is rebuilt from history every burst, so without this every burst re-sent
+	 * every session this machine ever had.
+	 */
+	private publishedActivity = new Map<string, string>();
 	private syncMappings: readonly SyncMapping[] = [];
 	private syncAccountIndex: AccountIndex = {
 		byMachineProvider: new Map(),
@@ -410,8 +422,10 @@ class Ingestion {
 			// Full publish on connect: every local day/session (frozen history + live) plus the
 			// last 48h of hour buckets and the account-scoped cursor spend. Idempotent LWW.
 			const published = await this.publishLocal(true);
-			// Read all peers (watermark null → since beginning), including our own just-published
-			// account-scoped cursor rows, so this snapshot already renders cursor from the overlay.
+			// Read peers, including our own just-published account-scoped cursor rows, so this
+			// snapshot already renders cursor from the overlay. With a valid local peer cache this
+			// reads only rows changed since the cached watermark; otherwise everything.
+			this.seedPeerFromCache(cfg);
 			await this.loadPeer();
 			// Clear only what this publish snapshotted, so a record added during the publish/load
 			// awaits stays dirty for the next burst (C3).
@@ -484,11 +498,12 @@ class Ingestion {
 			? this.rollup.allHourAggregates(hourFloor)
 			: this.rollup.dirtyHourAggregates(hourFloor);
 		const sessions = full ? this.rollup.allSessionSummaries() : this.rollup.dirtySessionSummaries();
-		const activity = this.localActivity();
+		const activity = this.changedActivity(this.localActivity(), full);
 		await this.syncStore.publishDayAggregates(scope, days);
 		await this.syncStore.publishHourAggregates(scope, hours);
 		await this.syncStore.publishSessions(scope, sessions);
 		await this.syncStore.publishSessionActivity(scope, activity);
+		for (const row of activity) this.publishedActivity.set(activityKey(row), activityFingerprint(row));
 		if (this.tokenmaxxQuota?.observedAt) {
 			await this.syncStore.publishProviderQuota(
 				'tokenmaxx',
@@ -516,32 +531,93 @@ class Ingestion {
 		return published;
 	}
 
+	/**
+	 * Activity rows that differ from what this process last published. A full publish (connect,
+	 * policy change, pricing republish) sends everything; the server-side upsert guard keeps
+	 * unchanged rows' updated_at, so peers still re-read nothing.
+	 */
+	private changedActivity(rows: SessionActivity[], full: boolean): SessionActivity[] {
+		if (full) return rows;
+		return rows.filter(row => this.publishedActivity.get(activityKey(row)) !== activityFingerprint(row));
+	}
+
+	private peerCacheIdentity(cfg: chachingConfig): string {
+		return createHash('sha256').update(['peer-cache-v1', cfg.sync.poolId, cfg.sync.machineId, cfg.sync.databaseUrl].join('\u0000')).digest('hex');
+	}
+
+	/**
+	 * Seed the peer overlay from the local cache when it belongs to this pool identity and its
+	 * last full read is recent, so the following loadPeer() is incremental. Any problem falls
+	 * back to a full read: the cache is an optimisation, never a source of truth.
+	 */
+	private seedPeerFromCache(cfg: chachingConfig): void {
+		if (!this.historyStore || this.syncWatermark !== null) return;
+		try {
+			const cached = this.historyStore.peerCache(this.peerCacheIdentity(cfg));
+			if (!cached || this.now() - cached.fullAt > PEER_CACHE_MAX_AGE_MS || cached.fullAt > this.now() + 60_000) return;
+			for (const { kind, key, row } of cached.rows) {
+				const value = JSON.parse(row);
+				if (kind === 'day') this.peerDay.set(key, value);
+				else if (kind === 'hour') this.peerHour.set(key, value);
+				else if (kind === 'session') this.peerSession.set(key, value);
+				else if (kind === 'activity') this.peerActivity.set(key, value);
+			}
+			this.syncWatermark = cached.watermark;
+		} catch {
+			this.peerDay.clear(); this.peerHour.clear(); this.peerSession.clear(); this.peerActivity.clear();
+			this.syncWatermark = null;
+			try { this.historyStore.clearPeerCache(); } catch { /* next full read rewrites it */ }
+		}
+	}
+
 	/** Incrementally read peer aggregates (updated_at >= watermark) into the overlay maps. */
 	private async loadPeer(): Promise<void> {
 		if (!this.syncStore) return;
+		const fullRead = this.syncWatermark === null;
 		const load = await this.syncStore.loadAggregates(this.syncWatermark);
+		const cacheRows: { kind: string; key: string; row: string }[] = [];
 		for (const agg of load.dayAggregates) {
-			this.peerDay.set(`${agg.sourceScope}${agg.day}${agg.provider}${agg.model}`, agg);
+			const key = `${agg.sourceScope}${agg.day}${agg.provider}${agg.model}`;
+			this.peerDay.set(key, agg);
+			cacheRows.push({ kind: 'day', key, row: JSON.stringify(agg) });
 		}
 		for (const agg of load.hourAggregates) {
-			this.peerHour.set(
-				`${agg.sourceScope}${agg.hourTs}${agg.provider}${agg.model}`,
-				agg
-			);
+			const key = `${agg.sourceScope}${agg.hourTs}${agg.provider}${agg.model}`;
+			this.peerHour.set(key, agg);
+			cacheRows.push({ kind: 'hour', key, row: JSON.stringify(agg) });
 		}
 		for (const session of load.sessions) {
-			this.peerSession.set(
-				`${session.sourceScope}${session.provider}${session.sessionId}`,
-				session
-			);
+			const key = `${session.sourceScope}${session.provider}${session.sessionId}`;
+			this.peerSession.set(key, session);
+			cacheRows.push({ kind: 'session', key, row: JSON.stringify(session) });
 		}
-		for (const row of load.activity ?? []) this.peerActivity.set(JSON.stringify([row.machineId, row.provider, row.sessionId]), row);
+		for (const row of load.activity ?? []) {
+			const key = JSON.stringify([row.machineId, row.provider, row.sessionId]);
+			this.peerActivity.set(key, row);
+			cacheRows.push({ kind: 'activity', key, row: JSON.stringify(row) });
+		}
 		this.syncWatermark = load.watermark;
 		// Bound the hour overlay: peers prune their own rows past 7d but their DELETEs are
 		// invisible to us, so drop stale buckets locally too (blocks only span recent time).
 		const hourFloor = this.now() - HOUR_PUBLISH_WINDOW_MS;
+		const removed: { kind: string; key: string }[] = [];
 		for (const [key, agg] of this.peerHour) {
-			if (agg.hourTs < hourFloor) this.peerHour.delete(key);
+			if (agg.hourTs < hourFloor) { this.peerHour.delete(key); removed.push({ kind: 'hour', key }); }
+		}
+		this.persistPeerCache(cacheRows, removed, fullRead);
+	}
+
+	private persistPeerCache(rows: { kind: string; key: string; row: string }[], remove: { kind: string; key: string }[], replace: boolean): void {
+		const cfg = this.resolvedConfig;
+		if (!this.historyStore || !cfg || !isConfigured(cfg.sync)) return;
+		try {
+			this.historyStore.writePeerCache(this.peerCacheIdentity(cfg), {
+				rows, remove, watermark: this.syncWatermark, replace, now: this.now()
+			});
+		} catch {
+			// A failed cache write only costs a fuller read next start; drop the cache so it can
+			// never pair a newer watermark with older rows.
+			try { this.historyStore.clearPeerCache(); } catch { /* ignore */ }
 		}
 	}
 
@@ -1304,4 +1380,12 @@ export async function runOnce(
 	} finally {
 		engine.dispose();
 	}
+}
+
+function activityKey(row: SessionActivity): string {
+	return JSON.stringify([row.provider, row.sessionId]);
+}
+
+function activityFingerprint(row: SessionActivity): string {
+	return JSON.stringify(row.activity);
 }

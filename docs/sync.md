@@ -376,7 +376,22 @@ The arithmetic for a 3-machine, 24/7 pool at the default 15-minute interval:
   ~5-minute idle floor, so ≈ 4 × 5.5 min ≈ 22 active min/hour ≈ 250 active hours/month × 0.25 CU
   ≈ **62 CU-hours/month against the 100 free.**
 - **Storage.** Aggregates only, ~1-2 MB/month of growth against the **0.5 GB** cap.
-- **Egress.** A few MB/month of aggregate reads, well inside the **5 GB** allowance.
+- **Egress.** Neon bills data read back out of the database (5 GB/month on Free). Three rules keep
+  it small:
+  - **Unchanged rows are never re-stamped.** Every publish upsert carries an `IS DISTINCT FROM`
+    guard, so republishing identical aggregates (a connect, a restart, a policy rewrite) leaves
+    `updated_at` alone and peers' incremental reads skip the row.
+  - **Session activity is sent only when it changed.** The activity ledger is rebuilt from local
+    history every burst; the engine remembers what it last published and sends only differences.
+  - **Restarts read incrementally.** Each machine caches its peer overlay in the local history
+    database (`peer_cache`) with the read watermark, so a restart or a scheduled `chaching stats`
+    reads only what peers changed since then. A full re-read happens at most weekly, or when the
+    pool, machine or database URL changes.
+
+  A quiet burst therefore reads a few kilobytes. Before these rules (chaching 1.19.1 and earlier)
+  every burst re-read every peer's whole activity ledger and every restart re-read the entire pool
+  (several MB each); a supervisor restarting `chaching serve` every 10 minutes exhausted the 5 GB
+  allowance in under a week (November 2026).
 
 The [5-minute scale-to-zero](https://neon.com/docs/introduction/scale-to-zero) is exactly what the
 aligned grid exploits: because every machine bursts in the same window, the endpoint sleeps the

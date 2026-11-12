@@ -599,7 +599,23 @@ export class PostgresSyncStore {
 				cost_unknown_requests = EXCLUDED.cost_unknown_requests,
 				monetary = EXCLUDED.monetary,
 				partial = EXCLUDED.partial,
-				updated_at = now()`,
+				updated_at = now()
+			-- Egress guard: an unchanged row keeps its updated_at, so peers' incremental reads
+			-- never re-download it. Without this every full republish (connect, restart, policy
+			-- change) re-stamped every row and every peer re-read the whole table.
+			WHERE (machine_day_agg.machine_id, machine_day_agg.input_tokens, machine_day_agg.output_tokens,
+				machine_day_agg.cache_creation_tokens, machine_day_agg.cache_read_tokens,
+				machine_day_agg.cache_creation_1h, machine_day_agg.cache_creation_5m,
+				machine_day_agg.web_search_requests, machine_day_agg.web_fetch_requests,
+				machine_day_agg.requests, machine_day_agg.cost, machine_day_agg.cost_unknown_requests,
+				machine_day_agg.monetary, machine_day_agg.partial)
+				IS DISTINCT FROM
+				(EXCLUDED.machine_id, EXCLUDED.input_tokens, EXCLUDED.output_tokens,
+				EXCLUDED.cache_creation_tokens, EXCLUDED.cache_read_tokens,
+				EXCLUDED.cache_creation_1h, EXCLUDED.cache_creation_5m,
+				EXCLUDED.web_search_requests, EXCLUDED.web_fetch_requests,
+				EXCLUDED.requests, EXCLUDED.cost, EXCLUDED.cost_unknown_requests,
+				EXCLUDED.monetary, EXCLUDED.partial)`,
 			[poolId, scope.sourceScope, scope.machineId, JSON.stringify(payload)]
 		);
 	}
@@ -648,7 +664,14 @@ export class PostgresSyncStore {
 					requests = EXCLUDED.requests,
 					cost = EXCLUDED.cost,
 					cost_unknown_requests = EXCLUDED.cost_unknown_requests,
-					updated_at = now()`,
+					updated_at = now()
+				WHERE (machine_hour_agg.machine_id, machine_hour_agg.input_tokens, machine_hour_agg.output_tokens,
+					machine_hour_agg.cache_creation_tokens, machine_hour_agg.cache_read_tokens,
+					machine_hour_agg.requests, machine_hour_agg.cost, machine_hour_agg.cost_unknown_requests)
+					IS DISTINCT FROM
+					(EXCLUDED.machine_id, EXCLUDED.input_tokens, EXCLUDED.output_tokens,
+					EXCLUDED.cache_creation_tokens, EXCLUDED.cache_read_tokens,
+					EXCLUDED.requests, EXCLUDED.cost, EXCLUDED.cost_unknown_requests)`,
 				[poolId, scope.sourceScope, scope.machineId, JSON.stringify(payload)]
 			);
 		}
@@ -683,7 +706,9 @@ export class PostgresSyncStore {
 			ON CONFLICT (pool_id, source_scope, provider, session_id) DO UPDATE SET
 				machine_id = EXCLUDED.machine_id,
 				payload = EXCLUDED.payload,
-				updated_at = now()`,
+				updated_at = now()
+			WHERE (machine_session_agg.machine_id, machine_session_agg.payload)
+				IS DISTINCT FROM (EXCLUDED.machine_id, EXCLUDED.payload)`,
 			[poolId, scope.sourceScope, scope.machineId, JSON.stringify(payload)]
 		);
 	}
@@ -704,7 +729,15 @@ export class PostgresSyncStore {
 						ORDER BY fragment->>'day', fragment->>'project', (fragment->>'requests')::bigint DESC, ordinal DESC
 					) retained
 				), '[]'::jsonb)),
-				updated_at = now()`, [poolId, scope.sourceScope, scope.machineId,
+				updated_at = now()
+			WHERE machine_session_activity.payload IS DISTINCT FROM (EXCLUDED.payload || jsonb_build_object('activity', COALESCE((
+					SELECT jsonb_agg(fragment) FROM (
+						SELECT DISTINCT ON (fragment->>'day', fragment->>'project') fragment
+						FROM jsonb_array_elements(COALESCE(machine_session_activity.payload->'activity', '[]'::jsonb) ||
+							COALESCE(EXCLUDED.payload->'activity', '[]'::jsonb)) WITH ORDINALITY AS evidence(fragment, ordinal)
+						ORDER BY fragment->>'day', fragment->>'project', (fragment->>'requests')::bigint DESC, ordinal DESC
+					) retained
+				), '[]'::jsonb)))`, [poolId, scope.sourceScope, scope.machineId,
 			// Each fragment records the policy it was published under (readers ignore the extra key).
 			// The upsert merges fragments, so provenance must live on the fragment, not the row: a
 			// later policy change then rewrites exactly what each policy wrote (reconcileProjectPrivacy).

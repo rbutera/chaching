@@ -197,3 +197,36 @@ describe('HistoryStore.openReadOnly — diagnostic reads must not mutate', () =>
 		ro.close();
 	});
 });
+
+describe('HistoryStore peer cache', () => {
+	it('round-trips rows for one identity, merges deltas, and never grafts a delta onto another pool', async () => {
+		const store = new HistoryStore();
+		store.open(await tmpDb());
+		try {
+			expect(store.peerCache('pool-a')).toBeNull();
+			store.writePeerCache('pool-a', {
+				rows: [{ kind: 'day', key: 'k1', row: '{"cost":1}' }, { kind: 'hour', key: 'h1', row: '{}' }],
+				watermark: '2026-07-17T08:00:00.000Z', replace: true, now: 1000
+			});
+			store.writePeerCache('pool-a', {
+				rows: [{ kind: 'day', key: 'k1', row: '{"cost":2}' }], remove: [{ kind: 'hour', key: 'h1' }],
+				watermark: '2026-07-17T08:15:00.000Z', replace: false, now: 2000
+			});
+			const cached = store.peerCache('pool-a');
+			expect(cached).toEqual({ rows: [{ kind: 'day', key: 'k1', row: '{"cost":2}' }], watermark: '2026-07-17T08:15:00.000Z', fullAt: 1000 });
+			// Another identity sees nothing, and its delta (non-replace) is refused.
+			expect(store.peerCache('pool-b')).toBeNull();
+			store.writePeerCache('pool-b', { rows: [{ kind: 'day', key: 'x', row: '{}' }], watermark: '2026-07-18T00:00:00.000Z', replace: false, now: 3000 });
+			expect(store.peerCache('pool-a')?.rows).toHaveLength(1);
+			expect(store.peerCache('pool-b')).toBeNull();
+			// A full read for a new identity replaces everything.
+			store.writePeerCache('pool-b', { rows: [{ kind: 'day', key: 'x', row: '{}' }], watermark: '2026-07-18T00:00:00.000Z', replace: true, now: 3000 });
+			expect(store.peerCache('pool-a')).toBeNull();
+			expect(store.peerCache('pool-b')?.rows).toEqual([{ kind: 'day', key: 'x', row: '{}' }]);
+			store.clearPeerCache();
+			expect(store.peerCache('pool-b')).toBeNull();
+		} finally {
+			store.close();
+		}
+	});
+});
