@@ -1,3 +1,9 @@
+## 1.19.2 (2026-11-12)
+
+### Other changes
+
+- Sync: stop re-downloading the pool \(Neon egress\) \(\#54\) (3c5605d)
+
 ## 1.19.1 (2026-11-08)
 
 ### Other changes
