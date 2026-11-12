@@ -6,8 +6,8 @@
   "toolchain": {
     "vhs": "vhs version 0.12.0",
     "ffmpeg": "ffmpeg version 9.0.1 Copyright (c) 2000-2026 the FFmpeg developers",
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome": "Google Chrome 152.0.7977.84",
-    "docker": "postgres@sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675"
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome": "Google Chrome 157.0.8103.52",
+    "docker": "postgres@sha256:ff87138949ad9a46f32ff23bd6852b52ce024a13dffe9b4087be98292cdd3b4f"
   },
   "terminalFontSha256": "f01031f40e48dc29e1112e6b0b0450a2c6cd097f3f35cfff05c55cb311f8034c",
   "inputs": {
@@ -114,9 +114,9 @@
     "packages/cli/src/wizard.ts": "74f83f5536081e7caa16c7b6aa5bce3d642f5246a9a3ab13932d645ef5463375",
     "packages/core/src/account-discovery.ts": "52aa3b93951608d5c83ef3a8e1ac5ee3e2c241fa79190430fb5c4746e2f5415f",
     "packages/core/src/config.ts": "822160151d91e94bfd0a4bde0adae26e21396d4a3b4647446013c7381959f73e",
-    "packages/core/src/engine.ts": "694123fa53d6b3901d3a3638aba132caead7d03423136f789a96bc0dadc9e87f",
+    "packages/core/src/engine.ts": "77700eba0899aab83d341c1b361e3c0fc0b88b9468189ab02a6a01aef58044ac",
     "packages/core/src/fs-utils.ts": "df4a09b598c4f793d58096a4775253d63b5bf48a2f20154175a66fbad81bc4c1",
-    "packages/core/src/history/store.ts": "8b6c58b705b8ebdd04181ea8bdadb360e4d32bbc1596be5159132b54f693f49a",
+    "packages/core/src/history/store.ts": "4d51d99b7161320becd4f0ddd66489eaa8fc6d411597dd8d0f8d4974429bdc41",
     "packages/core/src/history/wrapped.ts": "0ca27011f42abae9ec905b37d098e6e3e0039652918b3e31f451f31e2d6f7eac",
     "packages/core/src/ingest/dedup.ts": "eb6f1a1303525dedf5c69814ae5bceca5f1f37dc4c52cc4132005bc91d4aa3a7",
     "packages/core/src/ingest/discover.ts": "f592e7dfaec3bd7f3e69dea02a2830c7cc860492adff529b3486aae464de2d14",
@@ -141,7 +141,7 @@
     "packages/core/src/sync/overlay.ts": "aff168b121d4fc42d847317886c5f55b8432ab136fe7c10740aab67da98c98ab",
     "packages/core/src/sync/project-privacy.ts": "ee0dedfd4a5cc7c10b0214ac78c66ef08502fa3b94848d03a3efe360a5457f70",
     "packages/core/src/sync/record-key.ts": "8ee1bbcd142c35c61258bde978ac58824ee159c751adf61cb38f03748c05ead2",
-    "packages/core/src/sync/store.ts": "3e286a6a71bcbf2823a0a973ff8bdb508d84f2de2131a315f41346ac029e3b5b",
+    "packages/core/src/sync/store.ts": "ab3b09f549903597a5584fbc37694c7d71b453339ff6926f91dc456e835bfd7a",
     "packages/core/src/watch/tail.ts": "c26d5caff8d8b0e625e2f4c6e60a273412bf4c394a826baaf6aed97182d45bdb",
     "packages/core/src/whatif/engine.ts": "26edf8b25c19159065d481047cba9f29bf6f9641671fa119168b4f84bb3b557d",
     "packages/core/src/whatif/index.ts": "74f6a50693adb758d105856e1246bedcf40512ffc4fec2ca848ed18563b626f9",
@@ -231,11 +231,11 @@
     "receipt.png": "ffe930ef613ca86b6322df5cde1743330a934ae59625298ba522a65f9702b9fa",
     "wrapped.png": "07709951fceee17580d8de72ef3b21a9afca3cf1af93cdacef418fd5fe99040a",
     "wrapped-yearly.png": "2137e2234e606520da5472e1035fb84ef37298f9a55ef814b038c14a54360f90",
-    "dashboard.png": "3b22d52db09ba64d428b2a91b9671579beaee741ca57305d058ea945ba59ae72",
+    "dashboard.png": "98d2ab77a2cfd2eb0da0c30d2e0a647eccd83c617f36145c7b447654b5236e8f",
     "dashboard-corner.png": "fc1802ff34ead46f06bf9033f515cb7770f091cf47a4f6a411205a5c2502de6a",
     "dashboard-narrow.png": "fc10dd09896eeb7cfb43d1e2e497561c588eecc4f530f86eff95f8322e4a9e54",
-    "terminal.mp4": "8efb7c576cb8cec6bcc7dd5ecc0c77a247108c26d8d31efcc4647f40bf17ed68",
-    "terminal.png": "1dbf3c0b026ab482958e9ceabcd27320792ce6af29d1bdf923b9441db9323fc6",
+    "terminal.mp4": "6d4b0bf9325f4f2c5e279800045c16b28fc4eef6b67d8168526ffc7637f2600c",
+    "terminal.png": "a9364ea92a6a362940af23eb03230084cb7b561283c4b0f8c56eb7685659076d",
     "og.png": "10dd02b83c6afbbb276b6b971d175bc3aff963cdd1c634c41531b2c88d241a74"
   }
 }
