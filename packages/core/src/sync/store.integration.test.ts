@@ -77,6 +77,49 @@ async function pooledPair(): Promise<{
 }
 
 suite('PostgresSyncStore aggregate ledger', () => {
+	it('an identical republish keeps updated_at, so a peer re-downloads nothing (egress guard)', { timeout: 30_000 }, async () => {
+		const { a, storeA, storeB } = await pooledPair();
+		const hourTs = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+		const activity = { provider: 'claude', sessionId: 's-egress', activity: [
+			{ day: '2026-07-16', project: '/work/project', requests: 2, cost: 1, costUnknownRequests: 0 }
+		] };
+		const publishAll = async (cost: number) => {
+			await storeA.publishDayAggregates(scopeFor(a), [dayAgg('2026-07-16', { cost })]);
+			await storeA.publishHourAggregates(scopeFor(a), [hourAgg(hourTs, { cost })]);
+			await storeA.publishSessions(scopeFor(a), [{ ...session('claude', 's-egress'), cost }]);
+			await storeA.publishSessionActivity(scopeFor(a), [activity]);
+		};
+		try {
+			await publishAll(1);
+			const first = await storeB.loadAggregates(null);
+			expect(first.dayAggregates).toHaveLength(1);
+			expect(first.hourAggregates).toHaveLength(1);
+			expect(first.sessions).toHaveLength(1);
+			expect(first.activity).toHaveLength(1);
+			// Step past the lookback margin so an unchanged row would be visible ONLY if re-stamped.
+			const pool = new Pool({ connectionString: databaseUrl });
+			try {
+				for (const table of ['machine_day_agg', 'machine_hour_agg', 'machine_session_agg', 'machine_session_activity']) {
+					await pool.query(`UPDATE chaching_sync.${table} SET updated_at = now() - interval '1 hour' WHERE source_scope = $1`, [machineScope(a)]);
+				}
+			} finally { await pool.end(); }
+			const watermark = new Date(Date.now() - 1000).toISOString();
+			await publishAll(1);
+			const idle = await storeB.loadAggregates(watermark);
+			expect(idle.dayAggregates).toEqual([]);
+			expect(idle.hourAggregates).toEqual([]);
+			expect(idle.sessions).toEqual([]);
+			expect(idle.activity ?? []).toEqual([]);
+			// A real change still surfaces (the guard must never hide a changed row).
+			await publishAll(2);
+			const changed = await storeB.loadAggregates(watermark);
+			expect(changed.dayAggregates).toHaveLength(1);
+			expect(changed.hourAggregates).toHaveLength(1);
+			expect(changed.sessions).toHaveLength(1);
+			expect(changed.dayAggregates[0].cost).toBe(2);
+		} finally { await storeA.close(); await storeB.close(); }
+	});
+
 	it('retains daily activity through repeated and partial publication without own-machine duplication', { timeout: 30_000 }, async () => {
 		const { a, storeA, storeB } = await pooledPair();
 		try {

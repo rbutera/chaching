@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, appendFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Pool } from 'pg';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { type chachingConfig } from './config';
 import { createEngine } from './engine';
 import { Rollup } from './rollup/rollup';
@@ -97,6 +97,74 @@ function peerSession(machineIdLabel: string): SessionSummary {
 }
 
 suite('engine PostgreSQL sync mode (v2 aggregate ledger)', () => {
+	it('egress: an idle burst re-sends no session activity, and a restart reads peers only since its cached watermark', { timeout: 60_000 }, async () => {
+		const poolId = randomUUID();
+		const kinto = randomUUID();
+		const nimbus = randomUUID();
+		const store = new PostgresSyncStore(databaseUrl!);
+		const root = await mkdtemp(join(tmpdir(), 'chaching-egress-'));
+		const clock = () => Date.parse('2026-07-17T08:00:00Z');
+		let engine: ReturnType<typeof createEngine> | null = null;
+		try {
+			await store.createPool({ poolId, poolName: 'egress', machineId: nimbus, machineName: 'nimbus', hostname: 'nimbus' });
+			await store.joinPool({ poolId, machineId: kinto, machineName: 'kinto', hostname: 'kinto' });
+			store.setIdentity(poolId, nimbus);
+			const nimbusScope: PublishScope = { sourceScope: machineScope(nimbus), machineId: nimbus };
+			await store.publishDayAggregates(nimbusScope, [dayAgg('2026-07-15', { cost: 1 })]);
+			await store.publishSessions(nimbusScope, [peerSession('nimbus')]);
+
+			const projectsDir = join(root, 'projects', '-x');
+			await mkdir(projectsDir, { recursive: true });
+			await writeFile(join(projectsDir, 'session.jsonl'), `${claudeAssistantLine('msg_egress', '2026-07-15')}\n`);
+			const cfg = baseConfig(poolId, kinto);
+			cfg.providers.claude = { enabled: true, roots: [root] };
+			cfg.history = { enabled: true, dbPath: join(root, 'history.db') };
+
+			type Internal = {
+				syncStore: PostgresSyncStore | null;
+				runSyncBurst: (c: chachingConfig) => Promise<void>;
+			};
+			engine = createEngine(cfg, clock);
+			await engine.ensureStarted();
+			const first = engine as unknown as Internal;
+			expect(first.syncStore).not.toBeNull();
+			const activitySpy = vi.spyOn(first.syncStore!, 'publishSessionActivity');
+			await first.runSyncBurst(cfg);
+			// Nothing changed locally since the connect publish: no activity rows go back out.
+			expect(activitySpy).toHaveBeenCalledTimes(1);
+			expect(activitySpy.mock.calls[0][1]).toEqual([]);
+			expect(engine.snapshot().dayModel.some((dm) => dm.machineId === nimbus && dm.day === '2026-07-15')).toBe(true);
+			engine.dispose();
+			engine = null;
+
+			// A peer change while we were down, then a restart against the same history DB.
+			await store.publishDayAggregates(nimbusScope, [dayAgg('2026-07-16', { cost: 2 })]);
+			const since: (string | null)[] = [];
+			const original = PostgresSyncStore.prototype.loadAggregates;
+			const loadSpy = vi.spyOn(PostgresSyncStore.prototype, 'loadAggregates').mockImplementation(function (this: PostgresSyncStore, s: string | null) {
+				since.push(s);
+				return original.call(this, s);
+			});
+			try {
+				engine = createEngine(cfg, clock);
+				await engine.ensureStarted();
+			} finally {
+				loadSpy.mockRestore();
+			}
+			// The restart read incrementally (a watermark, not null = whole pool) ...
+			expect(since.length).toBeGreaterThan(0);
+			expect(since[0]).not.toBeNull();
+			// ... and still shows both the cached peer day and the new one.
+			const peerDays = engine.snapshot().dayModel.filter((dm) => dm.machineId === nimbus).map((dm) => dm.day).sort();
+			expect(peerDays).toEqual(['2026-07-15', '2026-07-16']);
+			expect(engine.snapshot().sessions.some((s) => s.machineId === nimbus)).toBe(true);
+		} finally {
+			engine?.dispose();
+			await store.close();
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	it('overlays peer aggregates and remaps subscription at read time (replace)', { timeout: 30_000 }, async () => {
 		const poolId = randomUUID();
 		const nimbus = randomUUID();

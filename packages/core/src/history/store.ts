@@ -94,6 +94,12 @@ export class HistoryStore {
 				cost_unknown_requests INTEGER NOT NULL,
 				PRIMARY KEY (day, provider, model)
 			);
+			CREATE TABLE IF NOT EXISTS peer_cache (
+				kind TEXT NOT NULL,
+				key TEXT NOT NULL,
+				row TEXT NOT NULL,
+				PRIMARY KEY (kind, key)
+			);
 			CREATE TABLE IF NOT EXISTS session (
 				session_id TEXT NOT NULL,
 				provider TEXT NOT NULL,
@@ -411,6 +417,70 @@ export class HistoryStore {
 			(provider, record_key, day, session_id, project, cost) VALUES (?, ?, ?, ?, ?, ?)
 			ON CONFLICT(provider, record_key) DO NOTHING`)
 			.run(record.provider, record.key, record.day, record.sessionId, record.project, record.cost);
+	}
+
+	/**
+	 * The locally cached copy of the pool's PEER rows (sync overlay), so a restart or a one-shot
+	 * command reads only what peers changed since the cached watermark instead of downloading
+	 * the whole pool again (Neon bills that download as egress). Null when nothing is cached for
+	 * this pool identity. Rows are opaque JSON owned by the engine.
+	 */
+	peerCache(identity: string): { rows: { kind: string; key: string; row: string }[]; watermark: string; fullAt: number } | null {
+		const db = this.require();
+		const meta = (key: string) => (db.prepare(`SELECT value FROM meta WHERE key = ?`).get(key) as { value?: string } | undefined)?.value;
+		if (meta('peer_cache_identity') !== identity) return null;
+		const watermark = meta('peer_cache_watermark');
+		const fullAt = Number(meta('peer_cache_full_at'));
+		if (!watermark || !Number.isFinite(fullAt)) return null;
+		const rows = db.prepare(`SELECT kind, key, row FROM peer_cache`).all().map(row => ({
+			kind: stringValue(row.kind), key: stringValue(row.key), row: stringValue(row.row)
+		}));
+		return { rows, watermark, fullAt };
+	}
+
+	/**
+	 * Merge a peer read into the cache. `replace` (a full read) drops every earlier row and stamps
+	 * the full-read time; otherwise rows upsert by (kind, key) and `remove` drops pruned keys.
+	 * The identity and watermark are written in the same transaction as the rows.
+	 */
+	writePeerCache(identity: string, input: {
+		rows: readonly { kind: string; key: string; row: string }[];
+		remove?: readonly { kind: string; key: string }[];
+		watermark: string | null;
+		replace: boolean;
+		now: number;
+	}): void {
+		const db = this.require();
+		const setMeta = db.prepare(`INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`);
+		db.exec('BEGIN');
+		try {
+			const current = (db.prepare(`SELECT value FROM meta WHERE key = 'peer_cache_identity'`).get() as { value?: string } | undefined)?.value;
+			if (input.replace || current !== identity) {
+				if (!input.replace) {
+					// A delta for a different pool identity must never be grafted onto another pool's rows.
+					db.exec('ROLLBACK');
+					return;
+				}
+				db.exec('DELETE FROM peer_cache');
+				setMeta.run('peer_cache_identity', identity);
+				setMeta.run('peer_cache_full_at', String(input.now));
+			}
+			const upsert = db.prepare(`INSERT INTO peer_cache (kind, key, row) VALUES (?, ?, ?) ON CONFLICT(kind, key) DO UPDATE SET row = excluded.row`);
+			for (const entry of input.rows) upsert.run(entry.kind, entry.key, entry.row);
+			const drop = db.prepare(`DELETE FROM peer_cache WHERE kind = ? AND key = ?`);
+			for (const entry of input.remove ?? []) drop.run(entry.kind, entry.key);
+			if (input.watermark) setMeta.run('peer_cache_watermark', input.watermark);
+			db.exec('COMMIT');
+		} catch (error) {
+			try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+			throw error;
+		}
+	}
+
+	/** Forget the peer cache (pool left, identity changed, or a corrupt row was found). */
+	clearPeerCache(): void {
+		const db = this.require();
+		db.exec(`DELETE FROM peer_cache; DELETE FROM meta WHERE key IN ('peer_cache_identity', 'peer_cache_watermark', 'peer_cache_full_at')`);
 	}
 
 	loadWrappedEvidence(): { provider: string; sessionId: string; activity: import('@chaching/shared/types').SessionDay[] }[] {
