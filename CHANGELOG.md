@@ -1,3 +1,9 @@
+## 1.19.3 (2026-11-13)
+
+### Other changes
+
+- Treat a missing opencode.db as not installed \(\#55\) (0f2d956)
+
 ## 1.19.2 (2026-11-12)
 
 ### Other changes
