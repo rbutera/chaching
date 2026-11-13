@@ -561,3 +561,55 @@ describe('M5 — sync burst reliability', () => {
 		engine.dispose();
 	});
 });
+
+describe('opencode not installed', () => {
+	it('treats a missing opencode.db as absent: no provider error, past days still freeze', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'chaching-oc-'));
+		tmpRoots.push(root);
+
+		const codexRoot = join(root, 'codex');
+		const codexDay = '2026-07-11';
+		await mkdir(join(codexRoot, '2026/07/11'), { recursive: true });
+		await writeFile(
+			join(codexRoot, '2026/07/11/rollout.jsonl'),
+			[
+				JSON.stringify({
+					timestamp: '2026-07-11T09:00:00.000Z',
+					type: 'turn_context',
+					payload: { model: 'gpt-5.5' }
+				}),
+				JSON.stringify({
+					timestamp: '2026-07-11T09:00:01.000Z',
+					type: 'event_msg',
+					payload: {
+						type: 'token_count',
+						info: {
+							total_token_usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 110 },
+							last_token_usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 110 }
+						}
+					}
+				})
+			].join('\n')
+		);
+
+		const historyPath = join(root, 'history.db');
+		const cfg = disabledConfig();
+		cfg.history = { enabled: true, dbPath: historyPath };
+		cfg.providers.codex = { enabled: true, root: codexRoot };
+		cfg.providers.opencode = { enabled: true, dbPath: join(root, 'missing', 'opencode.db') };
+
+		const engine = createEngine(cfg, () => Date.parse('2026-07-17T12:00:00Z'));
+		try {
+			await engine.ensureStarted();
+			expect(engine.stats.providerErrors.opencode).toBeUndefined();
+
+			const check = new HistoryStore();
+			check.openReadOnly(historyPath);
+			const frozen = check.frozenDays();
+			check.close();
+			expect(frozen.has(codexDay)).toBe(true);
+		} finally {
+			engine.dispose();
+		}
+	});
+});

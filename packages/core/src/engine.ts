@@ -793,6 +793,11 @@ class Ingestion {
 	}
 
 	private async ingestOpenCode(dbPath: string): Promise<void> {
+		// A missing db means OpenCode is not installed here, not a failed scan (same as tokenmaxx).
+		if (!existsSync(dbPath)) {
+			this.providerStatus.clear('opencode');
+			return;
+		}
 		try {
 			// Stamp BEFORE reading: a write that lands mid-read moves the mtime past
 			// this stamp, so the next poll re-ingests it (dedup absorbs the overlap).
